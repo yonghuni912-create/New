@@ -2,6 +2,8 @@
 
 > **⚠️ SECURITY WARNING**: This guide contains actual production credentials. These should only be used in Vercel's secure environment variable storage, not committed to public repositories. After deployment, consider rotating these credentials if this repository is public.
 
+> **🆘 Getting a 500 Error?** See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for solutions to common deployment issues.
+
 ## Project Information
 - **Project Name**: fire-repo
 - **Vercel Project ID**: prj_8T4knK8D0HWTVAWjg61N2hw5SHn4
@@ -124,19 +126,32 @@ vercel --prod
 
 ## Post-Deployment Steps
 
-### 1. Verify Deployment
-- Visit your deployment URL
-- You should see the BBQ Franchise Platform login page
-- Check browser console for any errors
+### 1. Update NEXTAUTH_URL (CRITICAL!)
 
-### 2. Initialize Database (if needed)
+After your first deployment:
+1. Copy your actual deployment URL from Vercel (e.g., `https://fire-repo-abc123.vercel.app`)
+2. Go to Vercel Dashboard → Settings → Environment Variables
+3. Update `NEXTAUTH_URL` to your actual URL
+4. Redeploy the application
 
-The database schema should already be set up in Turso. If you need to push the schema or seed data:
+⚠️ **Skipping this step will cause 500 errors!**
+
+### 2. Initialize Database (REQUIRED for first deployment)
+
+**If you get a 500 error, the database likely needs to be initialized.**
+
+The database must have the schema and initial data. Follow these steps:
 
 ```bash
-# Set environment variables locally
-export TURSO_DATABASE_URL="libsql://bbqtest-kunikun.aws-us-west-2.turso.io"
-export TURSO_AUTH_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjgyNTQ5NDIsImlkIjoiYjg0NDM1NGUtZjE4YS00NWMzLWI1ZDctNDk2NjljOTM3ZDY3IiwicmlkIjoiZWYzYzk2MGItMDk4Mi00ODhiLWJiNjEtMzc2YzJhNzgwYTliIn0.KSdizD28gjbcZiAjX7KOywhPusSQcPcLDd89ovltYNQX9y2tKakH83Dwxv-iR9JnP5mqOWFGZIT5afP3n6obBA"
+# Clone the repository
+git clone https://github.com/yonghuni912-create/New.git
+cd New
+
+# Create .env file
+cat > .env << EOF
+TURSO_DATABASE_URL=libsql://bbqtest-kunikun.aws-us-west-2.turso.io
+TURSO_AUTH_TOKEN=eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjgyNTQ5NDIsImlkIjoiYjg0NDM1NGUtZjE4YS00NWMzLWI1ZDctNDk2NjljOTM3ZDY3IiwicmlkIjoiZWYzYzk2MGItMDk4Mi00ODhiLWJiNjEtMzc2YzJhNzgwYTliIn0.KSdizD28gjbcZiAjX7KOywhPusSQcPcLDd89ovltYNQX9y2tKakH83Dwxv-iR9JnP5mqOWFGZIT5afP3n6obBA
+EOF
 
 # Install dependencies
 npm install
@@ -147,13 +162,24 @@ npx prisma generate
 # Push schema to database
 npx prisma db push
 
-# Seed the database
+# Seed the database with initial data (users, stores, etc.)
 npm run db:seed
 ```
 
-### 3. Test the Application
+After seeding, your database will have these default users:
+- **Admin**: admin@bbq.com / admin123
+- **PM**: pm@bbq.com / pm123  
+- **User**: user@bbq.com / user123
 
-Test with demo accounts (if seeded):
+### 3. Verify Deployment
+- Visit your deployment URL
+- You should see the BBQ Franchise Platform login page
+- Try logging in with admin@bbq.com / admin123
+- Check browser console for any errors
+
+### 4. Test the Application
+
+Test with demo accounts:
 - **Admin**: admin@bbq.com / admin123
 - **PM**: pm@bbq.com / pm123
 - **User**: user@bbq.com / user123
@@ -165,6 +191,18 @@ Based on the project configuration, your application will be available at:
 - **Alternative**: https://fire-repo.vercel.app (if available)
 
 ## Troubleshooting
+
+**🆘 Getting errors after deployment?** See the comprehensive [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) guide.
+
+### Common Issues Quick Reference
+
+#### 500 Internal Server Error
+**Most common causes:**
+1. `NEXTAUTH_URL` doesn't match your actual deployment URL
+2. Database not initialized (no schema or data)
+3. Missing environment variables
+
+**Solution**: See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for detailed steps
 
 ### Build Failures
 - Check Vercel build logs for specific error messages
