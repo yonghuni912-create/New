@@ -11,88 +11,114 @@ function generateId() {
 }
 
 async function main() {
-  console.log('Seeding Turso database...');
+  console.log('Recreating Turso database schema and seeding data...');
   
   try {
     const now = new Date().toISOString();
     
-    // Create Countries
-    console.log('Creating countries...');
-    const usId = generateId();
-    const krId = generateId();
-    const cnId = generateId();
+    // Drop and recreate Store table with correct schema
+    console.log('Dropping old Store table...');
+    await client.execute('DROP TABLE IF EXISTS Store');
+    
+    console.log('Creating new Store table with correct schema...');
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS "Store" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "storeCode" TEXT NOT NULL UNIQUE,
+        "storeName" TEXT NOT NULL,
+        "countryId" TEXT NOT NULL,
+        "address" TEXT,
+        "city" TEXT,
+        "state" TEXT,
+        "postalCode" TEXT,
+        "latitude" REAL,
+        "longitude" REAL,
+        "franchiseeEmail" TEXT,
+        "franchiseeName" TEXT,
+        "franchiseePhone" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'PLANNING',
+        "plannedOpenDate" DATETIME,
+        "actualOpenDate" DATETIME,
+        "estimatedRevenue" REAL,
+        "initialInvestment" REAL,
+        "notes" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL,
+        CONSTRAINT "Store_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+      )
+    `);
+    console.log('Store table created!');
+    
+    // Check if countries exist, if not create them
+    const existingCountries = await client.execute("SELECT id, code FROM Country");
+    let usId: string, krId: string, cnId: string;
+    
+    if (existingCountries.rows.length === 0) {
+      console.log('Creating countries...');
+      usId = generateId();
+      krId = generateId();
+      cnId = generateId();
+      
+      await client.execute({
+        sql: `INSERT INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [usId, 'US', 'United States', 'North America', 'USD', 'America/New_York', now, now]
+      });
+      await client.execute({
+        sql: `INSERT INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [krId, 'KR', 'South Korea', 'Asia', 'KRW', 'Asia/Seoul', now, now]
+      });
+      await client.execute({
+        sql: `INSERT INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [cnId, 'CN', 'China', 'Asia', 'CNY', 'Asia/Shanghai', now, now]
+      });
+      console.log('Countries created!');
+    } else {
+      console.log('Countries already exist');
+      const countryMap = Object.fromEntries(existingCountries.rows.map((r: any) => [r.code, r.id]));
+      usId = countryMap['US'] || generateId();
+      krId = countryMap['KR'] || generateId();
+      cnId = countryMap['CN'] || generateId();
+    }
+    
+    // Check if users exist
+    const existingUsers = await client.execute("SELECT email FROM User");
+    if (existingUsers.rows.length === 0) {
+      console.log('Creating users...');
+      const adminPassword = await hash('admin123', 10);
+      const pmPassword = await hash('pm123', 10);
+      const userPassword = await hash('user123', 10);
+      
+      await client.execute({
+        sql: `INSERT INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [generateId(), 'admin@bbq.com', adminPassword, 'Admin User', 'ADMIN', now, now]
+      });
+      await client.execute({
+        sql: `INSERT INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [generateId(), 'pm@bbq.com', pmPassword, 'Project Manager', 'PM', now, now]
+      });
+      await client.execute({
+        sql: `INSERT INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [generateId(), 'user@bbq.com', userPassword, 'Regular User', 'CONTRIBUTOR', now, now]
+      });
+      console.log('Users created!');
+    } else {
+      console.log('Users already exist');
+    }
+    
+    // Create sample stores
+    console.log('Creating sample stores...');
+    const store1Id = generateId();
+    const store2Id = generateId();
     
     await client.execute({
-      sql: `INSERT OR REPLACE INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [usId, 'US', 'United States', 'North America', 'USD', 'America/New_York', now, now]
+      sql: `INSERT INTO Store (id, storeCode, storeName, countryId, address, city, state, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [store1Id, 'US-NYC-001', 'BBQ Manhattan', usId, '123 Broadway', 'New York', 'NY', 'IN_PROGRESS', now, now]
     });
     await client.execute({
-      sql: `INSERT OR REPLACE INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [krId, 'KR', 'South Korea', 'Asia', 'KRW', 'Asia/Seoul', now, now]
+      sql: `INSERT INTO Store (id, storeCode, storeName, countryId, address, city, state, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [store2Id, 'KR-SEL-001', 'BBQ Gangnam', krId, '456 Gangnam-daero', 'Seoul', 'Gangnam-gu', 'PLANNING', now, now]
     });
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO Country (id, code, name, region, currency, timezone, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [cnId, 'CN', 'China', 'Asia', 'CNY', 'Asia/Shanghai', now, now]
-    });
-    console.log('Countries created!');
-    
-    // Create Users
-    console.log('Creating users...');
-    const adminPassword = await hash('admin123', 10);
-    const pmPassword = await hash('pm123', 10);
-    const userPassword = await hash('user123', 10);
-    
-    const adminId = generateId();
-    const pmId = generateId();
-    const userId = generateId();
-    
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [adminId, 'admin@bbq.com', adminPassword, 'Admin User', 'ADMIN', now, now]
-    });
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [pmId, 'pm@bbq.com', pmPassword, 'Project Manager', 'PM', now, now]
-    });
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO User (id, email, password, name, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [userId, 'user@bbq.com', userPassword, 'Regular User', 'CONTRIBUTOR', now, now]
-    });
-    console.log('Users created!');
-    
-    // Create Template
-    console.log('Creating template...');
-    const templateId = generateId();
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO Template (id, name, description, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [templateId, 'Standard Store Opening', 'Standard template for new store openings', 1, now, now]
-    });
-    console.log('Template created!');
-    
-    // Create Template Phases
-    console.log('Creating template phases...');
-    const phase1Id = generateId();
-    const phase2Id = generateId();
-    const phase3Id = generateId();
-    const phase4Id = generateId();
-    
-    await client.execute({
-      sql: `INSERT INTO TemplatePhase (id, templateId, name, description, orderIndex, durationDays, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [phase1Id, templateId, 'Planning', 'Initial planning and site selection', 0, 14, now, now]
-    });
-    await client.execute({
-      sql: `INSERT INTO TemplatePhase (id, templateId, name, description, orderIndex, durationDays, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [phase2Id, templateId, 'Construction', 'Store construction and setup', 1, 30, now, now]
-    });
-    await client.execute({
-      sql: `INSERT INTO TemplatePhase (id, templateId, name, description, orderIndex, durationDays, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [phase3Id, templateId, 'Training', 'Staff training and preparation', 2, 14, now, now]
-    });
-    await client.execute({
-      sql: `INSERT INTO TemplatePhase (id, templateId, name, description, orderIndex, durationDays, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [phase4Id, templateId, 'Launch', 'Final preparations and grand opening', 3, 7, now, now]
-    });
-    console.log('Template phases created!');
+    console.log('Stores created!');
     
     // Verify data
     const users = await client.execute("SELECT email, name, role FROM User");
@@ -100,6 +126,9 @@ async function main() {
     
     const countries = await client.execute("SELECT code, name FROM Country");
     console.log('Countries:', countries.rows);
+    
+    const stores = await client.execute("SELECT storeCode, storeName, status FROM Store");
+    console.log('Stores:', stores.rows);
     
     console.log('\nSeed completed successfully!');
     
