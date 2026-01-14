@@ -17,7 +17,8 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
   try {
-    const [storeCount, userCount, activeTaskCount, storesByCountry, storesByStatus] = await Promise.all([
+    // Get basic counts first
+    const [storeCount, userCount, activeTaskCount] = await Promise.all([
       prisma.store.count(),
       prisma.user.count(),
       prisma.task.count({
@@ -27,16 +28,28 @@ export default async function DashboardPage() {
           },
         },
       }),
-      prisma.store.groupBy({
+    ]);
+
+    // Try to get country grouping, fallback to empty array if column doesn't exist
+    let storesByCountry: { country: string; _count: { id: number } }[] = [];
+    try {
+      storesByCountry = await (prisma.store.groupBy as any)({
         by: ['country'],
         _count: { id: true },
         orderBy: { _count: { id: 'desc' } },
-      }),
-      prisma.store.groupBy({
-        by: ['status'],
-        _count: { id: true },
-      }),
-    ]);
+      });
+    } catch (e) {
+      console.log('Country column not available, using fallback');
+      // Get stores and manually group
+      const stores = await prisma.store.findMany({ select: { id: true } });
+      storesByCountry = [{ country: 'All', _count: { id: stores.length } }];
+    }
+
+    // Get status grouping
+    const storesByStatus = await prisma.store.groupBy({
+      by: ['status'],
+      _count: { id: true },
+    });
 
     const recentStores = await prisma.store.findMany({
       take: 5,

@@ -44,12 +44,14 @@ export async function GET(request: NextRequest) {
         }
       });
 
+      // Format result with prices from template
       const result = templateItems.map((item: any) => ({
         id: item.ingredient.id,
         name: item.ingredient.englishName,
-        nameKo: item.ingredient.koreanName,
+        englishName: item.ingredient.englishName,
+        koreanName: item.ingredient.koreanName,
         category: item.ingredient.category,
-        baseUnit: item.ingredient.unit,
+        unit: item.ingredient.unit,
         yieldRate: item.ingredient.yieldRate,
         price: item.price,
         currency: item.currency
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // No templateId - search all ingredients
+    // Default search without template - search all ingredients
     const ingredients = await prisma.ingredientMaster.findMany({
       where: {
         OR: [
@@ -66,26 +68,18 @@ export async function GET(request: NextRequest) {
           { englishName: { contains: query } }
         ]
       },
-      select: {
-        id: true,
-        koreanName: true,
-        englishName: true,
-        category: true,
-        unit: true,
-        yieldRate: true
-      },
       take: limit,
-      orderBy: [
-        { englishName: 'asc' }
-      ]
+      orderBy: { englishName: 'asc' }
     });
 
+    // Format result
     const result = ingredients.map((ing: any) => ({
       id: ing.id,
       name: ing.englishName,
-      nameKo: ing.koreanName,
+      englishName: ing.englishName,
+      koreanName: ing.koreanName,
       category: ing.category,
-      baseUnit: ing.unit,
+      unit: ing.unit,
       yieldRate: ing.yieldRate,
       price: null,
       currency: null
@@ -93,7 +87,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error searching ingredients:', error);
-    return NextResponse.json({ error: 'Search failed' }, { status: 500 });
+    console.error('Ingredient search error:', error);
+    return NextResponse.json({ error: 'Failed to search ingredients' }, { status: 500 });
   }
 }
