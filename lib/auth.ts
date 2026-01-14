@@ -1,8 +1,15 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { compare } from 'bcryptjs';
-import { prisma } from './prisma';
-import { UserRole } from '@/lib/enums';
+import bcrypt from 'bcryptjs';
+import { createClient } from '@libsql/client';
+
+// Turso 클라이언트 생성
+function getDbClient() {
+  return createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN!,
+  });
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -13,37 +20,56 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
+        console.log('🔐 Login attempt:', credentials?.email);
+        
         if (!credentials?.email || !credentials?.password) {
-          throw new Error('Invalid credentials');
+          console.log('❌ Missing credentials');
+          return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
+        try {
+          console.log('🔗 Connecting to Turso:', process.env.TURSO_DATABASE_URL);
+          const db = getDbClient();
+          const result = await db.execute({
+            sql: 'SELECT * FROM User WHERE email = ?',
+            args: [credentials.email],
+          });
 
-        if (!user) {
-          throw new Error('User not found');
+          console.log('📊 Query result rows:', result.rows.length);
+          const user = result.rows[0];
+          if (!user) {
+            console.log('❌ User not found');
+            return null;
+          }
+
+          console.log('👤 Found user:', user.email);
+          const isPasswordValid = await bcrypt.compare(
+            credentials.password,
+            user.password as string
+          );
+
+          console.log('🔑 Password valid:', isPasswordValid);
+          if (!isPasswordValid) {
+            return null;
+          }
+
+          return {
+            id: user.id as string,
+            email: user.email as string,
+            name: user.name as string,
+            role: user.role as string,
+          };
+        } catch (error) {
+          console.error('❌ Auth error:', error);
+          return null;
         }
-
-        const isPasswordValid = await compare(credentials.password, user.password);
-
-        if (!isPasswordValid) {
-          throw new Error('Invalid password');
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        token.id = (user as any).id;
         token.role = (user as any).role;
       }
       return token;
@@ -61,13 +87,6 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
-
-// Helper to get session on server
-export async function getCurrentUser(req: any) {
-  // This is a placeholder - actual implementation depends on how you access session
-  return null;
-}

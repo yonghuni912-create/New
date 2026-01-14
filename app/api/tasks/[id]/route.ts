@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { canEditTask, canDeleteTask } from '@/lib/rbac';
-import { ReschedulePolicy, AuditAction } from '@/lib/enums';
+import { addDays } from 'date-fns';
 
+// Update a task (reschedule)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -15,151 +15,131 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = session.user as any;
-    if (!canEditTask(user.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const { id } = await params;
+    const body = await request.json();
+    const { newStartDate, policy, status } = body;
+
+    // If just updating status
+    if (status && !newStartDate) {
+      const task = await prisma.task.update({
+        where: { id },
+        data: { status }
+      });
+      return NextResponse.json(task);
     }
 
-    const body = await request.json();
-    const {
-      title,
-      description,
-      phase,
-      status,
-      priority,
-      assigneeId,
-      startDate,
-      dueDate,
-      completedAt,
-      estimatedHours,
-      actualHours,
-      reschedulePolicy,
-    } = body;
+    if (!newStartDate || !policy) {
+      return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
+    }
 
-    const existingTask = await prisma.task.findUnique({
-      where: { id: params.id },
+    // Get the current task
+    const currentTask = await prisma.task.findUnique({
+      where: { id }
     });
 
-    if (!existingTask) {
+    if (!currentTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Handle task rescheduling with cascade logic
-    if (reschedulePolicy && (startDate || dueDate)) {
-      const policy = reschedulePolicy as ReschedulePolicy;
-      
-      await prisma.$transaction(async (tx) => {
-        // Update the current task
-        await tx.task.update({
-          where: { id: params.id },
-          data: {
-            title,
-            description,
-            phase,
-            status,
-            priority,
-            assigneeId,
-            startDate: startDate ? new Date(startDate) : undefined,
-            dueDate: dueDate ? new Date(dueDate) : undefined,
-            completedAt: completedAt ? new Date(completedAt) : null,
-            estimatedHours: estimatedHours ? parseFloat(estimatedHours) : undefined,
-            actualHours: actualHours ? parseFloat(actualHours) : undefined,
-          },
-        });
+    const oldStartDate = currentTask.startDate;
+    const newStart = new Date(newStartDate);
+    const deltaDays = Math.round((newStart.getTime() - new Date(oldStartDate).getTime()) / (1000 * 60 * 60 * 24));
 
-        if (policy === ReschedulePolicy.CASCADE_LATER || policy === ReschedulePolicy.CASCADE_ALL) {
-          // Get dependent tasks
-          const dependencies = await tx.taskDependency.findMany({
-            where: { blockingTaskId: params.id },
-            include: { dependentTask: true },
-          });
+    // Calculate new due date maintaining duration
+    const duration = currentTask.dueDate
+      ? Math.round((new Date(currentTask.dueDate).getTime() - new Date(oldStartDate).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    const newDueDate = addDays(newStart, duration);
 
-          if (dependencies.length > 0 && dueDate) {
-            const daysDiff = existingTask.dueDate
-              ? Math.ceil(
-                  (new Date(dueDate).getTime() - existingTask.dueDate.getTime()) /
-                    (1000 * 60 * 60 * 24)
-                )
-              : 0;
-
-            // Update dependent tasks
-            for (const dep of dependencies) {
-              const task = dep.dependentTask;
-              if (task.startDate && task.dueDate) {
-                const newStartDate = new Date(task.startDate);
-                newStartDate.setDate(newStartDate.getDate() + daysDiff);
-                const newDueDate = new Date(task.dueDate);
-                newDueDate.setDate(newDueDate.getDate() + daysDiff);
-
-                await tx.task.update({
-                  where: { id: task.id },
-                  data: {
-                    startDate: newStartDate,
-                    dueDate: newDueDate,
-                  },
-                });
-              }
-            }
-          }
+    if (policy === 'THIS_ONLY') {
+      // Update only this task
+      await prisma.task.update({
+        where: { id },
+        data: {
+          startDate: newStart,
+          dueDate: newDueDate,
+          manualOverride: true
         }
       });
-    } else {
-      // Simple update without cascade
+    } else if (policy === 'CASCADE_LATER') {
+      // Update this task and all tasks that start after it in the same store
       await prisma.task.update({
-        where: { id: params.id },
+        where: { id },
         data: {
-          title,
-          description,
-          phase,
-          status,
-          priority,
-          assigneeId,
-          startDate: startDate ? new Date(startDate) : undefined,
-          dueDate: dueDate ? new Date(dueDate) : undefined,
-          completedAt: completedAt ? new Date(completedAt) : null,
-          estimatedHours: estimatedHours ? parseFloat(estimatedHours) : undefined,
-          actualHours: actualHours ? parseFloat(actualHours) : undefined,
-        },
+          startDate: newStart,
+          dueDate: newDueDate,
+          manualOverride: true
+        }
       });
+
+      // Get all later tasks
+      const laterTasks = await prisma.task.findMany({
+        where: {
+          storeId: currentTask.storeId,
+          id: { not: id },
+          startDate: { gt: oldStartDate }
+        }
+      });
+
+      // Update each later task
+      for (const task of laterTasks) {
+        if (task.manualOverride) continue; // Skip manually overridden tasks
+
+        const taskDuration = task.dueDate
+          ? Math.round((new Date(task.dueDate).getTime() - new Date(task.startDate).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+
+        await prisma.task.update({
+          where: { id: task.id },
+          data: {
+            startDate: addDays(task.startDate, deltaDays),
+            dueDate: addDays(task.startDate, deltaDays + taskDuration)
+          }
+        });
+      }
+    } else if (policy === 'CASCADE_ALL') {
+      // Update all tasks in the same store
+      const allTasks = await prisma.task.findMany({
+        where: { storeId: currentTask.storeId }
+      });
+
+      for (const task of allTasks) {
+        if (task.id === id) {
+          await prisma.task.update({
+            where: { id },
+            data: {
+              startDate: newStart,
+              dueDate: newDueDate,
+              manualOverride: true
+            }
+          });
+        } else if (!task.manualOverride) {
+          const taskDuration = task.dueDate
+            ? Math.round((new Date(task.dueDate).getTime() - new Date(task.startDate).getTime()) / (1000 * 60 * 60 * 24))
+            : 0;
+
+          await prisma.task.update({
+            where: { id: task.id },
+            data: {
+              startDate: addDays(task.startDate, deltaDays),
+              dueDate: addDays(task.startDate, deltaDays + taskDuration)
+            }
+          });
+        }
+      }
     }
 
-    const updatedTask = await prisma.task.findUnique({
-      where: { id: params.id },
-      include: {
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
-
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: user.id,
-        action: AuditAction.UPDATE,
-        entityType: 'Task',
-        entityId: params.id,
-        changes: JSON.stringify({
-          before: existingTask,
-          after: updatedTask,
-        }),
-      },
-    });
-
-    return NextResponse.json(updatedTask);
-  } catch (error) {
-    console.error('Error updating task:', error);
-    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: 'Failed to reschedule' }, { status: 500 });
   }
 }
 
+// Delete a task
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -167,37 +147,24 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = session.user as any;
-    if (!canDeleteTask(user.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const { id } = await params;
 
-    const task = await prisma.task.findUnique({
-      where: { id: params.id },
+    // Delete task dependencies first
+    await prisma.taskDependency.deleteMany({
+      where: {
+        OR: [
+          { taskId: id },
+          { dependsOnTaskId: id }
+        ]
+      }
     });
 
-    if (!task) {
-      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
-    }
-
-    await prisma.task.delete({
-      where: { id: params.id },
-    });
-
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: user.id,
-        action: AuditAction.DELETE,
-        entityType: 'Task',
-        entityId: params.id,
-        changes: JSON.stringify({ deleted: task }),
-      },
-    });
+    // Delete the task
+    await prisma.task.delete({ where: { id } });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting task:', error);
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });
   }
 }

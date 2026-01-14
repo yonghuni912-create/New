@@ -1,159 +1,217 @@
-import Link from 'next/link';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Store, ListTodo, CheckCircle, Clock } from 'lucide-react';
-import { formatDate, formatCurrency } from '@/lib/utils';
+import DashboardCharts from '@/components/DashboardCharts';
 
-async function getDashboardData() {
-  const [
-    totalStores,
-    storesInProgress,
-    totalTasks,
-    completedTasks,
-    recentStores,
-  ] = await Promise.all([
-    prisma.store.count(),
-    prisma.store.count({ where: { status: 'IN_PROGRESS' } }),
-    prisma.task.count(),
-    prisma.task.count({ where: { status: 'DONE' } }),
-    prisma.store.findMany({
-      include: {
-        country: true,
-        _count: {
-          select: { tasks: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-    }),
-  ]);
-
-  return {
-    totalStores,
-    storesInProgress,
-    totalTasks,
-    completedTasks,
-    recentStores,
-  };
-}
+// Status colors for the pie chart
+const STATUS_COLORS: Record<string, string> = {
+  PLANNING: '#FFB088',
+  CONFIRMED: '#4ECDC4',
+  IN_PROGRESS: '#FF6B35',
+  OPENED: '#45B7D1',
+  ON_HOLD: '#FFEAA7',
+  CANCELLED: '#FF6B6B',
+};
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
+  const session = await getServerSession(authOptions);
 
-  const kpis = [
-    {
-      title: 'Total Stores',
-      value: data.totalStores,
-      icon: Store,
-      color: 'text-blue-600',
-      bg: 'bg-blue-100',
-    },
-    {
-      title: 'In Progress',
-      value: data.storesInProgress,
-      icon: Clock,
-      color: 'text-yellow-600',
-      bg: 'bg-yellow-100',
-    },
-    {
-      title: 'Total Tasks',
-      value: data.totalTasks,
-      icon: ListTodo,
-      color: 'text-purple-600',
-      bg: 'bg-purple-100',
-    },
-    {
-      title: 'Completed Tasks',
-      value: data.completedTasks,
-      icon: CheckCircle,
-      color: 'text-green-600',
-      bg: 'bg-green-100',
-    },
-  ];
+  try {
+    const [storeCount, userCount, activeTaskCount, storesByCountry, storesByStatus] = await Promise.all([
+      prisma.store.count(),
+      prisma.user.count(),
+      prisma.task.count({
+        where: {
+          status: {
+            in: ['NOT_STARTED', 'IN_PROGRESS'],
+          },
+        },
+      }),
+      prisma.store.groupBy({
+        by: ['country'],
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+      }),
+      prisma.store.groupBy({
+        by: ['status'],
+        _count: { id: true },
+      }),
+    ]);
+
+    const recentStores = await prisma.store.findMany({
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        plannedOpenDates: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <Link href="/dashboard/stores/new">
-          <Button variant="primary">New Store</Button>
-        </Link>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">
+          Welcome back, {session?.user?.name}!
+        </h1>
+        <p className="text-gray-600 mt-2">
+          Here's what's happening with your store launches
+        </p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {kpis.map((kpi) => (
-          <Card key={kpi.title}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">{kpi.title}</p>
-                  <p className="text-3xl font-bold mt-2">{kpi.value}</p>
-                </div>
-                <div className={`p-3 rounded-full ${kpi.bg}`}>
-                  <kpi.icon className={`h-6 w-6 ${kpi.color}`} />
-                </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-orange-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                  />
+                </svg>
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total Stores</p>
+              <p className="text-2xl font-bold text-gray-900">{storeCount}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Active Tasks</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {activeTaskCount}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-green-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Team Members</p>
+              <p className="text-2xl font-bold text-gray-900">{userCount}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Recent Stores */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Recent Stores</CardTitle>
-            <Link href="/dashboard/stores">
-              <Button variant="outline" size="sm">View All</Button>
-            </Link>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {data.recentStores.map((store) => (
-              <Link
-                key={store.id}
-                href={`/dashboard/stores/${store.id}`}
-                className="block p-4 rounded-lg border border-gray-200 hover:border-blue-500 hover:shadow-md transition-all"
-              >
+      <div className="bg-white rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Recent Stores
+          </h2>
+        </div>
+        <div className="divide-y divide-gray-200">
+          {recentStores.length === 0 ? (
+            <div className="px-6 py-8 text-center text-gray-500">
+              No stores yet. Create your first store to get started!
+            </div>
+          ) : (
+            recentStores.map((store) => (
+              <div key={store.id} className="px-6 py-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-lg">{store.storeName}</h3>
-                    <p className="text-sm text-gray-600">
-                      {store.storeCode} • {store.country.name}
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">
+                      {store.officialName || store.tempName}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {store.city}, {store.country}
                     </p>
-                    <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                      <span>📅 {formatDate(store.plannedOpenDate)}</span>
-                      <span>📋 {store._count.tasks} tasks</span>
-                    </div>
                   </div>
-                  <div className="flex flex-col items-end space-y-2">
-                    <Badge
-                      variant={
-                        store.status === 'OPEN'
-                          ? 'success'
-                          : store.status === 'IN_PROGRESS'
-                          ? 'warning'
-                          : 'default'
-                      }
-                    >
+                  <div className="text-right">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                       {store.status}
-                    </Badge>
-                    {store.estimatedRevenue && (
-                      <span className="text-sm text-gray-500">
-                        {formatCurrency(store.estimatedRevenue)}
-                      </span>
+                    </span>
+                    {store.plannedOpenDates[0] && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Opens:{' '}
+                        {new Date(
+                          store.plannedOpenDates[0].date
+                        ).toLocaleDateString()}
+                      </p>
                     )}
                   </div>
                 </div>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <DashboardCharts
+        storesByCountry={storesByCountry.map((item) => ({
+          country: item.country,
+          count: item._count.id,
+          color: '',
+        }))}
+        storesByStatus={storesByStatus.map((item) => ({
+          status: item.status,
+          count: item._count.id,
+          color: STATUS_COLORS[item.status] || '#ccc',
+        }))}
+      />
     </div>
   );
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-bold text-red-600">Dashboard Error</h1>
+        <p className="mt-4 text-gray-600">
+          {error instanceof Error ? error.message : 'Unknown error occurred'}
+        </p>
+        <pre className="mt-4 p-4 bg-gray-100 rounded text-sm overflow-auto">
+          {JSON.stringify(error, null, 2)}
+        </pre>
+      </div>
+    );
+  }
 }

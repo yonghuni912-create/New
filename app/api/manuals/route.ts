@@ -1,0 +1,129 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
+
+// GET - List all menu manuals (Force redeploy)
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const includeIngredients = searchParams.get('includeIngredients') === 'true';
+  const includeCostVersions = searchParams.get('includeCostVersions') === 'true';
+  const groupId = searchParams.get('groupId');
+
+  try {
+    console.log('🔍 Fetching manuals...');
+    console.log('Query params:', { groupId, includeIngredients, includeCostVersions });
+    
+    // Return all manuals, let frontend filter by isActive/isDeleted
+    const manuals = await prisma.menuManual.findMany({
+      include: {
+        ingredients: includeIngredients ? {
+          orderBy: [
+            { sortOrder: 'asc' }
+          ],
+          include: {
+            ingredientMaster: true
+          }
+        } : false,
+        costVersions: includeCostVersions ? {
+          include: {
+            template: true
+          },
+          orderBy: { createdAt: 'desc' }
+        } : false
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    console.log(`✅ Found ${manuals.length} manuals`);
+    if (manuals.length > 0) {
+      console.log('First manual:', JSON.stringify(manuals[0], null, 2));
+    }
+
+    return NextResponse.json(manuals);
+  } catch (error: any) {
+    console.error('❌ Error fetching manuals:', error);
+    console.error('Error message:', error?.message);
+    console.error('Error stack:', error?.stack);
+    return NextResponse.json({ 
+      error: 'Failed to fetch manuals',
+      details: error?.message,
+      stack: error?.stack?.split('\n').slice(0, 5).join('\n')
+    }, { status: 500 });
+  }
+}
+
+// POST - Create a new menu manual (Turso schema)
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const { 
+      name, 
+      koreanName, 
+      yield: yieldValue, 
+      yieldUnit, 
+      ingredients,
+      sellingPrice,
+      imageUrl,
+      cookingMethod,
+      shelfLife
+    } = body;
+
+    // Create manual with all fields
+    const manual = await prisma.menuManual.create({
+      data: {
+        name,
+        nameKo: koreanName || null,
+        yield: yieldValue || 1,
+        yieldUnit: yieldUnit || 'ea',
+        sellingPrice: sellingPrice ? parseFloat(sellingPrice) : null,
+        imageUrl: imageUrl || null,
+        cookingMethod: cookingMethod ? JSON.stringify(cookingMethod) : null,
+        shelfLife: shelfLife || null,
+        isActive: true,
+        isDeleted: false,
+        ingredients: ingredients && ingredients.length > 0 ? {
+          create: ingredients.map((ing: any, index: number) => ({
+            ingredientId: ing.ingredientId || null,
+            name: ing.name || ing.koreanName || 'Unknown',
+            quantity: ing.quantity || 0,
+            unit: ing.unit || 'g',
+            sortOrder: index,
+            notes: ing.notes || null
+          }))
+        } : undefined
+      },
+      include: {
+        ingredients: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            ingredientMaster: true
+          }
+        }
+      }
+    });
+
+    return NextResponse.json(manual, { status: 201 });
+  } catch (error: any) {
+    console.error('=== Error creating manual ===');
+    console.error('Error:', error?.message);
+    
+    return NextResponse.json({ 
+      error: 'Failed to create manual', 
+      details: error?.message,
+      hint: error?.message
+    }, { status: 500 });
+  }
+}

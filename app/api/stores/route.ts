@@ -2,39 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { canCreateStore } from '@/lib/rbac';
-import { AuditAction } from '@/lib/enums';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const countriesOnly = searchParams.get('countriesOnly') === 'true';
+
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const countriesOnly = searchParams.get('countriesOnly') === 'true';
-
     if (countriesOnly) {
       const countries = await prisma.country.findMany({
-        orderBy: { name: 'asc' },
+        orderBy: { name: 'asc' }
       });
       return NextResponse.json(countries);
     }
 
     const stores = await prisma.store.findMany({
-      include: {
-        country: true,
-        _count: {
-          select: {
-            tasks: true,
-            files: true,
-          },
-        },
-      },
       orderBy: { createdAt: 'desc' },
+      include: {
+        tasks: {
+          select: { status: true }
+        }
+      }
     });
-
     return NextResponse.json(stores);
   } catch (error) {
     console.error('Error fetching stores:', error);
@@ -45,69 +40,67 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const user = session.user as any;
-    if (!canCreateStore(user.role)) {
+    const user = session.user as { id: string; role: string };
+
+    if (!['ADMIN', 'PM'].includes(user.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const body = await request.json();
-    const {
-      storeCode,
-      storeName,
-      countryId,
-      address,
-      city,
-      state,
-      postalCode,
-      franchiseeEmail,
-      franchiseeName,
-      franchiseePhone,
-      plannedOpenDate,
-      estimatedRevenue,
-      initialInvestment,
-      notes,
-    } = body;
+    const data = await request.json();
 
     const store = await prisma.store.create({
       data: {
-        storeCode,
-        storeName,
-        countryId,
-        address,
-        city,
-        state,
-        postalCode,
-        franchiseeEmail,
-        franchiseeName,
-        franchiseePhone,
-        plannedOpenDate: plannedOpenDate ? new Date(plannedOpenDate) : null,
-        estimatedRevenue: estimatedRevenue ? parseFloat(estimatedRevenue) : null,
-        initialInvestment: initialInvestment ? parseFloat(initialInvestment) : null,
-        notes,
+        tempName: data.tempName || null,
+        officialName: data.officialName || null,
+        country: data.country,
+        city: data.city || null,
+        address: data.address || null,
+        timezone: data.timezone,
+        storePhone: data.storePhone || null,
+        storeEmail: data.storeEmail || null,
+        ownerName: data.ownerName || null,
+        ownerPhone: data.ownerPhone || null,
+        ownerEmail: data.ownerEmail || null,
+        ownerAddress: data.ownerAddress || null,
+        status: data.status || 'PLANNING',
+        createdBy: data.createdBy,
+        ...(data.plannedOpenDate && {
+          plannedOpenDates: {
+            create: {
+              date: new Date(data.plannedOpenDate),
+              reason: data.openDateReason || 'Initial planned date',
+              changedBy: data.createdBy,
+            },
+          },
+        }),
       },
       include: {
-        country: true,
+        plannedOpenDates: true,
       },
     });
 
     // Create audit log
     await prisma.auditLog.create({
       data: {
-        userId: user.id,
-        action: AuditAction.CREATE,
         entityType: 'Store',
         entityId: store.id,
-        changes: JSON.stringify({ created: store }),
+        action: 'CREATE',
+        changedBy: user.id,
+        afterJson: JSON.stringify(store),
       },
     });
 
-    return NextResponse.json(store, { status: 201 });
-  } catch (error) {
+    return NextResponse.json(store);
+  } catch (error: any) {
     console.error('Error creating store:', error);
-    return NextResponse.json({ error: 'Failed to create store' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to create store' },
+      { status: 500 }
+    );
   }
 }

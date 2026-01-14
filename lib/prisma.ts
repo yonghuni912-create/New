@@ -1,31 +1,41 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaLibSQL } from '@prisma/adapter-libsql';
-import { createClient } from '@libsql/client';
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-function createPrismaClient() {
-  // Check if we should use Turso (production)
-  if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
-    const libsql = createClient({
-      url: process.env.TURSO_DATABASE_URL,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    });
-
-    const adapter = new PrismaLibSQL(libsql);
-    return new PrismaClient({ adapter } as any);
-  }
-
-  // Use SQLite for local development
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
+declare global {
+  var prisma: PrismaClient | undefined;
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+function createPrismaClient(): PrismaClient {
+  // Skip Turso during build time
+  const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
+  const hasTursoCredentials = process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN;
+  
+  if (!isBuildTime && hasTursoCredentials) {
+    console.log('Initializing Prisma with Turso adapter...');
+    try {
+      // Create libsql client first, then pass to adapter
+      const { createClient } = require('@libsql/client');
+      const { PrismaLibSQL } = require('@prisma/adapter-libsql');
+      
+      const libsql = createClient({
+        url: process.env.TURSO_DATABASE_URL!,
+        authToken: process.env.TURSO_AUTH_TOKEN!,
+      });
+      
+      const adapter = new PrismaLibSQL(libsql);
+      return new PrismaClient({ adapter } as any);
+    } catch (e) {
+      console.error('Failed to create Turso adapter:', e);
+      throw e; // Don't fallback to SQLite - it won't work on Vercel
+    }
+  }
+  
+  // Local development or build time: Use SQLite
+  console.log('Initializing Prisma with local SQLite...');
+  return new PrismaClient();
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+export const prisma = global.prisma || createPrismaClient();
 
-export default prisma;
+if (process.env.NODE_ENV !== 'production') {
+  global.prisma = prisma;
+}

@@ -1,96 +1,118 @@
-import { UserRole } from '@/lib/enums';
+// Role-Based Access Control utilities
 
-export type Permission = 
-  | 'store:create'
-  | 'store:edit'
-  | 'store:delete'
-  | 'store:view'
-  | 'task:create'
-  | 'task:edit'
-  | 'task:delete'
-  | 'task:view'
-  | 'task:assign'
-  | 'user:manage'
-  | 'template:manage'
-  | 'audit:view';
+export type Role = 'ADMIN' | 'PM' | 'CONTRIBUTOR' | 'VIEWER';
 
-const rolePermissions: Record<UserRole, Permission[]> = {
-  [UserRole.ADMIN]: [
-    'store:create',
-    'store:edit',
-    'store:delete',
-    'store:view',
-    'task:create',
-    'task:edit',
-    'task:delete',
-    'task:view',
-    'task:assign',
-    'user:manage',
-    'template:manage',
-    'audit:view',
-  ],
-  [UserRole.PM]: [
-    'store:create',
-    'store:edit',
-    'store:view',
-    'task:create',
-    'task:edit',
-    'task:delete',
-    'task:view',
-    'task:assign',
-    'audit:view',
-  ],
-  [UserRole.CONTRIBUTOR]: [
-    'store:view',
-    'task:edit',
-    'task:view',
-  ],
-  [UserRole.VIEWER]: [
-    'store:view',
-    'task:view',
-  ],
+export interface Permission {
+  canView: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canManageUsers: boolean;
+  canManageSettings: boolean;
+  canApprove: boolean;
+  canExport: boolean;
+}
+
+const rolePermissions: Record<Role, Permission> = {
+  ADMIN: {
+    canView: true,
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canManageUsers: true,
+    canManageSettings: true,
+    canApprove: true,
+    canExport: true,
+  },
+  PM: {
+    canView: true,
+    canCreate: true,
+    canEdit: true,
+    canDelete: false,
+    canManageUsers: false,
+    canManageSettings: false,
+    canApprove: true,
+    canExport: true,
+  },
+  CONTRIBUTOR: {
+    canView: true,
+    canCreate: true,
+    canEdit: true,
+    canDelete: false,
+    canManageUsers: false,
+    canManageSettings: false,
+    canApprove: false,
+    canExport: true,
+  },
+  VIEWER: {
+    canView: true,
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canManageUsers: false,
+    canManageSettings: false,
+    canApprove: false,
+    canExport: false,
+  },
 };
 
-export function hasPermission(role: UserRole, permission: Permission): boolean {
-  return rolePermissions[role]?.includes(permission) ?? false;
+export function getPermissions(role: string | undefined | null): Permission {
+  const normalizedRole = (role?.toUpperCase() || 'VIEWER') as Role;
+  return rolePermissions[normalizedRole] || rolePermissions.VIEWER;
 }
 
-export function canEditStore(role: UserRole): boolean {
-  return hasPermission(role, 'store:edit');
+export function hasPermission(
+  role: string | undefined | null,
+  permission: keyof Permission
+): boolean {
+  return getPermissions(role)[permission];
 }
 
-export function canCreateStore(role: UserRole): boolean {
-  return hasPermission(role, 'store:create');
+export function canAccessRoute(
+  role: string | undefined | null,
+  route: string
+): boolean {
+  const permissions = getPermissions(role);
+
+  // Admin-only routes
+  const adminRoutes = ['/dashboard/admin'];
+  if (adminRoutes.some((r) => route.startsWith(r))) {
+    return role === 'ADMIN';
+  }
+
+  // PM or higher routes
+  const pmRoutes = ['/dashboard/stores/new'];
+  if (pmRoutes.some((r) => route.startsWith(r))) {
+    return ['ADMIN', 'PM'].includes(role?.toUpperCase() || '');
+  }
+
+  return permissions.canView;
 }
 
-export function canDeleteStore(role: UserRole): boolean {
-  return hasPermission(role, 'store:delete');
+export function getRoleBadgeColor(role: string | undefined | null): string {
+  switch (role?.toUpperCase()) {
+    case 'ADMIN':
+      return 'bg-red-100 text-red-800';
+    case 'PM':
+      return 'bg-blue-100 text-blue-800';
+    case 'CONTRIBUTOR':
+      return 'bg-green-100 text-green-800';
+    case 'VIEWER':
+    default:
+      return 'bg-gray-100 text-gray-800';
+  }
 }
 
-export function canEditTask(role: UserRole): boolean {
-  return hasPermission(role, 'task:edit');
-}
-
-export function canCreateTask(role: UserRole): boolean {
-  return hasPermission(role, 'task:create');
-}
-
-export function canDeleteTask(role: UserRole): boolean {
-  return hasPermission(role, 'task:delete');
-}
-
-export function canAssignTask(role: UserRole): boolean {
-  return hasPermission(role, 'task:assign');
-}
-
-export function canManageUsers(role: UserRole): boolean {
-  return hasPermission(role, 'user:manage');
-}
-
-export function canManageTemplates(role: UserRole): boolean {
-  return hasPermission(role, 'template:manage');
-}
-
-export function canViewAuditLogs(role: UserRole): boolean {
-  return hasPermission(role, 'audit:view');
+export function getRoleDisplayName(role: string | undefined | null): string {
+  switch (role?.toUpperCase()) {
+    case 'ADMIN':
+      return 'Administrator';
+    case 'PM':
+      return 'Project Manager';
+    case 'CONTRIBUTOR':
+      return 'Contributor';
+    case 'VIEWER':
+    default:
+      return 'Viewer';
+  }
 }
