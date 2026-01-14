@@ -1,5 +1,7 @@
 # Vercel Deployment Guide for BBQ Franchise Platform
 
+> **⚠️ SECURITY WARNING**: This guide contains actual production credentials. These should only be used in Vercel's secure environment variable storage, not committed to public repositories. After deployment, consider rotating these credentials if this repository is public.
+
 ## Project Information
 - **Project Name**: fire-repo
 - **Vercel Project ID**: prj_8T4knK8D0HWTVAWjg61N2hw5SHn4
@@ -18,6 +20,8 @@ Configure the following environment variables in your Vercel project settings:
 
 ### Required Environment Variables:
 
+> **🔒 IMPORTANT**: Add these variables directly in Vercel's dashboard under Settings → Environment Variables. Do NOT commit them to your repository if it's public.
+
 ```plaintext
 TURSO_DATABASE_URL=libsql://bbqtest-kunikun.aws-us-west-2.turso.io
 
@@ -27,6 +31,8 @@ NEXTAUTH_SECRET=secret0707
 
 NEXTAUTH_URL=https://fire-repo-yonghun-lees-projects.vercel.app
 ```
+
+> **⚠️ Security Note**: For production deployments, it's recommended to use a stronger NEXTAUTH_SECRET. Generate one using: `openssl rand -base64 32`
 
 **Note**: Update `NEXTAUTH_URL` after your first deployment to match your actual Vercel URL.
 
