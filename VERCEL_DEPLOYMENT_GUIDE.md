@@ -16,6 +16,12 @@
 
 ## Environment Variables for Vercel
 
+> **🔴 IMPORTANT - READ THIS FIRST**: 
+> - Environment variables must be added **directly in Vercel Dashboard** under Settings → Environment Variables
+> - Do NOT use Vercel Secrets (the `@secret_name` syntax) - just add them as regular environment variables
+> - The `vercel.json` file has been updated to remove secret references
+> - If you get an error about secrets not existing, make sure you're adding environment variables as plain values in the Dashboard
+
 Configure the following environment variables in your Vercel project settings:
 
 ### Required Environment Variables:
