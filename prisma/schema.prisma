@@ -1,0 +1,472 @@
+// This is your Prisma schema file
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Note: SQLite doesn't support enums, so we use String with application-level validation
+// Valid values for UserRole: ADMIN, PM, CONTRIBUTOR, VIEWER
+// Valid values for StoreStatus: PLANNING, IN_PROGRESS, READY, OPEN, DELAYED, CANCELLED
+// Valid values for TaskStatus: TODO, IN_PROGRESS, BLOCKED, DONE, CANCELLED
+// Valid values for TaskPriority: LOW, MEDIUM, HIGH, URGENT
+// Valid values for ReschedulePolicy: THIS_ONLY, CASCADE_LATER, CASCADE_ALL
+// Valid values for AuditAction: CREATE, UPDATE, DELETE
+
+// User and Authentication
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("VIEWER") // UserRole enum as String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks         Task[]
+  taskComments  TaskComment[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+}
+
+// Country
+model Country {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  region    String?
+  currency  String?
+  timezone  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stores Store[]
+  fxRates FXRate[]
+}
+
+// Store
+model Store {
+  id                String      @id @default(cuid())
+  storeCode         String      @unique
+  storeName         String
+  countryId         String
+  country           Country     @relation(fields: [countryId], references: [id])
+  address           String?
+  city              String?
+  state             String?
+  postalCode        String?
+  latitude          Float?
+  longitude         Float?
+  franchiseeEmail   String?
+  franchiseeName    String?
+  franchiseePhone   String?
+  status            String      @default("PLANNING") // StoreStatus enum as String
+  plannedOpenDate   DateTime?
+  actualOpenDate    DateTime?
+  estimatedRevenue  Float?
+  initialInvestment Float?
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  plannedOpenDates   PlannedOpenDate[]
+  milestones         Milestone[]
+  files              StoreFile[]
+  tasks              Task[]
+  inventoryGroups    InventoryGroup[]
+  periodSales        PeriodSales[]
+  competitorPrices   CompetitorPrice[]
+}
+
+// Planned Open Date History
+model PlannedOpenDate {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  oldDate     DateTime?
+  newDate     DateTime
+  reason      String?
+  changedBy   String?
+  createdAt   DateTime @default(now())
+}
+
+// Milestone
+model Milestone {
+  id          String    @id @default(cuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  targetDate  DateTime
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Store Files
+model StoreFile {
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  fileName     String
+  fileType     String?
+  fileSize     Int?
+  storagePath  String
+  uploadedBy   String?
+  description  String?
+  createdAt    DateTime @default(now())
+}
+
+// Task
+model Task {
+  id            String        @id @default(cuid())
+  storeId       String
+  store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  phase         String?
+  status        String        @default("TODO") // TaskStatus enum as String
+  priority      String        @default("MEDIUM") // TaskPriority enum as String
+  assigneeId    String?
+  assignee      User?         @relation(fields: [assigneeId], references: [id])
+  startDate     DateTime?
+  dueDate       DateTime?
+  completedAt   DateTime?
+  estimatedHours Float?
+  actualHours   Float?
+  tags          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  comments      TaskComment[]
+  checklistItems TaskChecklistItem[]
+  dependencies  TaskDependency[] @relation("DependentTask")
+  dependents    TaskDependency[] @relation("BlockingTask")
+}
+
+// Task Comment
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Task Checklist Item
+model TaskChecklistItem {
+  id          String    @id @default(cuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title       String
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Task Dependency
+model TaskDependency {
+  id              String   @id @default(cuid())
+  dependentTaskId String
+  dependentTask   Task     @relation("DependentTask", fields: [dependentTaskId], references: [id], onDelete: Cascade)
+  blockingTaskId  String
+  blockingTask    Task     @relation("BlockingTask", fields: [blockingTaskId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@unique([dependentTaskId, blockingTaskId])
+}
+
+// Template System
+model Template {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  phases      TemplatePhase[]
+}
+
+model TemplatePhase {
+  id          String   @id @default(cuid())
+  templateId  String
+  template    Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks       TemplateTask[]
+}
+
+model TemplateTask {
+  id               String        @id @default(cuid())
+  phaseId          String
+  phase            TemplatePhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  priority         String        @default("MEDIUM") // TaskPriority enum as String
+  estimatedHours   Float?
+  offsetDays       Int           @default(0) // Days offset from store creation or previous task
+  order            Int
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+// Audit Log
+model AuditLog {
+  id          String      @id @default(cuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  action      String      // AuditAction enum as String
+  entityType  String
+  entityId    String
+  changes     String?     // JSON string
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+}
+
+// Notification
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String?  // info, warning, success, error
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+}
+
+// Ingredient Master
+model IngredientMaster {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  nameEn          String
+  nameLocal       String?
+  category        String?
+  unit            String
+  standardCost    Float?
+  supplier        String?
+  minOrderQty     Float?
+  shelfLifeDays   Int?
+  storageCondition String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  templateItems   IngredientTemplateItem[]
+  manualIngredients ManualIngredient[]
+}
+
+// Ingredient Template
+model IngredientTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  countryCode String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       IngredientTemplateItem[]
+}
+
+model IngredientTemplateItem {
+  id              String              @id @default(cuid())
+  templateId      String
+  template        IngredientTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  ingredientId    String
+  ingredient      IngredientMaster    @relation(fields: [ingredientId], references: [id])
+  quantity        Float
+  notes           String?
+  createdAt       DateTime            @default(now())
+}
+
+// Menu Manual
+model MenuManual {
+  id              String   @id @default(cuid())
+  menuCode        String   @unique
+  menuNameEn      String
+  menuNameLocal   String?
+  category        String?
+  description     String?
+  servingSize     String?
+  preparationTime Int?     // minutes
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  groups          ManualGroup[]
+  costVersions    ManualCostVersion[]
+  posLinks        PosMenuLink[]
+}
+
+model ManualGroup {
+  id          String       @id @default(cuid())
+  manualId    String
+  manual      MenuManual   @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  groupName   String
+  order       Int
+  createdAt   DateTime     @default(now())
+
+  ingredients ManualIngredient[]
+}
+
+model ManualIngredient {
+  id            String           @id @default(cuid())
+  groupId       String
+  group         ManualGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  ingredientId  String
+  ingredient    IngredientMaster @relation(fields: [ingredientId], references: [id])
+  quantity      Float
+  unit          String
+  notes         String?
+  order         Int
+  createdAt     DateTime         @default(now())
+}
+
+// Manual Cost Version
+model ManualCostVersion {
+  id          String     @id @default(cuid())
+  manualId    String
+  manual      MenuManual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  versionName String
+  countryCode String
+  effectiveDate DateTime
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  lines       ManualCostLine[]
+}
+
+model ManualCostLine {
+  id              String            @id @default(cuid())
+  versionId       String
+  version         ManualCostVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  ingredientCode  String
+  ingredientName  String
+  quantity        Float
+  unit            String
+  unitCost        Float
+  totalCost       Float
+  notes           String?
+  order           Int
+  createdAt       DateTime          @default(now())
+}
+
+// Inventory Management
+model InventoryGroup {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  groupName   String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  periods     InventoryPeriod[]
+}
+
+model InventoryPeriod {
+  id          String          @id @default(cuid())
+  groupId     String
+  group       InventoryGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String          @default("OPEN") // OPEN, CLOSED
+  closedBy    String?
+  closedAt    DateTime?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  items       InventoryItem[]
+}
+
+model InventoryItem {
+  id              String          @id @default(cuid())
+  periodId        String
+  period          InventoryPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  ingredientCode  String
+  ingredientName  String
+  openingQty      Float
+  purchaseQty     Float           @default(0)
+  usageQty        Float           @default(0)
+  closingQty      Float
+  unit            String
+  unitCost        Float?
+  variance        Float?          // difference from expected
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+// POS Menu Link
+model PosMenuLink {
+  id          String     @id @default(cuid())
+  manualId    String
+  manual      MenuManual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  posMenuCode String
+  posMenuName String
+  countryCode String?
+  createdAt   DateTime   @default(now())
+}
+
+// Period Sales
+model PeriodSales {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  menuCode    String?
+  menuName    String?
+  quantity    Int
+  revenue     Float
+  cost        Float?
+  profit      Float?
+  createdAt   DateTime @default(now())
+}
+
+// FX Rate
+model FXRate {
+  id          String   @id @default(cuid())
+  countryId   String
+  country     Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  fromCurrency String
+  toCurrency  String
+  rate        Float
+  effectiveDate DateTime
+  createdAt   DateTime @default(now())
+}
+
+// Competitor Price
+model CompetitorPrice {
+  id              String   @id @default(cuid())
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  competitorName  String
+  productCategory String?
+  productName     String
+  price           Float
+  currency        String
+  observedDate    DateTime
+  notes           String?
+  createdAt       DateTime @default(now())
+}
