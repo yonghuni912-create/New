@@ -13,14 +13,18 @@
 
 ## Environment Variables for Vercel
 
+⚠️ **Security Notice**: The credentials below are for initial deployment only. For production use, rotate these secrets and use secure, randomly generated values.
+
 Configure the following environment variables in your Vercel project dashboard:
 
 ```
 TURSO_DATABASE_URL=libsql://bbqtest-kunikun.aws-us-west-2.turso.io
-TURSO_AUTH_TOKEN=eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjgyNTQ5NDIsImlkIjoiYjg0NDM1NGUtZjE4YS00NWMzLWI1ZDctNDk2NjljOTM3ZDY3IiwicmlkIjoiZWYzYzk2MGItMDk4Mi00ODhiLWJiNjEtMzc2YzJhNzgwYTliIn0.KSdizD28gjbcZiAjX7KOywhPusSQcPcLDd89ovltYNQX9y2tKakH83Dwxv-iR9JnP5mqOWFGZIT5afP3n6obBA
+TURSO_AUTH_TOKEN=<REDACTED_FOR_SECURITY>
 NEXTAUTH_SECRET=secret0707
 NEXTAUTH_URL=https://fire-repo.vercel.app
 ```
+
+**Note**: Use the actual `TURSO_AUTH_TOKEN` value provided separately. Do not commit production secrets to version control.
 
 ## Deployment Steps
 
@@ -46,10 +50,18 @@ vercel login
 vercel link --project-id prj_8T4knK8D0HWTVAWjg61N2hw5SHn4
 
 # Set environment variables (one-time setup)
-echo "libsql://bbqtest-kunikun.aws-us-west-2.turso.io" | vercel env add TURSO_DATABASE_URL production
-echo "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjgyNTQ5NDIsImlkIjoiYjg0NDM1NGUtZjE4YS00NWMzLWI1ZDctNDk2NjljOTM3ZDY3IiwicmlkIjoiZWYzYzk2MGItMDk4Mi00ODhiLWJiNjEtMzc2YzJhNzgwYTliIn0.KSdizD28gjbcZiAjX7KOywhPusSQcPcLDd89ovltYNQX9y2tKakH83Dwxv-iR9JnP5mqOWFGZIT5afP3n6obBA" | vercel env add TURSO_AUTH_TOKEN production
-echo "secret0707" | vercel env add NEXTAUTH_SECRET production
-echo "https://fire-repo.vercel.app" | vercel env add NEXTAUTH_URL production
+# Replace <YOUR_TOKEN> with the actual token value
+vercel env add TURSO_DATABASE_URL production
+# When prompted, enter: libsql://bbqtest-kunikun.aws-us-west-2.turso.io
+
+vercel env add TURSO_AUTH_TOKEN production
+# When prompted, enter the token value provided separately
+
+vercel env add NEXTAUTH_SECRET production
+# When prompted, enter: secret0707
+
+vercel env add NEXTAUTH_URL production
+# When prompted, enter: https://fire-repo.vercel.app
 
 # Deploy to production
 vercel --prod
@@ -71,12 +83,15 @@ After deployment, verify:
 
 ## Database Initialization
 
+⚠️ **Security**: Use secure connection and never commit database credentials to source control.
+
 If the database needs to be seeded:
 
 ```bash
 # Local setup with Turso connection
+# Set these in a secure way - DO NOT commit to git
 export TURSO_DATABASE_URL="libsql://bbqtest-kunikun.aws-us-west-2.turso.io"
-export TURSO_AUTH_TOKEN="<your-token>"
+export TURSO_AUTH_TOKEN="<YOUR_TOKEN_HERE>"
 
 # Push schema and seed
 npm install
