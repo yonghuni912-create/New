@@ -5,6 +5,12 @@ const nextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push('@prisma/adapter-libsql');
+    }
+    return config;
+  },
 };
 
 module.exports = nextConfig;
