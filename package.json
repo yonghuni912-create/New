@@ -25,7 +25,7 @@
   "dependencies": {
     "@libsql/client": "^0.6.2",
     "@prisma/adapter-libsql": "^5.22.0",
-    "bcrypt": "^6.0.0",
+    "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "lucide-react": "^0.562.0",
@@ -40,7 +40,7 @@
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@prisma/client": "^5.22.0",
-    "@types/bcrypt": "^6.0.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^25.0.8",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
