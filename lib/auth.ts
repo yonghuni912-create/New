@@ -1,6 +1,6 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { compare } from 'bcrypt';
+import { compare } from 'bcryptjs';
 import { prisma } from './prisma';
 import { UserRole } from '@/lib/enums';
 
