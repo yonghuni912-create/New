@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
@@ -13,7 +13,57 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [autoLogin, setAutoLogin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    const shouldAutoLogin = localStorage.getItem('autoLogin') === 'true';
+    const savedPassword = localStorage.getItem('savedPassword');
+
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+
+    if (shouldAutoLogin && savedEmail && savedPassword) {
+      setAutoLogin(true);
+      setPassword(savedPassword);
+      // Auto login after a brief delay
+      setTimeout(() => {
+        handleAutoLogin(savedEmail, savedPassword);
+      }, 500);
+    }
+  }, []);
+
+  const handleAutoLogin = async (savedEmail: string, savedPassword: string) => {
+    setIsLoading(true);
+    try {
+      const result = await signIn('credentials', {
+        email: savedEmail,
+        password: savedPassword,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        toast.error('Auto-login failed. Please sign in manually.');
+        localStorage.removeItem('autoLogin');
+        localStorage.removeItem('savedPassword');
+      } else {
+        toast.success('Auto-login successful!');
+        router.push('/dashboard');
+        router.refresh();
+      }
+    } catch (error) {
+      toast.error('Auto-login error');
+      localStorage.removeItem('autoLogin');
+      localStorage.removeItem('savedPassword');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +79,21 @@ export default function LoginPage() {
       if (result?.error) {
         toast.error('Invalid credentials');
       } else {
+        // Save credentials based on user preferences
+        if (rememberMe) {
+          localStorage.setItem('rememberedEmail', email);
+        } else {
+          localStorage.removeItem('rememberedEmail');
+        }
+
+        if (autoLogin) {
+          localStorage.setItem('autoLogin', 'true');
+          localStorage.setItem('savedPassword', password);
+        } else {
+          localStorage.removeItem('autoLogin');
+          localStorage.removeItem('savedPassword');
+        }
+
         toast.success('Login successful!');
         router.push('/dashboard');
         router.refresh();
@@ -73,6 +138,38 @@ export default function LoginPage() {
                 disabled={isLoading}
               />
             </div>
+            
+            {/* Remember Me and Auto Login checkboxes */}
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <input
+                  id="rememberMe"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  disabled={isLoading}
+                />
+                <Label htmlFor="rememberMe" className="ml-2 text-sm text-gray-700 cursor-pointer">
+                  Remember Email
+                </Label>
+              </div>
+              
+              <div className="flex items-center">
+                <input
+                  id="autoLogin"
+                  type="checkbox"
+                  checked={autoLogin}
+                  onChange={(e) => setAutoLogin(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  disabled={isLoading}
+                />
+                <Label htmlFor="autoLogin" className="ml-2 text-sm text-gray-700 cursor-pointer">
+                  Auto Login (Keep me signed in)
+                </Label>
+              </div>
+            </div>
+
             <Button
               type="submit"
               variant="primary"
