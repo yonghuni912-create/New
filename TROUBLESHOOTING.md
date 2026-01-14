@@ -92,6 +92,12 @@ SELECT COUNT(*) FROM User;
 
 ### Step 4: Common Error Messages and Solutions
 
+#### "No native build was found for platform=linux" (bcrypt error)
+**Cause**: Native module (bcrypt) not compatible with Vercel serverless
+**Solution**: ✅ **FIXED in latest commit** - The code has been updated to use `bcryptjs` instead
+- If you still see this, redeploy to get the latest code
+- The error message will mention `bcrypt` or `node-gyp-build`
+
 #### "PrismaClientInitializationError"
 **Cause**: Database connection failed
 **Solution**: 
