@@ -7,7 +7,8 @@ const nextConfig = {
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals.push('@prisma/adapter-libsql');
+      // Externalize libsql packages to avoid bundling issues
+      config.externals.push('@libsql/client', '@prisma/adapter-libsql');
     }
     return config;
   },

@@ -185,6 +185,8 @@ The platform implements RBAC with four roles:
 
 ### Using Turso (Production Database)
 
+Turso is automatically used when both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables are set. Otherwise, the app falls back to SQLite.
+
 1. Create a Turso database:
 ```bash
 turso db create bbq-franchise
