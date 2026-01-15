@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
@@ -100,12 +100,29 @@ interface Props {
 export default function StoreForm({ countries, userId, store }: Props) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedCountry, setSelectedCountry] = useState(
-    store?.country || countries[0]?.code || ''
-  );
+  
+  // Find country code from store data (could be code or name)
+  const getCountryCode = () => {
+    if (!store?.country) return countries[0]?.code || 'CA';
+    // If it's already a 2-letter code
+    if (store.country.length === 2) return store.country;
+    // Otherwise find by name
+    const found = countries.find(c => c.name === store.country || c.code === store.country);
+    return found?.code || countries[0]?.code || 'CA';
+  };
+  
+  const initialCountry = getCountryCode();
+  const [selectedCountry, setSelectedCountry] = useState(initialCountry);
   const [selectedTimezone, setSelectedTimezone] = useState(
-    TIMEZONES_BY_COUNTRY[store?.country || 'CA']?.[0]?.value || 'America/Toronto'
+    store?.timezone || TIMEZONES_BY_COUNTRY[initialCountry]?.[0]?.value || 'America/Toronto'
   );
+
+  // Reset form when store changes
+  React.useEffect(() => {
+    const countryCode = getCountryCode();
+    setSelectedCountry(countryCode);
+    setSelectedTimezone(store?.timezone || TIMEZONES_BY_COUNTRY[countryCode]?.[0]?.value || 'America/Toronto');
+  }, [store?.id]);
 
   const selectedCountryData = countries.find((c) => c.code === selectedCountry);
   const availableTimezones = TIMEZONES_BY_COUNTRY[selectedCountry] || [];
@@ -162,7 +179,7 @@ export default function StoreForm({ countries, userId, store }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
+    <form key={store?.id || 'new'} onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
       <div className="space-y-6">
         {/* Basic Information */}
         <div>

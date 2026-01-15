@@ -59,6 +59,8 @@ interface SavedManual {
   group?: ManualGroup;
   costVersions?: CostVersion[];
   ingredients?: any[];
+  isDeleted?: boolean;
+  isArchived?: boolean;
 }
 
 interface CostVersion {
@@ -685,8 +687,15 @@ export default function TemplatesPage() {
 
   // Save manual (create new or update existing)
   const saveManual = async () => {
-    if (!menuName && !menuNameKo) {
-      alert('메뉴명을 입력해주세요.');
+    console.log('📝 Save Manual called');
+    console.log('   menuName:', JSON.stringify(menuName));
+    console.log('   menuNameKo:', JSON.stringify(menuNameKo));
+    
+    const trimmedName = menuName?.trim() || '';
+    const trimmedNameKo = menuNameKo?.trim() || '';
+    
+    if (!trimmedName && !trimmedNameKo) {
+      alert('메뉴명을 입력해주세요. (한글 또는 영문 중 하나 이상)');
       return;
     }
 
@@ -699,8 +708,8 @@ export default function TemplatesPage() {
       }
 
       const payload = {
-        name: menuName || menuNameKo,
-        koreanName: menuNameKo,
+        name: trimmedName || trimmedNameKo,
+        koreanName: trimmedNameKo,
         shelfLife,
         yield: 1, // 기본값 (생산량)
         yieldUnit: 'ea', // 기본 단위
@@ -1099,11 +1108,14 @@ export default function TemplatesPage() {
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
                         setMenuImage(file);
                         setMenuImageName(file.name);
+                        // Create preview URL
+                        const base64 = await fileToBase64(file);
+                        setMenuImageUrl(base64);
                       }
                     }}
                   />
@@ -1116,6 +1128,7 @@ export default function TemplatesPage() {
                       onClick={() => {
                         setMenuImage(null);
                         setMenuImageName('');
+                        setMenuImageUrl('');
                       }}
                       className="text-orange-400 hover:text-orange-600"
                     >
@@ -1124,6 +1137,16 @@ export default function TemplatesPage() {
                   </div>
                 )}
               </div>
+              {/* Image Preview */}
+              {menuImageUrl && (
+                <div className="mt-3 p-2 border border-gray-200 rounded-lg bg-gray-50 inline-block">
+                  <img 
+                    src={menuImageUrl} 
+                    alt="메뉴 사진 미리보기" 
+                    className="max-h-40 max-w-xs object-contain rounded"
+                  />
+                </div>
+              )}
               <p className="text-xs text-gray-500 mt-1">지원 형식: JPG, PNG, GIF (최대 5MB)</p>
             </div>
           </div>
@@ -1500,13 +1523,86 @@ export default function TemplatesPage() {
       {/* Cost Table Tab */}
       {activeTab === 'costTable' && (
         <div className="space-y-4">
-          {/* Simplified Cost View - Template/Cost features temporarily disabled */}
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <Table className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-700 mb-2">Cost Table 기능 준비중</h3>
-            <p className="text-gray-500">
-              원가 계산 및 가격 템플릿 기능은 현재 개발 중입니다.<br/>
-              Pricing 메뉴에서 식재료 마스터를 관리하실 수 있습니다.
+          {/* Cost Table Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">원가표 (Cost Table)</h2>
+              <p className="text-sm text-gray-500">저장된 매뉴얼의 원가를 계산합니다</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">Price Template:</span>
+              <select
+                value={editorTemplateId}
+                onChange={(e) => setEditorTemplateId(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="">Select Template</option>
+                {priceTemplates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.currency || 'CAD'})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Cost Table */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">메뉴명</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Menu Name</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">식재료 수</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">판매가</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가율</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">마진</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {savedManuals.filter(m => !m.isDeleted && !m.isArchived).length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      저장된 매뉴얼이 없습니다. Editor 탭에서 매뉴얼을 먼저 작성해주세요.
+                    </td>
+                  </tr>
+                ) : (
+                  savedManuals.filter(m => !m.isDeleted && !m.isArchived).map(manual => {
+                    // Calculate cost from ingredients (simplified - actual calc would need template prices)
+                    const ingredientCount = manual.ingredients?.length || 0;
+                    const totalCost = manual.ingredients?.reduce((sum: number, ing: any) => {
+                      const qty = ing.quantity || 0;
+                      const price = ing.unitPrice || 0;
+                      return sum + (qty * price);
+                    }, 0) || 0;
+                    const sellingPrice = manual.sellingPrice || 0;
+                    const costRate = sellingPrice > 0 ? ((totalCost / sellingPrice) * 100).toFixed(1) : '-';
+                    const margin = sellingPrice > 0 ? (sellingPrice - totalCost).toFixed(2) : '-';
+                    
+                    return (
+                      <tr key={manual.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handlePreviewManual(manual)}>
+                        <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
+                        <td className="px-4 py-3 text-gray-600">{manual.name}</td>
+                        <td className="px-4 py-3 text-center">{ingredientCount}</td>
+                        <td className="px-4 py-3 text-right font-mono">${totalCost.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right font-mono">${sellingPrice.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`${parseFloat(costRate as string) > 35 ? 'text-red-600' : 'text-green-600'}`}>
+                            {costRate}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-green-600">${margin}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-700">
+              <strong>원가 계산 방법:</strong> 각 식재료의 사용량 × 단가의 합계로 계산됩니다.<br/>
+              정확한 원가 계산을 위해 Pricing 메뉴에서 가격 템플릿을 설정하고, 매뉴얼 작성 시 템플릿을 선택해주세요.
             </p>
           </div>
         </div>
