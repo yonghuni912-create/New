@@ -52,6 +52,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (body.shelfLife !== undefined) updateData.shelfLife = body.shelfLife;
     if (body.cookingMethod !== undefined) updateData.cookingMethod = body.cookingMethod ? JSON.stringify(body.cookingMethod) : null;
     if (body.priceTemplateId !== undefined) updateData.priceTemplateId = body.priceTemplateId || null;
+    // Support for restore/archive operations
+    if (body.isActive !== undefined) updateData.isActive = body.isActive;
+    if (body.isArchived !== undefined) updateData.isArchived = body.isArchived;
     
     console.log('📝 Update data:', JSON.stringify(updateData, null, 2));
     

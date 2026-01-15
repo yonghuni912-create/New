@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
         shelfLife: shelfLife || null,
         isActive: true,
         isArchived: false,
+        isMaster: true, // 마스터 매뉴얼로 생성
         ingredients: ingredients && ingredients.length > 0 ? {
           create: ingredients.map((ing: any, index: number) => ({
             ingredientId: ing.ingredientId || null,

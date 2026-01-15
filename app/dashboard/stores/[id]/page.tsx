@@ -6,6 +6,9 @@ import Link from 'next/link';
 import { ArrowLeft, Calendar, FileText } from 'lucide-react';
 import StoreDetailTabs from '@/components/StoreDetailTabs';
 
+// Force dynamic rendering for each store (no caching between stores)
+export const dynamic = 'force-dynamic';
+
 export default async function StoreDetailPage({
   params,
 }: {
