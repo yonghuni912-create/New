@@ -77,6 +77,8 @@ interface PriceTemplate {
   id: string;
   name: string;
   country?: string;
+  region?: string;
+  currency?: string;
 }
 
 const DEFAULT_COOKING_PROCESSES = [
@@ -173,8 +175,11 @@ export default function TemplatesPage() {
     setIsLoading(true);
     console.log('📡 Fetching data...');
     try {
-      // Only fetch manuals - groups and ingredient-templates are not in Turso schema
-      const manualsRes = await fetch('/api/manuals', { cache: 'no-store' });
+      // Fetch manuals and price templates in parallel
+      const [manualsRes, templatesRes] = await Promise.all([
+        fetch('/api/manuals', { cache: 'no-store' }),
+        fetch('/api/price-templates', { cache: 'no-store' })
+      ]);
 
       if (manualsRes.ok) {
         const manuals = await manualsRes.json();
@@ -194,9 +199,17 @@ export default function TemplatesPage() {
         }
       }
       
-      // Note: ManualGroups and IngredientTemplates are not available in Turso DB
-      // setManualGroups([]);
-      // setPriceTemplates([]);
+      // Load price templates
+      if (templatesRes.ok) {
+        const templates = await templatesRes.json();
+        console.log('✅ Price templates loaded:', templates.length);
+        setPriceTemplates(templates);
+        
+        // Auto-select first template if available
+        if (templates.length > 0 && !editorTemplateId) {
+          setEditorTemplateId(templates[0].id);
+        }
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -204,36 +217,39 @@ export default function TemplatesPage() {
     }
   };
 
-  // Update ingredient prices when template changes - DISABLED (no IngredientTemplate in Turso)
-  // useEffect(() => {
-  //   if (editorTemplateId && activeTab === 'editor') {
-  //     updatePricesFromTemplate(editorTemplateId);
-  //   }
-  // }, [editorTemplateId, activeTab]);
+  // Update ingredient prices when template changes
+  useEffect(() => {
+    if (editorTemplateId && activeTab === 'editor') {
+      updatePricesFromTemplate(editorTemplateId);
+    }
+  }, [editorTemplateId, activeTab]);
 
   const updatePricesFromTemplate = async (templateId: string) => {
-    // DISABLED: IngredientTemplate model not available in Turso DB
-    return;
+    if (!templateId) return;
     
     try {
-      // Fetch template items
-      const res = await fetch(`/api/ingredient-templates/${templateId}/items`);
+      // Fetch template items from price-templates API
+      const res = await fetch(`/api/price-templates/${templateId}/items`);
       if (res.ok) {
         const templateItems = await res.json();
+        
+        // Get currency from selected template
+        const selectedTemplate = priceTemplates.find(t => t.id === templateId);
+        const currency = selectedTemplate?.currency || 'CAD';
         
         // Update prices in current ingredients list
         setIngredients(prevIngredients => {
           return prevIngredients.map(ing => {
             if (!ing.ingredientId) return ing;
             
-            // Find matching template item
-            const templateItem = templateItems.find((item: any) => item.ingredientId === ing.ingredientId);
+            // Find matching template item by ingredientMasterId
+            const templateItem = templateItems.find((item: any) => item.ingredientMasterId === ing.ingredientId);
             
             if (templateItem) {
               return {
                 ...ing,
-                price: templateItem.price,
-                currency: templateItem.currency
+                price: templateItem.unitPrice,
+                currency: currency
               };
             }
             return ing;
@@ -275,7 +291,31 @@ export default function TemplatesPage() {
     searchTimeoutRef.current = setTimeout(() => searchIngredients(value), 300);
   };
 
-  const selectIngredient = (index: number, suggestion: IngredientSuggestion) => {
+  const selectIngredient = async (index: number, suggestion: IngredientSuggestion) => {
+    // Get price from selected template
+    let price = 0;
+    let currency = 'CAD';
+    
+    if (editorTemplateId) {
+      try {
+        const res = await fetch(`/api/price-templates/${editorTemplateId}/items`);
+        if (res.ok) {
+          const items = await res.json();
+          const item = items.find((i: any) => i.ingredientMasterId === suggestion.id);
+          if (item) {
+            price = item.unitPrice;
+          }
+        }
+        // Get currency from template
+        const template = priceTemplates.find(t => t.id === editorTemplateId);
+        if (template?.currency) {
+          currency = template.currency;
+        }
+      } catch (error) {
+        console.error('Failed to get price from template:', error);
+      }
+    }
+    
     const newIngredients = [...ingredients];
     newIngredients[index] = {
       ...newIngredients[index],
@@ -283,8 +323,8 @@ export default function TemplatesPage() {
       koreanName: suggestion.koreanName,
       unit: suggestion.unit,
       ingredientId: suggestion.id,
-      price: suggestion.price,
-      currency: suggestion.currency
+      price: price,
+      currency: currency
     };
     setIngredients(newIngredients);
     setSuggestions([]);
