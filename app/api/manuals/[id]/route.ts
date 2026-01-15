@@ -71,10 +71,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           manualId: id,
           ingredientId: ing.ingredientId || null,
           name: ing.name || ing.koreanName || 'Unknown',
+          koreanName: ing.koreanName || null,
           quantity: parseFloat(ing.quantity) || 0,
           unit: ing.unit || 'g',
           sortOrder: index,
-          notes: ing.notes || null
+          notes: ing.notes || null,
+          unitPrice: ing.unitPrice ?? null,       // pricing 가격
+          baseQuantity: ing.baseQuantity ?? null  // pricing 기준 수량
         }));
         
         await prisma.manualIngredient.createMany({ data: ingredientData });

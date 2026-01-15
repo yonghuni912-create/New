@@ -307,6 +307,9 @@ model ManualIngredient {
   section          String            @default("MAIN")
   sortOrder        Int               @default(0)
   notes            String?
+  // 원가 계산용 필드
+  unitPrice        Float?            // pricing 템플릿의 가격
+  baseQuantity     Float?            // pricing 템플릿의 기준 수량
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   manual           MenuManual        @relation(fields: [manualId], references: [id], onDelete: Cascade)

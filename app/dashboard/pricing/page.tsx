@@ -82,6 +82,7 @@ export default function PricingPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<PriceTemplate | null>(null);
   const [templateItems, setTemplateItems] = useState<PriceTemplateItem[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['All']));
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('All'); // 템플릿 탭 카테고리 필터
   
   // Modals
   const [showAddIngredient, setShowAddIngredient] = useState(false);
@@ -601,203 +602,189 @@ export default function PricingPage() {
 
       {/* Templates Tab */}
       {activeTab === 'templates' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Templates List */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">가격 템플릿</h3>
+        <div className="space-y-4">
+          {/* Header with Dropdowns */}
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">가격 템플릿:</span>
+              <select
+                value={selectedTemplate?.id || ''}
+                onChange={(e) => {
+                  const tmpl = templates.find(t => t.id === e.target.value);
+                  setSelectedTemplate(tmpl || null);
+                }}
+                className="px-3 py-2 border rounded-lg text-sm min-w-[200px]"
+              >
+                <option value="">템플릿 선택</option>
+                {templates.map(tmpl => (
+                  <option key={tmpl.id} value={tmpl.id}>
+                    {tmpl.name} ({tmpl.country} • {tmpl.currency})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowAddTemplate(true)}
+                className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg"
+                title="새 템플릿 생성"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+              {selectedTemplate && (
                 <button
-                  onClick={() => setShowAddTemplate(true)}
-                  className="p-1 text-orange-500 hover:bg-orange-50 rounded"
-                  title="새 템플릿 생성"
+                  onClick={() => handleDeleteTemplate(selectedTemplate.id)}
+                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                  title="템플릿 삭제"
                 >
-                  <Plus className="w-5 h-5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
-              </div>
-              
-              <div className="space-y-2">
-                {templates.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-4">
-                    아직 가격 템플릿이 없습니다.<br/>
-                    + 버튼을 눌러 생성하세요.
-                  </p>
-                ) : (
-                  templates.map(tmpl => (
-                    <div
-                      key={tmpl.id}
-                      onClick={() => setSelectedTemplate(tmpl)}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                        selectedTemplate?.id === tmpl.id
-                          ? 'bg-orange-50 border-2 border-orange-500'
-                          : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium">{tmpl.name}</div>
-                          <div className="text-sm text-gray-500">
-                            {tmpl.country}{tmpl.region ? `, ${tmpl.region}` : ''} • {tmpl.currency}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl.id); }}
-                          className="p-1 text-red-400 hover:text-red-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+              )}
             </div>
-          </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">카테고리:</span>
+              <select
+                value={templateCategoryFilter}
+                onChange={(e) => setTemplateCategoryFilter(e.target.value)}
+                className="px-3 py-2 border rounded-lg text-sm"
+              >
+                {CATEGORIES.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Template Items */}
-          <div className="lg:col-span-3">
-            {selectedTemplate ? (
-              <div className="bg-white rounded-lg shadow">
-                <div className="p-4 border-b flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-lg">{selectedTemplate.name}</h3>
-                    <p className="text-sm text-gray-500">
-                      {selectedTemplate.country}{selectedTemplate.region ? `, ${selectedTemplate.region}` : ''} 
-                      • 화폐: {selectedTemplate.currency}
-                    </p>
-                  </div>
-                  {hasUnsavedChanges && (
-                    <button
-                      onClick={handleSaveItems}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
-                    >
-                      <Save className="w-4 h-4" />
-                      변경 사항 저장
-                    </button>
-                  )}
-                </div>
-
-                <div className="p-4">
-                  {Object.keys(groupedItems).length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <DollarSign className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                      <p>이 템플릿에 아이템이 없습니다.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-gray-500 mb-2">
-                        💡 국가별로 다른 제품을 사용할 경우, 해당 템플릿에서 영문명/수량/단위를 수정하면 이 템플릿에만 적용됩니다.
-                      </p>
-                      {Object.entries(groupedItems).map(([category, items]) => (
-                        <div key={category} className="border rounded-lg">
-                          <button
-                            onClick={() => toggleCategory(category)}
-                            className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100"
-                          >
-                            <span className="font-medium">
-                              {category} ({items.length})
-                            </span>
-                            {expandedCategories.has(category) ? (
-                              <ChevronDown className="w-4 h-4" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4" />
-                            )}
-                          </button>
-                          
-                          {expandedCategories.has(category) && (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
-                                <thead className="bg-gray-50">
-                                  <tr>
-                                    <th className="px-3 py-2 text-left w-28">식재료명(한)</th>
-                                    <th className="px-3 py-2 text-left w-40">현지 영문명</th>
-                                    <th className="px-3 py-2 text-right w-20">수량</th>
-                                    <th className="px-3 py-2 text-center w-16">단위</th>
-                                    <th className="px-3 py-2 text-right w-24">
-                                      단가 ({getCurrencySymbol(selectedTemplate.currency)})
-                                    </th>
-                                    <th className="px-3 py-2 text-left w-28">포장단위</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                  {items.map(item => {
-                                    const isEdited = editingItems.has(item.id);
-                                    return (
-                                      <tr key={item.id} className={`hover:bg-gray-50 ${isEdited ? 'bg-yellow-50' : ''}`}>
-                                        <td className="px-3 py-2 text-gray-700">{item.koreanName}</td>
-                                        <td className="px-3 py-1">
-                                          <input
-                                            type="text"
-                                            value={getDisplayValue(item, 'localEnglishName', 'englishName') || ''}
-                                            onChange={(e) => handleItemFieldChange(item.id, 'localEnglishName', e.target.value)}
-                                            className="w-full px-2 py-1 border rounded text-sm"
-                                            placeholder={item.englishName}
-                                          />
-                                        </td>
-                                        <td className="px-3 py-1">
-                                          <input
-                                            type="number"
-                                            step="0.01"
-                                            value={getDisplayValue(item, 'localQuantity', 'quantity') ?? ''}
-                                            onChange={(e) => handleItemFieldChange(item.id, 'localQuantity', parseFloat(e.target.value) || null)}
-                                            className="w-full px-2 py-1 border rounded text-right text-sm"
-                                            placeholder={String(item.quantity || 0)}
-                                          />
-                                        </td>
-                                        <td className="px-3 py-1">
-                                          <select
-                                            value={getDisplayValue(item, 'localUnit', 'unit') || ''}
-                                            onChange={(e) => handleItemFieldChange(item.id, 'localUnit', e.target.value)}
-                                            className="w-full px-1 py-1 border rounded text-sm"
-                                          >
-                                            <option value="">{item.unit}</option>
-                                            {UNITS.map(u => (
-                                              <option key={u} value={u}>{u}</option>
-                                            ))}
-                                          </select>
-                                        </td>
-                                        <td className="px-3 py-1">
-                                          <input
-                                            type="number"
-                                            step="0.01"
-                                            value={getEffectiveValue(item, 'unitPrice') ?? item.unitPrice}
-                                            onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                                            className="w-full px-2 py-1 border rounded text-right text-sm"
-                                          />
-                                        </td>
-                                        <td className="px-3 py-1">
-                                          <input
-                                            type="text"
-                                            value={getEffectiveValue(item, 'packagingUnit') || ''}
-                                            onChange={(e) => handleItemFieldChange(item.id, 'packagingUnit', e.target.value)}
-                                            className="w-full px-2 py-1 border rounded text-sm"
-                                            placeholder="예: 1박스"
-                                          />
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-lg shadow p-8 text-center">
-                <Globe className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                <h3 className="text-lg font-medium text-gray-700 mb-2">가격 템플릿을 선택하세요</h3>
-                <p className="text-gray-500">
-                  왼쪽 목록에서 템플릿을 선택하거나<br/>
-                  + 버튼을 눌러 새 템플릿을 생성하세요.
-                </p>
-              </div>
+            {hasUnsavedChanges && (
+              <button
+                onClick={handleSaveItems}
+                className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 ml-auto"
+              >
+                <Save className="w-4 h-4" />
+                변경 사항 저장
+              </button>
             )}
           </div>
+
+          {/* Template Items Table */}
+          {selectedTemplate ? (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="p-3 bg-gray-50 border-b">
+                <p className="text-xs text-gray-500">
+                  💡 국가별로 다른 제품을 사용할 경우, 해당 템플릿에서 영문명/수량/단위를 수정하면 이 템플릿에만 적용됩니다.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">카테고리</th>
+                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">식재료명(한)</th>
+                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">현지 영문명</th>
+                      <th className="px-3 py-2 text-right text-sm font-medium text-gray-700">수량</th>
+                      <th className="px-3 py-2 text-center text-sm font-medium text-gray-700">단위</th>
+                      <th className="px-3 py-2 text-right text-sm font-medium text-gray-700">
+                        단가 ({getCurrencySymbol(selectedTemplate.currency)})
+                      </th>
+                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">포장단위</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(() => {
+                      const filtered = templateCategoryFilter === 'All' 
+                        ? templateItems 
+                        : templateItems.filter(item => item.category === templateCategoryFilter);
+                      
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                              {templateItems.length === 0 
+                                ? '이 템플릿에 아이템이 없습니다.' 
+                                : '해당 카테고리에 아이템이 없습니다.'}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      
+                      return filtered.map(item => {
+                        const isEdited = editingItems.has(item.id);
+                        return (
+                          <tr key={item.id} className={`hover:bg-gray-50 ${isEdited ? 'bg-yellow-50' : ''}`}>
+                            <td className="px-3 py-2 text-sm">
+                              <span className="px-2 py-1 bg-gray-100 rounded text-gray-700">{item.category}</span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-700 font-medium">{item.koreanName}</td>
+                            <td className="px-3 py-1">
+                              <input
+                                type="text"
+                                value={getDisplayValue(item, 'localEnglishName', 'englishName') || ''}
+                                onChange={(e) => handleItemFieldChange(item.id, 'localEnglishName', e.target.value)}
+                                className="w-full px-2 py-1 border rounded text-sm"
+                                placeholder={item.englishName}
+                              />
+                            </td>
+                            <td className="px-3 py-1">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={getDisplayValue(item, 'localQuantity', 'quantity') ?? ''}
+                                onChange={(e) => handleItemFieldChange(item.id, 'localQuantity', parseFloat(e.target.value) || null)}
+                                className="w-full px-2 py-1 border rounded text-right text-sm"
+                                placeholder={String(item.quantity || 0)}
+                              />
+                            </td>
+                            <td className="px-3 py-1">
+                              <select
+                                value={getDisplayValue(item, 'localUnit', 'unit') || ''}
+                                onChange={(e) => handleItemFieldChange(item.id, 'localUnit', e.target.value)}
+                                className="w-full px-1 py-1 border rounded text-sm"
+                              >
+                                <option value="">{item.unit}</option>
+                                {UNITS.map(u => (
+                                  <option key={u} value={u}>{u}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-1">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={getEffectiveValue(item, 'unitPrice') ?? item.unitPrice}
+                                onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                                className="w-full px-2 py-1 border rounded text-right text-sm"
+                              />
+                            </td>
+                            <td className="px-3 py-1">
+                              <input
+                                type="text"
+                                value={getEffectiveValue(item, 'packagingUnit') || ''}
+                                onChange={(e) => handleItemFieldChange(item.id, 'packagingUnit', e.target.value)}
+                                className="w-full px-2 py-1 border rounded text-sm"
+                                placeholder="예: 1박스"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 bg-gray-50 border-t text-sm text-gray-500">
+                {templateCategoryFilter === 'All' 
+                  ? `총 ${templateItems.length}개 아이템`
+                  : `${templateCategoryFilter}: ${templateItems.filter(i => i.category === templateCategoryFilter).length}개 / 전체 ${templateItems.length}개`}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <Globe className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+              <h3 className="text-lg font-medium text-gray-700 mb-2">가격 템플릿을 선택하세요</h3>
+              <p className="text-gray-500">
+                상단 드롭다운에서 템플릿을 선택하거나<br/>
+                + 버튼을 눌러 새 템플릿을 생성하세요.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

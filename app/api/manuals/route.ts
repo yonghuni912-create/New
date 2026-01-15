@@ -114,10 +114,13 @@ export async function POST(request: NextRequest) {
           create: ingredients.map((ing: any, index: number) => ({
             ingredientId: ing.ingredientId || null,
             name: ing.name || ing.koreanName || 'Unknown',
+            koreanName: ing.koreanName || null,
             quantity: ing.quantity || 0,
             unit: ing.unit || 'g',
             sortOrder: index,
-            notes: ing.notes || null
+            notes: ing.notes || null,
+            unitPrice: ing.unitPrice ?? null,       // pricing 가격
+            baseQuantity: ing.baseQuantity ?? null  // pricing 기준 수량
           }))
         } : undefined
       },

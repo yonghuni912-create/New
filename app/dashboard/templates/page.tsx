@@ -27,6 +27,7 @@ interface ManualIngredient {
   ingredientId?: string;
   price?: number | null;
   currency?: string | null;
+  baseQuantity?: number | null; // pricing 기준 수량 (원가 계산용)
 }
 
 interface CookingStep {
@@ -361,6 +362,7 @@ export default function TemplatesPage() {
     let englishName = suggestion.englishName;
     let unit = suggestion.unit;
     let quantity = suggestion.quantity;
+    let baseQuantity = suggestion.quantity; // pricing 기준 수량
     
     if (editorTemplateId) {
       try {
@@ -373,7 +375,8 @@ export default function TemplatesPage() {
             // Use local values if they exist
             englishName = item.localEnglishName || item.englishName || suggestion.englishName;
             unit = item.localUnit || item.unit || suggestion.unit;
-            quantity = item.localQuantity ?? item.quantity ?? suggestion.quantity;
+            // baseQuantity는 pricing 아이템의 기준 수량
+            baseQuantity = item.localQuantity ?? item.quantity ?? suggestion.quantity;
           }
         }
         // Get currency from template
@@ -395,7 +398,8 @@ export default function TemplatesPage() {
       weight: quantity ? String(quantity) : newIngredients[index].weight,
       ingredientId: suggestion.id,
       price: price,
-      currency: currency
+      currency: currency,
+      baseQuantity: baseQuantity // pricing 기준 수량 저장
     };
     setIngredients(newIngredients);
     setSuggestions([]);
@@ -793,7 +797,9 @@ export default function TemplatesPage() {
           quantity: parseFloat(ing.weight) || 0,
           unit: ing.unit,
           section: 'MAIN',
-          notes: ing.purchase
+          notes: ing.purchase,
+          unitPrice: ing.price || null,      // pricing 가격
+          baseQuantity: ing.baseQuantity || null  // pricing 기준 수량
         }))
       };
 
@@ -1891,12 +1897,15 @@ export default function TemplatesPage() {
                   </tr>
                 ) : (
                   savedManuals.filter(m => !m.isDeleted && !m.isArchived).map(manual => {
-                    // Calculate cost from ingredients (simplified - actual calc would need template prices)
+                    // Calculate cost from ingredients: (사용량 / 기준수량) × 단가
                     const ingredientCount = manual.ingredients?.length || 0;
                     const totalCost = manual.ingredients?.reduce((sum: number, ing: any) => {
-                      const qty = ing.quantity || 0;
-                      const price = ing.unitPrice || 0;
-                      return sum + (qty * price);
+                      const usageQty = ing.quantity || 0; // 매뉴얼에서 실제 사용량
+                      const baseQty = ing.baseQuantity || 1; // pricing 기준 수량 (0이면 1로)
+                      const price = ing.unitPrice || 0; // pricing 가격
+                      // 원가 = (사용량 / 기준수량) × 가격
+                      const cost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                      return sum + cost;
                     }, 0) || 0;
                     const sellingPrice = manual.sellingPrice || 0;
                     const costRate = sellingPrice > 0 ? ((totalCost / sellingPrice) * 100).toFixed(1) : '-';
@@ -1925,8 +1934,8 @@ export default function TemplatesPage() {
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-sm text-blue-700">
-              <strong>원가 계산 방법:</strong> 각 식재료의 사용량 × 단가의 합계로 계산됩니다.<br/>
-              정확한 원가 계산을 위해 Pricing 메뉴에서 가격 템플릿을 설정하고, 매뉴얼 작성 시 템플릿을 선택해주세요.
+              <strong>원가 계산 방법:</strong> (사용량 / 기준수량) × 단가<br/>
+              예) Pricing에서 1,000g에 $10 → 매뉴얼에서 100g 사용 → 원가 = (100 / 1000) × $10 = $1
             </p>
           </div>
         </div>
