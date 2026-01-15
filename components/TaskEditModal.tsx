@@ -21,6 +21,13 @@ interface ChecklistItem {
   order: number;
 }
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
 interface TaskEditModalProps {
   task: any;
   isOpen?: boolean;
@@ -37,6 +44,7 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
   const [dueDate, setDueDate] = useState('');
   const [status, setStatus] = useState(task?.status || 'NOT_STARTED');
   const [priority, setPriority] = useState(task?.priority || 'MEDIUM');
+  const [assigneeId, setAssigneeId] = useState(task?.assigneeId || '');
   const [policy, setPolicy] = useState<'THIS_ONLY' | 'CASCADE_LATER' | 'CASCADE_ALL'>('THIS_ONLY');
   const [loading, setLoading] = useState(false);
 
@@ -49,11 +57,19 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [loadingChecklist, setLoadingChecklist] = useState(false);
+  
+  // Users for assignee dropdown
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   useEffect(() => {
     if (task) {
       setTitle(task.title || '');
       setDescription(task.description || '');
+      setAssigneeId(task.assigneeId || '');
       setStartDate(
         task.startDate || task.start_date
           ? format(new Date(task.startDate || task.start_date), 'yyyy-MM-dd')
@@ -70,6 +86,18 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
       fetchChecklist();
     }
   }, [task]);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/admin/users');
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch users:', e);
+    }
+  };
 
   const fetchComments = async () => {
     if (!task?.id) return;
@@ -190,6 +218,7 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
         dueDate,
         status,
         priority,
+        assigneeId: assigneeId || null,
         reschedulePolicy: policy
       });
       onClose();
@@ -311,6 +340,26 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
                     <option value="URGENT">Urgent</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <Label htmlFor="assignee" className="block mb-1 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  Assignee (담당자)
+                </Label>
+                <select
+                  id="assignee"
+                  value={assigneeId}
+                  onChange={(e) => setAssigneeId(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">미지정</option>
+                  {users.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} ({user.email})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
