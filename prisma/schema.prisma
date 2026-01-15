@@ -240,6 +240,7 @@ model PriceTemplate {
 }
 
 // 가격 템플릿 아이템 (템플릿 내 각 식재료별 가격)
+// 국가별로 다른 제품을 사용할 수 있으므로 localXxx 필드로 국가별 독자 정보 저장
 model PriceTemplateItem {
   id                 String           @id @default(cuid())
   priceTemplateId    String
@@ -248,6 +249,12 @@ model PriceTemplateItem {
   packagingUnit      String?
   packagingQty       Float?
   notes              String?
+  // 국가별 독자 필드 (null이면 마스터 값 사용)
+  localEnglishName   String?
+  localKoreanName    String?
+  localQuantity      Float?
+  localUnit          String?
+  localYieldRate     Float?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   priceTemplate      PriceTemplate    @relation(fields: [priceTemplateId], references: [id], onDelete: Cascade)

@@ -32,6 +32,7 @@ export async function GET(
     const items = await db.execute({
       sql: `
         SELECT pti.id, pti.ingredientMasterId, pti.unitPrice, pti.packagingUnit, pti.packagingQty, pti.notes,
+               pti.localEnglishName, pti.localKoreanName, pti.localQuantity, pti.localUnit, pti.localYieldRate,
                im.category, im.koreanName, im.englishName, im.quantity, im.unit, im.yieldRate
         FROM PriceTemplateItem pti
         JOIN IngredientMaster im ON pti.ingredientMasterId = im.id
@@ -95,7 +96,7 @@ export async function PUT(
 
   try {
     const body = await request.json();
-    const { items } = body; // Array of { id, unitPrice, packagingUnit, packagingQty, notes }
+    const { items } = body; // Array of { id, unitPrice, packagingUnit, packagingQty, notes, localEnglishName, localKoreanName, localQuantity, localUnit, localYieldRate }
 
     if (!items || !Array.isArray(items)) {
       return NextResponse.json({ error: 'items array is required' }, { status: 400 });
@@ -108,9 +109,24 @@ export async function PUT(
       if (item.id) {
         await db.execute({
           sql: `UPDATE PriceTemplateItem 
-                SET unitPrice = ?, packagingUnit = ?, packagingQty = ?, notes = ?, updatedAt = ?
+                SET unitPrice = ?, packagingUnit = ?, packagingQty = ?, notes = ?,
+                    localEnglishName = ?, localKoreanName = ?, localQuantity = ?, localUnit = ?, localYieldRate = ?,
+                    updatedAt = ?
                 WHERE id = ? AND priceTemplateId = ?`,
-          args: [item.unitPrice || 0, item.packagingUnit || null, item.packagingQty || null, item.notes || null, now, item.id, params.id]
+          args: [
+            item.unitPrice || 0, 
+            item.packagingUnit || null, 
+            item.packagingQty || null, 
+            item.notes || null, 
+            item.localEnglishName || null,
+            item.localKoreanName || null,
+            item.localQuantity || null,
+            item.localUnit || null,
+            item.localYieldRate || null,
+            now, 
+            item.id, 
+            params.id
+          ]
         });
       }
     }

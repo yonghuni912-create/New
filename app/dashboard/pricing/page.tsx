@@ -33,7 +33,13 @@ interface PriceTemplateItem {
   packagingUnit?: string;
   packagingQty?: number;
   notes?: string;
-  // From join
+  // 국가별 독자 필드 (null이면 마스터 값 사용)
+  localEnglishName?: string;
+  localKoreanName?: string;
+  localQuantity?: number;
+  localUnit?: string;
+  localYieldRate?: number;
+  // From join (마스터 데이터)
   category?: string;
   koreanName?: string;
   englishName?: string;
@@ -100,9 +106,12 @@ export default function PricingPage() {
     copyFromMaster: true
   });
 
-  // Editing price items
-  const [editingPrices, setEditingPrices] = useState<Map<string, number>>(new Map());
+  // Editing price items - now tracks full item changes including local fields
+  const [editingItems, setEditingItems] = useState<Map<string, Partial<PriceTemplateItem>>>(new Map());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  
+  // Modal for editing template item details
+  const [editingTemplateItem, setEditingTemplateItem] = useState<PriceTemplateItem | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') redirect('/login');
@@ -151,12 +160,8 @@ export default function PricingPage() {
       if (res.ok) {
         const data = await res.json();
         setTemplateItems(data);
-        // Initialize editing prices
-        const prices = new Map<string, number>();
-        data.forEach((item: PriceTemplateItem) => {
-          prices.set(item.id, item.unitPrice);
-        });
-        setEditingPrices(prices);
+        // Reset editing state
+        setEditingItems(new Map());
         setHasUnsavedChanges(false);
       }
     } catch (error) {
@@ -271,20 +276,52 @@ export default function PricingPage() {
     }
   };
 
-  const handlePriceChange = (itemId: string, price: number) => {
-    const newPrices = new Map(editingPrices);
-    newPrices.set(itemId, price);
-    setEditingPrices(newPrices);
+  // Handle field change for template item (inline editing)
+  const handleItemFieldChange = (itemId: string, field: keyof PriceTemplateItem, value: any) => {
+    const newEditingItems = new Map(editingItems);
+    const currentEdits = newEditingItems.get(itemId) || {};
+    newEditingItems.set(itemId, { ...currentEdits, [field]: value });
+    setEditingItems(newEditingItems);
     setHasUnsavedChanges(true);
   };
 
-  const handleSavePrices = async () => {
+  // Get effective value (edited or original)
+  const getEffectiveValue = (item: PriceTemplateItem, field: keyof PriceTemplateItem) => {
+    const edits = editingItems.get(item.id);
+    if (edits && edits[field] !== undefined) {
+      return edits[field];
+    }
+    return item[field];
+  };
+
+  // Get display value with local override
+  const getDisplayValue = (item: PriceTemplateItem, localField: keyof PriceTemplateItem, masterField: keyof PriceTemplateItem) => {
+    const edits = editingItems.get(item.id);
+    if (edits && edits[localField] !== undefined) {
+      return edits[localField];
+    }
+    // Return local value if exists, otherwise master value
+    return item[localField] ?? item[masterField];
+  };
+
+  const handleSaveItems = async () => {
     if (!selectedTemplate) return;
 
-    const items = templateItems.map(item => ({
-      id: item.id,
-      unitPrice: editingPrices.get(item.id) || item.unitPrice
-    }));
+    const items = templateItems.map(item => {
+      const edits = editingItems.get(item.id) || {};
+      return {
+        id: item.id,
+        unitPrice: edits.unitPrice ?? item.unitPrice,
+        packagingUnit: edits.packagingUnit ?? item.packagingUnit,
+        packagingQty: edits.packagingQty ?? item.packagingQty,
+        notes: edits.notes ?? item.notes,
+        localEnglishName: edits.localEnglishName ?? item.localEnglishName,
+        localKoreanName: edits.localKoreanName ?? item.localKoreanName,
+        localQuantity: edits.localQuantity ?? item.localQuantity,
+        localUnit: edits.localUnit ?? item.localUnit,
+        localYieldRate: edits.localYieldRate ?? item.localYieldRate,
+      };
+    });
 
     try {
       const res = await fetch(`/api/price-templates/${selectedTemplate.id}/items`, {
@@ -294,12 +331,13 @@ export default function PricingPage() {
       });
 
       if (res.ok) {
-        alert('가격이 저장되었습니다!');
+        alert('변경 사항이 저장되었습니다!');
         setHasUnsavedChanges(false);
+        setEditingItems(new Map());
         loadTemplateItems(selectedTemplate.id);
       }
     } catch (error) {
-      console.error('Save prices error:', error);
+      console.error('Save items error:', error);
     }
   };
 
@@ -553,11 +591,11 @@ export default function PricingPage() {
                   </div>
                   {hasUnsavedChanges && (
                     <button
-                      onClick={handleSavePrices}
+                      onClick={handleSaveItems}
                       className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
                     >
                       <Save className="w-4 h-4" />
-                      가격 저장
+                      변경 사항 저장
                     </button>
                   )}
                 </div>
@@ -570,6 +608,9 @@ export default function PricingPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      <p className="text-xs text-gray-500 mb-2">
+                        💡 국가별로 다른 제품을 사용할 경우, 해당 템플릿에서 영문명/수량/단위를 수정하면 이 템플릿에만 적용됩니다.
+                      </p>
                       {Object.entries(groupedItems).map(([category, items]) => (
                         <div key={category} className="border rounded-lg">
                           <button
@@ -587,38 +628,81 @@ export default function PricingPage() {
                           </button>
                           
                           {expandedCategories.has(category) && (
-                            <table className="w-full">
-                              <thead className="bg-gray-50 text-sm">
-                                <tr>
-                                  <th className="px-4 py-2 text-left">식재료명</th>
-                                  <th className="px-4 py-2 text-left">English</th>
-                                  <th className="px-4 py-2 text-right">기본 수량</th>
-                                  <th className="px-4 py-2 text-center">단위</th>
-                                  <th className="px-4 py-2 text-right w-32">
-                                    단가 ({getCurrencySymbol(selectedTemplate.currency)})
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100">
-                                {items.map(item => (
-                                  <tr key={item.id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-2">{item.koreanName}</td>
-                                    <td className="px-4 py-2 text-gray-600">{item.englishName}</td>
-                                    <td className="px-4 py-2 text-right">{item.quantity}</td>
-                                    <td className="px-4 py-2 text-center">{item.unit}</td>
-                                    <td className="px-4 py-2">
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={editingPrices.get(item.id) ?? item.unitPrice}
-                                        onChange={(e) => handlePriceChange(item.id, parseFloat(e.target.value) || 0)}
-                                        className="w-full px-2 py-1 border rounded text-right"
-                                      />
-                                    </td>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left w-28">식재료명(한)</th>
+                                    <th className="px-3 py-2 text-left w-40">현지 영문명</th>
+                                    <th className="px-3 py-2 text-right w-20">수량</th>
+                                    <th className="px-3 py-2 text-center w-16">단위</th>
+                                    <th className="px-3 py-2 text-right w-24">
+                                      단가 ({getCurrencySymbol(selectedTemplate.currency)})
+                                    </th>
+                                    <th className="px-3 py-2 text-left w-28">포장단위</th>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {items.map(item => {
+                                    const isEdited = editingItems.has(item.id);
+                                    return (
+                                      <tr key={item.id} className={`hover:bg-gray-50 ${isEdited ? 'bg-yellow-50' : ''}`}>
+                                        <td className="px-3 py-2 text-gray-700">{item.koreanName}</td>
+                                        <td className="px-3 py-1">
+                                          <input
+                                            type="text"
+                                            value={getDisplayValue(item, 'localEnglishName', 'englishName') || ''}
+                                            onChange={(e) => handleItemFieldChange(item.id, 'localEnglishName', e.target.value)}
+                                            className="w-full px-2 py-1 border rounded text-sm"
+                                            placeholder={item.englishName}
+                                          />
+                                        </td>
+                                        <td className="px-3 py-1">
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={getDisplayValue(item, 'localQuantity', 'quantity') ?? ''}
+                                            onChange={(e) => handleItemFieldChange(item.id, 'localQuantity', parseFloat(e.target.value) || null)}
+                                            className="w-full px-2 py-1 border rounded text-right text-sm"
+                                            placeholder={String(item.quantity || 0)}
+                                          />
+                                        </td>
+                                        <td className="px-3 py-1">
+                                          <select
+                                            value={getDisplayValue(item, 'localUnit', 'unit') || ''}
+                                            onChange={(e) => handleItemFieldChange(item.id, 'localUnit', e.target.value)}
+                                            className="w-full px-1 py-1 border rounded text-sm"
+                                          >
+                                            <option value="">{item.unit}</option>
+                                            {UNITS.map(u => (
+                                              <option key={u} value={u}>{u}</option>
+                                            ))}
+                                          </select>
+                                        </td>
+                                        <td className="px-3 py-1">
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={getEffectiveValue(item, 'unitPrice') ?? item.unitPrice}
+                                            onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                                            className="w-full px-2 py-1 border rounded text-right text-sm"
+                                          />
+                                        </td>
+                                        <td className="px-3 py-1">
+                                          <input
+                                            type="text"
+                                            value={getEffectiveValue(item, 'packagingUnit') || ''}
+                                            onChange={(e) => handleItemFieldChange(item.id, 'packagingUnit', e.target.value)}
+                                            className="w-full px-2 py-1 border rounded text-sm"
+                                            placeholder="예: 1박스"
+                                          />
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
                           )}
                         </div>
                       ))}

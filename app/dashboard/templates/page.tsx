@@ -10,6 +10,7 @@ interface IngredientSuggestion {
   koreanName: string;
   englishName: string;
   category: string;
+  quantity?: number;
   unit: string;
   yieldRate: number;
   price?: number | null;
@@ -263,7 +264,7 @@ export default function TemplatesPage() {
     }
   };
 
-  // Ingredient search
+  // Ingredient search - now filters by selected template
   const searchIngredients = useCallback(async (query: string) => {
     if (!query || query.length < 1) {
       setSuggestions([]);
@@ -271,6 +272,40 @@ export default function TemplatesPage() {
     }
 
     try {
+      // If a template is selected, search within template items
+      if (editorTemplateId) {
+        const res = await fetch(`/api/price-templates/${editorTemplateId}/items`);
+        if (res.ok) {
+          const items = await res.json();
+          const lowerQuery = query.toLowerCase();
+          
+          // Filter template items by search query and map to suggestion format
+          const filtered = items
+            .filter((item: any) => 
+              (item.koreanName?.toLowerCase().includes(lowerQuery)) ||
+              (item.englishName?.toLowerCase().includes(lowerQuery)) ||
+              (item.localEnglishName?.toLowerCase().includes(lowerQuery)) ||
+              (item.localKoreanName?.toLowerCase().includes(lowerQuery))
+            )
+            .slice(0, 8)
+            .map((item: any) => ({
+              id: item.ingredientMasterId,
+              koreanName: item.localKoreanName || item.koreanName,
+              englishName: item.localEnglishName || item.englishName,
+              category: item.category,
+              quantity: item.localQuantity ?? item.quantity,
+              unit: item.localUnit || item.unit,
+              yieldRate: item.localYieldRate ?? item.yieldRate,
+              // Include price from template item
+              unitPrice: item.unitPrice,
+            }));
+          
+          setSuggestions(filtered);
+          return;
+        }
+      }
+      
+      // Fallback to master ingredients search
       const url = `/api/ingredients/search?q=${encodeURIComponent(query)}&limit=8`;
       const res = await fetch(url);
       if (res.ok) {
@@ -280,7 +315,7 @@ export default function TemplatesPage() {
     } catch (error) {
       console.error('Search error:', error);
     }
-  }, []);
+  }, [editorTemplateId]);
 
   const handleIngredientInput = (index: number, value: string) => {
     const newIngredients = [...ingredients];
@@ -294,9 +329,12 @@ export default function TemplatesPage() {
   };
 
   const selectIngredient = async (index: number, suggestion: IngredientSuggestion) => {
-    // Get price from selected template
-    let price = 0;
+    // Get price and local values from selected template
+    let price = (suggestion as any).unitPrice || 0;
     let currency = 'CAD';
+    let englishName = suggestion.englishName;
+    let unit = suggestion.unit;
+    let quantity = suggestion.quantity;
     
     if (editorTemplateId) {
       try {
@@ -306,6 +344,10 @@ export default function TemplatesPage() {
           const item = items.find((i: any) => i.ingredientMasterId === suggestion.id);
           if (item) {
             price = item.unitPrice;
+            // Use local values if they exist
+            englishName = item.localEnglishName || item.englishName || suggestion.englishName;
+            unit = item.localUnit || item.unit || suggestion.unit;
+            quantity = item.localQuantity ?? item.quantity ?? suggestion.quantity;
           }
         }
         // Get currency from template
@@ -321,9 +363,10 @@ export default function TemplatesPage() {
     const newIngredients = [...ingredients];
     newIngredients[index] = {
       ...newIngredients[index],
-      name: suggestion.englishName,
+      name: englishName,
       koreanName: suggestion.koreanName,
-      unit: suggestion.unit,
+      unit: unit,
+      weight: quantity ? String(quantity) : newIngredients[index].weight,
       ingredientId: suggestion.id,
       price: price,
       currency: currency
