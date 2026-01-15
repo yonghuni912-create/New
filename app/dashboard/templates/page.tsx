@@ -173,30 +173,12 @@ export default function TemplatesPage() {
     setIsLoading(true);
     console.log('📡 Fetching data...');
     try {
-      const [groupsRes, manualsRes, templatesRes] = await Promise.all([
-        fetch('/api/manual-groups?includeManuals=true&includeTemplate=true', { cache: 'no-store' }),
-        fetch('/api/manuals?includeCostVersions=true', { cache: 'no-store' }),
-        fetch('/api/ingredient-templates', { cache: 'no-store' })
-      ]);
+      // Only fetch manuals - groups and ingredient-templates are not in Turso schema
+      const manualsRes = await fetch('/api/manuals', { cache: 'no-store' });
 
-      console.log('Response statuses:', {
-        groups: groupsRes.status,
-        manuals: manualsRes.status,
-        templates: templatesRes.status
-      });
-
-      if (groupsRes.ok) {
-        const groups = await groupsRes.json();
-        console.log('✅ Groups loaded:', groups.length);
-        setManualGroups(groups);
-      } else {
-        const errorData = await groupsRes.json().catch(() => ({}));
-        console.error('❌ Failed to load groups:', groupsRes.status, errorData);
-      }
-      
       if (manualsRes.ok) {
         const manuals = await manualsRes.json();
-        console.log('✅ Manuals loaded:', manuals.length, manuals);
+        console.log('✅ Manuals loaded:', manuals.length);
         setSavedManuals(manuals);
       } else {
         let errorText = '';
@@ -205,7 +187,6 @@ export default function TemplatesPage() {
           errorText = JSON.stringify(errorData, null, 2);
           console.error('❌ Failed to load manuals:', manualsRes.status);
           console.error('Error details:', errorText);
-          console.error('Parsed error:', errorData);
         } catch {
           errorText = await manualsRes.text();
           console.error('❌ Failed to load manuals:', manualsRes.status);
@@ -213,14 +194,9 @@ export default function TemplatesPage() {
         }
       }
       
-      if (templatesRes.ok) {
-        const templates = await templatesRes.json();
-        console.log('✅ Templates loaded:', templates.length);
-        setPriceTemplates(templates);
-      } else {
-        const errorData = await templatesRes.json().catch(() => ({}));
-        console.error('❌ Failed to load templates:', templatesRes.status, errorData);
-      }
+      // Note: ManualGroups and IngredientTemplates are not available in Turso DB
+      // setManualGroups([]);
+      // setPriceTemplates([]);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -228,15 +204,16 @@ export default function TemplatesPage() {
     }
   };
 
-  // Update ingredient prices when template changes
-  useEffect(() => {
-    if (editorTemplateId && activeTab === 'editor') {
-      updatePricesFromTemplate(editorTemplateId);
-    }
-  }, [editorTemplateId, activeTab]);
+  // Update ingredient prices when template changes - DISABLED (no IngredientTemplate in Turso)
+  // useEffect(() => {
+  //   if (editorTemplateId && activeTab === 'editor') {
+  //     updatePricesFromTemplate(editorTemplateId);
+  //   }
+  // }, [editorTemplateId, activeTab]);
 
   const updatePricesFromTemplate = async (templateId: string) => {
-    if (!templateId) return;
+    // DISABLED: IngredientTemplate model not available in Turso DB
+    return;
     
     try {
       // Fetch template items
@@ -268,7 +245,7 @@ export default function TemplatesPage() {
     }
   };
 
-  // Ingredient search with template price
+  // Ingredient search
   const searchIngredients = useCallback(async (query: string) => {
     if (!query || query.length < 1) {
       setSuggestions([]);
@@ -276,11 +253,7 @@ export default function TemplatesPage() {
     }
 
     try {
-      let url = `/api/ingredients/search?q=${encodeURIComponent(query)}&limit=8`;
-      // Include template ID to get prices
-      if (editorTemplateId) {
-        url += `&templateId=${editorTemplateId}`;
-      }
+      const url = `/api/ingredients/search?q=${encodeURIComponent(query)}&limit=8`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -289,7 +262,7 @@ export default function TemplatesPage() {
     } catch (error) {
       console.error('Search error:', error);
     }
-  }, [editorTemplateId]);
+  }, []);
 
   const handleIngredientInput = (index: number, value: string) => {
     const newIngredients = [...ingredients];
@@ -458,14 +431,9 @@ export default function TemplatesPage() {
         }
         setMenuImage(null); // Reset file input
         
-        // Load ingredients
+        // Load ingredients (simplified - no costVersions in Turso)
         if (fullManual.ingredients && fullManual.ingredients.length > 0) {
-          // Find cost lines to get prices
-          const costVersion = fullManual.costVersions?.[0];
-          const costLines = costVersion?.costLines || [];
-
           setIngredients(fullManual.ingredients.map((ing: any, i: number) => {
-            const costLine = costLines.find((cl: any) => cl.ingredientId === ing.id);
             return {
               no: i + 1,
               name: ing.name || '',
@@ -474,8 +442,8 @@ export default function TemplatesPage() {
               unit: ing.unit || 'g',
               purchase: ing.notes || 'Local',
               ingredientId: ing.ingredientId,
-              price: costLine ? costLine.unitPrice : null, // Display unit price
-              currency: costVersion?.currency
+              price: null,
+              currency: null
             };
           }));
         } else {
@@ -498,12 +466,8 @@ export default function TemplatesPage() {
           }
         }
         
-        // Load applied template ID from manual's group
-        if (fullManual.group?.templateId) {
-          setEditorTemplateId(fullManual.group.templateId);
-        } else {
-          setEditorTemplateId('');
-        }
+        // Template ID - not available in Turso
+        setEditorTemplateId('');
         
         setEditingManualId(manual.id);
         setActiveTab('editor');
@@ -711,9 +675,7 @@ export default function TemplatesPage() {
           unit: ing.unit,
           section: 'MAIN',
           notes: ing.purchase
-        })),
-        addToAllGroups: !editingManualId, // Only add to all groups when creating new
-        templateId: editorTemplateId || undefined // Apply price template if selected
+        }))
       };
 
       console.log('Sending payload:', JSON.stringify(payload, null, 2));
@@ -721,14 +683,10 @@ export default function TemplatesPage() {
       let res;
       if (editingManualId) {
         // Update existing manual
-        const updatePayload = {
-          ...payload,
-          templateId: editorTemplateId || undefined // Keep template ID for updates
-        };
         res = await fetch(`/api/manuals/${editingManualId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatePayload)
+          body: JSON.stringify(payload)
         });
       } else {
         // Create new manual
@@ -740,17 +698,6 @@ export default function TemplatesPage() {
       }
 
       if (res.ok) {
-        const savedManual = await res.json();
-        
-        // If template is selected, apply it
-        if (editorTemplateId && savedManual.id) {
-          await fetch(`/api/manuals/${savedManual.id}/cost-versions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ templateId: editorTemplateId })
-          });
-        }
-        
         alert(editingManualId ? '매뉴얼이 수정되었습니다!' : '매뉴얼이 저장되었습니다!');
         
         // Reset form
@@ -792,74 +739,19 @@ export default function TemplatesPage() {
     }
   };
 
-  // Create manual group
+  // Create manual group - DISABLED (no ManualGroup in Turso)
   const createGroup = async () => {
-    const name = prompt('새 그룹 이름을 입력하세요:');
-    if (!name) return;
-
-    try {
-      const res = await fetch('/api/manual-groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-      });
-
-      if (res.ok) {
-        fetchData();
-      }
-    } catch (error) {
-      console.error('Create group error:', error);
-    }
+    alert('그룹 기능은 현재 사용할 수 없습니다.');
   };
 
-  // Apply template to group
+  // Apply template to group - DISABLED
   const applyTemplateToGroup = async (groupId: string, templateId: string) => {
-    try {
-      const res = await fetch(`/api/manual-groups/${groupId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId, applyTemplateToAll: true })
-      });
-
-      if (res.ok) {
-        fetchData();
-        alert('가격 템플릿이 적용되었습니다.');
-      }
-    } catch (error) {
-      console.error('Apply template error:', error);
-    }
+    alert('템플릿 적용 기능은 현재 사용할 수 없습니다.');
   };
 
-  // Apply template to selected manuals
+  // Apply template to selected manuals - DISABLED (no cost-versions in Turso)
   const applyTemplateToSelected = async () => {
-    if (selectedManualIds.size === 0) {
-      alert('매뉴얼을 선택해주세요.');
-      return;
-    }
-    if (!selectedTemplateId) {
-      alert('적용할 가격 템플릿을 선택해주세요.');
-      return;
-    }
-
-    try {
-      // Apply template to each selected manual
-      const promises = Array.from(selectedManualIds).map(manualId =>
-        fetch(`/api/manuals/${manualId}/cost-versions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ templateId: selectedTemplateId })
-        })
-      );
-
-      await Promise.all(promises);
-      alert(`${selectedManualIds.size}개 매뉴얼에 가격 템플릿이 적용되었습니다.`);
-      setSelectedManualIds(new Set());
-      setSelectedTemplateId('');
-      fetchData();
-    } catch (error) {
-      console.error('Apply template error:', error);
-      alert('템플릿 적용 중 오류가 발생했습니다.');
-    }
+    alert('템플릿 적용 기능은 현재 사용할 수 없습니다.');
   };
 
   // Toggle manual selection
@@ -885,67 +777,44 @@ export default function TemplatesPage() {
     }
   };
 
-  // Get cost for a manual
-  const getManualCost = (manual: SavedManual) => {
-    if (!manual.costVersions || manual.costVersions.length === 0) return null;
-    return manual.costVersions[0];
+  // Get cost for a manual - DISABLED (no costVersions in Turso)
+  const getManualCost = (manual: SavedManual): null => {
+    // costVersions not available in Turso DB
+    return null;
   };
 
-  // Get applied template for a manual
-  const getAppliedTemplate = (manual: SavedManual) => {
-    const cost = getManualCost(manual);
-    return cost?.template || null;
+  // Get applied template for a manual - DISABLED
+  const getAppliedTemplate = (manual: SavedManual): null => {
+    // Templates not linked to manuals in Turso DB
+    return null;
   };
 
-  // Calculate cost percentage
-  const getCostPercentage = (manual: SavedManual) => {
-    const cost = getManualCost(manual);
-    if (!cost || !manual.sellingPrice || manual.sellingPrice === 0) return null;
-    return ((cost.totalCost / manual.sellingPrice) * 100).toFixed(1);
+  // Calculate cost percentage - DISABLED
+  const getCostPercentage = (manual: SavedManual): null => {
+    // No cost data available
+    return null;
   };
 
-  // Get unique applied templates from all manuals (for dropdown)
-  const getAppliedTemplates = () => {
-    const templateMap = new Map<string, { id: string; name: string; country?: string }>();
-    savedManuals.forEach(m => {
-      const template = getAppliedTemplate(m);
-      if (template && template.id) {
-        templateMap.set(template.id, template);
-      }
-    });
-    return Array.from(templateMap.values());
+  // Get unique applied templates from all manuals (for dropdown) - DISABLED
+  const getAppliedTemplates = (): { id: string; name: string; country?: string }[] => {
+    // No templates available in Turso DB
+    return [];
   };
 
-  // Get manuals filtered by template and status
+  // Get manuals filtered by status (simplified)
   const getFilteredManuals = () => {
     let filtered = savedManuals;
 
-    // Filter by Active/Trash tab (Turso uses isDeleted - handles both boolean and 0/1)
+    // Filter by Active/Trash tab using isArchived field
     if (activeTab === 'trash' || activeTab === 'archived') {
-      // Show deleted manuals
-      filtered = filtered.filter(m => !!(m as any).isDeleted);
+      // Show archived manuals
+      filtered = filtered.filter(m => !!(m as any).isArchived);
     } else {
-      // Show active (not deleted) manuals
-      filtered = filtered.filter(m => !(m as any).isDeleted);
+      // Show active (not archived) manuals
+      filtered = filtered.filter(m => !(m as any).isArchived);
     }
     
-    // Filter by selected group (if using old group system)
-    if (selectedGroupId) {
-      filtered = filtered.filter(m => m.groupId === selectedGroupId);
-    }
-    
-    // Filter by applied template
-    if (selectedTemplateFilter === '__none__') {
-      // 가격 템플릿이 적용되지 않은 매뉴얼
-      filtered = filtered.filter(m => !getManualCost(m));
-    } else if (selectedTemplateFilter) {
-      filtered = filtered.filter(m => {
-        const cost = getManualCost(m);
-        return cost?.template?.id === selectedTemplateFilter;
-      });
-    }
-    
-    // Apply sorting
+    // Apply sorting (simplified - no cost/template data available)
     if (sortField) {
       filtered = [...filtered].sort((a, b) => {
         let aValue: any;
@@ -957,22 +826,23 @@ export default function TemplatesPage() {
             bValue = b.name?.toLowerCase() || '';
             break;
           case 'country':
-            aValue = getAppliedTemplate(a)?.country || '';
-            bValue = getAppliedTemplate(b)?.country || '';
+            // Not available in Turso
+            aValue = '';
+            bValue = '';
             break;
           case 'cost':
-            aValue = getManualCost(a)?.totalCost || 0;
-            bValue = getManualCost(b)?.totalCost || 0;
+            // Not available in Turso
+            aValue = 0;
+            bValue = 0;
             break;
           case 'sellingPrice':
             aValue = a.sellingPrice || 0;
             bValue = b.sellingPrice || 0;
             break;
           case 'costPct':
-            const aPct = getCostPercentage(a);
-            const bPct = getCostPercentage(b);
-            aValue = aPct ? parseFloat(aPct) : 0;
-            bValue = bPct ? parseFloat(bPct) : 0;
+            // Not available in Turso
+            aValue = 0;
+            bValue = 0;
             break;
           default:
             return 0;
@@ -1393,35 +1263,10 @@ export default function TemplatesPage() {
           {/* Controls Row */}
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-end gap-4">
-              {/* Left: Template Filter */}
+              {/* Left: Info */}
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">적용된 가격 템플릿으로 필터</label>
-                <div className="flex gap-2">
-                  <select
-                    className="flex-1 px-3 py-2 border rounded-lg"
-                    value={selectedTemplateFilter}
-                    onChange={(e) => setSelectedTemplateFilter(e.target.value)}
-                  >
-                    <option value="">전체 매뉴얼</option>
-                    {getAppliedTemplates().map((t) => (
-                      <option key={t.id} value={t.id}>
-
-                        {t.name} ({t.country || 'N/A'}) - {savedManuals.filter(m => getManualCost(m)?.template?.id === t.id).length}개 매뉴얼
-
-                      </option>
-                    ))}
-                    <option value="__none__">미적용 (가격 없음)</option>
-                  </select>
-                  {activeTab === 'manuals' && (
-                    <button
-                      onClick={createGroup}
-                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                      title="새 그룹 생성"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">메뉴얼 목록</label>
+                <p className="text-sm text-gray-500">총 {savedManuals.filter(m => !(m as any).isArchived).length}개 매뉴얼</p>
               </div>
 
               {/* Right: Actions */}
@@ -1436,24 +1281,6 @@ export default function TemplatesPage() {
                 <div className="flex gap-2 justify-end">
                   {activeTab === 'manuals' && (
                     <>
-                      <select
-                        value={selectedTemplateId}
-                        onChange={(e) => setSelectedTemplateId(e.target.value)}
-                        className="flex-1 px-3 py-2 border rounded-lg"
-                        disabled={selectedManualIds.size === 0}
-                      >
-                        <option value="">가격 템플릿 선택...</option>
-                        {priceTemplates.map((t) => (
-                          <option key={t.id} value={t.id}>{t.name} ({t.country || 'N/A'})</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={applyTemplateToSelected}
-                        disabled={selectedManualIds.size === 0 || !selectedTemplateId}
-                        className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm"
-                      >
-                        가격 적용
-                      </button>
                       <button
                         onClick={handleBulkDelete}
                         disabled={selectedManualIds.size === 0}
@@ -1493,17 +1320,11 @@ export default function TemplatesPage() {
                   <th onClick={() => handleSort('name')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     메뉴명 <SortIcon field="name" />
                   </th>
-                  <th onClick={() => handleSort('country')} className="px-4 py-3 text-center text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
-                    적용 국가 <SortIcon field="country" />
-                  </th>
-                  <th onClick={() => handleSort('cost')} className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
-                    원가 <SortIcon field="cost" />
-                  </th>
                   <th onClick={() => handleSort('sellingPrice')} className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
-                    판매가 <SortIcon field="sellingPrice" />
+                    판매가 (Selling Price) <SortIcon field="sellingPrice" />
                   </th>
-                  <th onClick={() => handleSort('costPct')} className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
-                    원가율 <SortIcon field="costPct" />
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">
+                    Shelf Life
                   </th>
                   {activeTab === 'trash' && (
                     <>
@@ -1515,10 +1336,6 @@ export default function TemplatesPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {getGroupManuals().map((manual) => {
-                  const cost = getManualCost(manual);
-                  const costPct = getCostPercentage(manual);
-                  const appliedTemplate = getAppliedTemplate(manual);
-                  
                   return (
                     <tr key={manual.id} className={`hover:bg-gray-50 ${selectedManualIds.has(manual.id) ? 'bg-blue-50' : ''}`}>
                       <td className="px-4 py-3 text-center">
@@ -1537,39 +1354,15 @@ export default function TemplatesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        {appliedTemplate ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {appliedTemplate.country || appliedTemplate.name}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-sm">미적용</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {cost ? (
-                          <span className="font-medium text-green-600">
-                            {cost.currency} {cost.totalCost.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
                       <td className="px-4 py-3 text-right">
                         {manual.sellingPrice ? (
-                          <span>${manual.sellingPrice.toFixed(2)}</span>
+                          <span className="font-medium">${manual.sellingPrice.toFixed(2)}</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {costPct ? (
-                          <span className={`font-medium ${parseFloat(costPct) > 35 ? 'text-red-600' : 'text-blue-600'}`}>
-                            {costPct}%
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-sm text-gray-600">{manual.shelfLife || '-'}</span>
                       </td>
                       {activeTab === 'trash' && (
                         <td className="px-4 py-3 text-sm text-gray-500">
@@ -1667,153 +1460,15 @@ export default function TemplatesPage() {
       {/* Cost Table Tab */}
       {activeTab === 'costTable' && (
         <div className="space-y-4">
-          {/* Template Filter Selector */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">적용된 가격 템플릿으로 필터</label>
-                <select
-                  className="w-full px-3 py-2 border rounded-lg"
-                  value={selectedTemplateFilter}
-                  onChange={(e) => setSelectedTemplateFilter(e.target.value)}
-                >
-                  <option value="">전체 보기 (모든 국가)</option>
-                  {getAppliedTemplates().map((t) => (
-                    <option key={t.id} value={t.id}>
-
-                      {t.name} ({t.country || 'N/A'}) - {savedManuals.filter(m => getManualCost(m)?.template?.id === t.id).length}개 매뉴얼
-
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+          {/* Simplified Cost View - Template/Cost features temporarily disabled */}
+          <div className="bg-white rounded-lg shadow p-6 text-center">
+            <Table className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+            <h3 className="text-lg font-medium text-gray-700 mb-2">Cost Table 기능 준비중</h3>
+            <p className="text-gray-500">
+              원가 계산 및 가격 템플릿 기능은 현재 개발 중입니다.<br/>
+              Pricing 메뉴에서 식재료 마스터를 관리하실 수 있습니다.
+            </p>
           </div>
-
-          {/* Cost Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b">
-              <h3 className="font-medium">
-                {selectedTemplateFilter 
-                  ? `${getAppliedTemplates().find(t => t.id === selectedTemplateFilter)?.name || ''} - Cost Table`
-                  : '전체 매뉴얼 - Cost Table'
-                }
-              </h3>
-            </div>
-            <table className="w-full">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">메뉴명</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">적용 국가</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가 (Cost)</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">판매가 (Selling)</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가율 (%)</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">이익 (Profit)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {getGroupManuals().map((manual) => {
-                  const cost = getManualCost(manual);
-                  const costPct = getCostPercentage(manual);
-                  const appliedTemplate = getAppliedTemplate(manual);
-                  const profit = manual.sellingPrice && cost 
-                    ? manual.sellingPrice - cost.totalCost 
-                    : null;
-                    
-                    return (
-                      <tr key={manual.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{manual.name}</div>
-                          {manual.koreanName && manual.koreanName !== manual.name && (
-                            <div className="text-sm text-gray-500">{manual.koreanName}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {appliedTemplate ? (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {appliedTemplate.country || appliedTemplate.name}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          {cost ? `${cost.currency} ${cost.totalCost.toFixed(2)}` : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          {manual.sellingPrice ? `$${manual.sellingPrice.toFixed(2)}` : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {costPct ? (
-                            <span className={`font-bold ${
-                              parseFloat(costPct) > 40 ? 'text-red-600' : 
-                              parseFloat(costPct) > 35 ? 'text-yellow-600' : 
-                              'text-green-600'
-                            }`}>
-                              {costPct}%
-                            </span>
-                          ) : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          {profit !== null ? (
-                            <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                              ${profit.toFixed(2)}
-                            </span>
-                          ) : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {getGroupManuals().length > 0 && (
-                  <tfoot className="bg-gray-100 font-medium">
-                    <tr>
-                      <td className="px-4 py-3">Total ({getGroupManuals().length} menus)</td>
-                      <td className="px-4 py-3 text-center">-</td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        {(() => {
-                          const total = getGroupManuals().reduce((sum, m) => {
-                            const cost = getManualCost(m);
-                            return sum + (cost?.totalCost || 0);
-                          }, 0);
-                          const currency = getManualCost(getGroupManuals()[0])?.currency || 'CAD';
-                          return `${currency} ${total.toFixed(2)}`;
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        ${getGroupManuals().reduce((sum, m) => sum + (m.sellingPrice || 0), 0).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {(() => {
-                          const totalCost = getGroupManuals().reduce((sum, m) => {
-                            const cost = getManualCost(m);
-                            return sum + (cost?.totalCost || 0);
-                          }, 0);
-                          const totalSelling = getGroupManuals().reduce((sum, m) => sum + (m.sellingPrice || 0), 0);
-                          return totalSelling > 0 ? `${((totalCost / totalSelling) * 100).toFixed(1)}%` : '-';
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-green-600">
-                        ${(() => {
-                          const totalCost = getGroupManuals().reduce((sum, m) => {
-                            const cost = getManualCost(m);
-                            return sum + (cost?.totalCost || 0);
-                          }, 0);
-                          const totalSelling = getGroupManuals().reduce((sum, m) => sum + (m.sellingPrice || 0), 0);
-                          return (totalSelling - totalCost).toFixed(2);
-                        })()}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-              {getGroupManuals().length === 0 && (
-                <div className="p-8 text-center text-gray-500">
-                  <Table className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p>해당 조건에 맞는 매뉴얼이 없습니다.</p>
-                </div>
-              )}
-            </div>
         </div>
       )}
 
