@@ -925,6 +925,13 @@ export default function TemplatesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     
+    // Check file size - Vercel has 4.5MB limit
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > 4) {
+      alert(`파일 크기가 너무 큽니다: ${fileSizeMB.toFixed(1)}MB\n\n서버 제한: 4MB\n\n이미지가 포함된 대용량 엑셀은 시트별로 분리하거나, 이미지를 제거한 후 다시 시도해주세요.`);
+      return;
+    }
+    
     setExcelFile(file);
     setIsUploading(true);
     
