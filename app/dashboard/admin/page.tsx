@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { revalidatePath } from 'next/cache';
 import AdminAuditSection from '@/components/AdminAuditSection';
+import { createAuditLog } from '@/lib/auditLog';
 
 // 중남미 및 북미 타임존 목록
 const TIMEZONES = [
@@ -70,6 +71,7 @@ export default async function AdminPage() {
   // User actions
   async function createUser(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const email = formData.get('email') as string;
     const name = formData.get('name') as string;
     const password = formData.get('password') as string;
@@ -78,45 +80,88 @@ export default async function AdminPage() {
     if (!email || !password || !role) return;
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    await prisma.user.create({
+    const newUser = await prisma.user.create({
       data: { email, name: name || email.split('@')[0], password: hashedPassword, role }
     });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'USER_CREATE',
+      entityType: 'User',
+      entityId: newUser.id,
+      newValue: { email, name, role }
+    });
+    
     revalidatePath('/dashboard/admin');
   }
 
   async function resetPassword(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const userId = formData.get('userId') as string;
     const newPassword = formData.get('newPassword') as string;
     if (!userId || !newPassword) return;
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'USER_PASSWORD_RESET',
+      entityType: 'User',
+      entityId: userId,
+      newValue: { passwordChanged: true }
+    });
+    
     revalidatePath('/dashboard/admin');
   }
 
   async function updateRole(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const userId = formData.get('userId') as string;
     const newRole = formData.get('newRole') as string;
     if (!userId || !newRole) return;
 
+    const oldUser = await prisma.user.findUnique({ where: { id: userId } });
     await prisma.user.update({ where: { id: userId }, data: { role: newRole } });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'USER_UPDATE',
+      entityType: 'User',
+      entityId: userId,
+      oldValue: { role: oldUser?.role },
+      newValue: { role: newRole }
+    });
+    
     revalidatePath('/dashboard/admin');
   }
 
   async function deleteUser(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const userId = formData.get('userId') as string;
     if (!userId) return;
     
+    const deletedUser = await prisma.user.findUnique({ where: { id: userId } });
     await prisma.user.delete({ where: { id: userId } });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'USER_DELETE',
+      entityType: 'User',
+      entityId: userId,
+      oldValue: { email: deletedUser?.email, name: deletedUser?.name, role: deletedUser?.role }
+    });
+    
     revalidatePath('/dashboard/admin');
   }
 
   // Country actions
   async function createCountry(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const code = formData.get('code') as string;
     const name = formData.get('name') as string;
     const currency = formData.get('currency') as string;
@@ -124,15 +169,25 @@ export default async function AdminPage() {
 
     if (!code || !name || !currency || !timezone) return;
 
-    await prisma.country.create({
+    const newCountry = await prisma.country.create({
       data: { code: code.toUpperCase(), name, currency: currency.toUpperCase(), timezone }
     });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'COUNTRY_CREATE',
+      entityType: 'Country',
+      entityId: newCountry.id,
+      newValue: { code: code.toUpperCase(), name, currency: currency.toUpperCase(), timezone }
+    });
+    
     revalidatePath('/dashboard/admin');
     revalidatePath('/dashboard/stores/new');
   }
 
   async function updateCountry(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const countryId = formData.get('countryId') as string;
     const name = formData.get('name') as string;
     const currency = formData.get('currency') as string;
@@ -140,20 +195,103 @@ export default async function AdminPage() {
 
     if (!countryId) return;
 
+    const oldCountry = await prisma.country.findUnique({ where: { id: countryId } });
     await prisma.country.update({
       where: { id: countryId },
       data: { name, currency: currency?.toUpperCase(), timezone }
     });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'COUNTRY_UPDATE',
+      entityType: 'Country',
+      entityId: countryId,
+      oldValue: { name: oldCountry?.name, currency: oldCountry?.currency, timezone: oldCountry?.timezone },
+      newValue: { name, currency: currency?.toUpperCase(), timezone }
+    });
+    
     revalidatePath('/dashboard/admin');
     revalidatePath('/dashboard/stores/new');
   }
 
   async function deleteCountry(formData: FormData) {
     'use server';
+    const session = await getServerSession(authOptions);
     const countryId = formData.get('countryId') as string;
     if (!countryId) return;
 
+    const deletedCountry = await prisma.country.findUnique({ where: { id: countryId } });
     await prisma.country.delete({ where: { id: countryId } });
+    
+    await createAuditLog({
+      userId: (session?.user as { id: string })?.id,
+      action: 'COUNTRY_DELETE',
+      entityType: 'Country',
+      entityId: countryId,
+      oldValue: { code: deletedCountry?.code, name: deletedCountry?.name, currency: deletedCountry?.currency }
+    });
+    
+    revalidatePath('/dashboard/admin');
+    revalidatePath('/dashboard/stores/new');
+  }
+
+  // Bulk seed Latin American countries
+  async function seedLatinAmericaCountries() {
+    'use server';
+    const session = await getServerSession(authOptions);
+    const latinAmericaCountries = [
+      // Mexico & Central America
+      { code: 'MX', name: 'Mexico', currency: 'MXN', timezone: 'America/Mexico_City' },
+      { code: 'GT', name: 'Guatemala', currency: 'GTQ', timezone: 'America/Guatemala' },
+      { code: 'BZ', name: 'Belize', currency: 'BZD', timezone: 'America/Belize' },
+      { code: 'HN', name: 'Honduras', currency: 'HNL', timezone: 'America/Tegucigalpa' },
+      { code: 'SV', name: 'El Salvador', currency: 'USD', timezone: 'America/El_Salvador' },
+      { code: 'NI', name: 'Nicaragua', currency: 'NIO', timezone: 'America/Managua' },
+      { code: 'CR', name: 'Costa Rica', currency: 'CRC', timezone: 'America/Costa_Rica' },
+      { code: 'PA', name: 'Panama', currency: 'USD', timezone: 'America/Panama' },
+      // Caribbean
+      { code: 'CU', name: 'Cuba', currency: 'CUP', timezone: 'America/Havana' },
+      { code: 'DO', name: 'Dominican Republic', currency: 'DOP', timezone: 'America/Santo_Domingo' },
+      { code: 'PR', name: 'Puerto Rico', currency: 'USD', timezone: 'America/Puerto_Rico' },
+      { code: 'JM', name: 'Jamaica', currency: 'JMD', timezone: 'America/Jamaica' },
+      { code: 'TT', name: 'Trinidad & Tobago', currency: 'TTD', timezone: 'America/Port_of_Spain' },
+      // South America
+      { code: 'CO', name: 'Colombia', currency: 'COP', timezone: 'America/Bogota' },
+      { code: 'VE', name: 'Venezuela', currency: 'VES', timezone: 'America/Caracas' },
+      { code: 'EC', name: 'Ecuador', currency: 'USD', timezone: 'America/Guayaquil' },
+      { code: 'PE', name: 'Peru', currency: 'PEN', timezone: 'America/Lima' },
+      { code: 'BR', name: 'Brazil', currency: 'BRL', timezone: 'America/Sao_Paulo' },
+      { code: 'BO', name: 'Bolivia', currency: 'BOB', timezone: 'America/La_Paz' },
+      { code: 'PY', name: 'Paraguay', currency: 'PYG', timezone: 'America/Asuncion' },
+      { code: 'UY', name: 'Uruguay', currency: 'UYU', timezone: 'America/Montevideo' },
+      { code: 'AR', name: 'Argentina', currency: 'ARS', timezone: 'America/Argentina/Buenos_Aires' },
+      { code: 'CL', name: 'Chile', currency: 'CLP', timezone: 'America/Santiago' },
+      // North America (already have CA)
+      { code: 'US', name: 'United States', currency: 'USD', timezone: 'America/New_York' },
+    ];
+
+    let addedCount = 0;
+    const addedCodes: string[] = [];
+    for (const country of latinAmericaCountries) {
+      // Skip if already exists
+      const existing = await prisma.country.findUnique({ where: { code: country.code } });
+      if (!existing) {
+        await prisma.country.create({ data: country });
+        addedCount++;
+        addedCodes.push(country.code);
+      }
+    }
+
+    if (addedCount > 0) {
+      await createAuditLog({
+        userId: (session?.user as { id: string })?.id,
+        action: 'COUNTRY_BULK_SEED',
+        entityType: 'Country',
+        entityId: 'bulk',
+        newValue: { addedCount, countries: addedCodes }
+      });
+    }
+
     revalidatePath('/dashboard/admin');
     revalidatePath('/dashboard/stores/new');
   }
@@ -419,11 +557,16 @@ export default async function AdminPage() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h4 className="font-medium text-blue-900 mb-2">💡 Quick Add: Latin American Countries</h4>
           <p className="text-sm text-blue-700 mb-3">
-            Run this command in terminal to add all Latin American countries:
+            Click the button below to add all Latin American countries (Mexico, Central America, Caribbean, South America) at once.
           </p>
-          <code className="block bg-blue-100 p-2 rounded text-xs text-blue-900 overflow-x-auto">
-            node prisma/seed-countries.js
-          </code>
+          <form action={seedLatinAmericaCountries}>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2"
+            >
+              <span>🌎</span> Add All Latin American Countries
+            </button>
+          </form>
         </div>
       </section>
 

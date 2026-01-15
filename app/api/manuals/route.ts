@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,15 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    });
+
+    // Create audit log
+    await createAuditLog({
+      userId: (session.user as { id: string }).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'MenuManual',
+      entityId: manual.id,
+      newValue: { name: manual.name, koreanName: manual.koreanName }
     });
 
     return NextResponse.json(manual, { status: 201 });

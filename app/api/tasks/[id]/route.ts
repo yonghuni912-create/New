@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/lib/auditLog';
 
 // Update a task
 export async function PATCH(
@@ -18,6 +19,9 @@ export async function PATCH(
     const body = await request.json();
     const { status, dueDate, title, description, priority, assigneeId } = body;
 
+    // Get the current task for audit log
+    const currentTask = await prisma.task.findUnique({ where: { id } });
+
     const updateData: any = {};
     if (status) updateData.status = status;
     if (dueDate) updateData.dueDate = new Date(dueDate);
@@ -29,6 +33,16 @@ export async function PATCH(
     const task = await prisma.task.update({
       where: { id },
       data: updateData
+    });
+
+    // Create audit log
+    await createAuditLog({
+      userId: (session.user as { id: string }).id,
+      action: 'TASK_UPDATE',
+      entityType: 'Task',
+      entityId: id,
+      oldValue: currentTask ? { status: currentTask.status, title: currentTask.title, priority: currentTask.priority } : null,
+      newValue: updateData
     });
 
     return NextResponse.json(task);
@@ -86,6 +100,9 @@ export async function DELETE(
 
     const { id } = await params;
 
+    // Get the task for audit log before deleting
+    const deletedTask = await prisma.task.findUnique({ where: { id } });
+
     // Delete task dependencies first
     await prisma.taskDependency.deleteMany({
       where: {
@@ -98,6 +115,15 @@ export async function DELETE(
 
     // Delete the task
     await prisma.task.delete({ where: { id } });
+
+    // Create audit log
+    await createAuditLog({
+      userId: (session.user as { id: string }).id,
+      action: 'TASK_DELETE',
+      entityType: 'Task',
+      entityId: id,
+      oldValue: deletedTask ? { title: deletedTask.title, status: deletedTask.status } : null
+    });
 
     return NextResponse.json({ success: true });
   } catch (e) {

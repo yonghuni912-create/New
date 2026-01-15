@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/lib/auditLog';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
@@ -28,6 +29,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   try {
     const body = await request.json();
+    
+    // Get the current manual for audit log
+    const currentManual = await prisma.menuManual.findUnique({ where: { id } });
+    
     const updateData: any = {};
     if (body.name) updateData.name = body.name;
     if (body.koreanName) updateData.koreanName = body.koreanName;
@@ -35,6 +40,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (body.yieldUnit) updateData.yieldUnit = body.yieldUnit;
     if (Object.keys(updateData).length > 0) await prisma.menuManual.update({ where: { id }, data: updateData });
     const manual = await prisma.menuManual.findUnique({ where: { id }, include: { ingredients: true } });
+    
+    // Create audit log
+    await createAuditLog({
+      userId: (session.user as { id: string }).id,
+      action: 'MANUAL_UPDATE',
+      entityType: 'MenuManual',
+      entityId: id,
+      oldValue: currentManual ? { name: currentManual.name, koreanName: currentManual.koreanName } : null,
+      newValue: updateData
+    });
+    
     return NextResponse.json(manual);
   } catch (error) {
     console.error('Error:', error);
@@ -47,7 +63,18 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
   try {
+    const currentManual = await prisma.menuManual.findUnique({ where: { id } });
     await prisma.menuManual.update({ where: { id }, data: { isActive: false, isArchived: true } });
+    
+    // Create audit log
+    await createAuditLog({
+      userId: (session.user as { id: string }).id,
+      action: 'MANUAL_DELETE',
+      entityType: 'MenuManual',
+      entityId: id,
+      oldValue: currentManual ? { name: currentManual.name, koreanName: currentManual.koreanName } : null
+    });
+    
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error:', error);
