@@ -933,21 +933,27 @@ export default function TemplatesPage() {
       formData.append('file', file);
       formData.append('importMode', 'preview');
       
+      console.log('📤 Uploading file:', file.name, 'Size:', file.size, 'bytes');
+      
       const res = await fetch('/api/manuals/upload', {
         method: 'POST',
         body: formData
       });
       
+      console.log('📥 Response status:', res.status);
+      
       if (res.ok) {
         const data = await res.json();
+        console.log('✅ Preview data received:', data.parsedCount, 'manuals');
         setExcelPreviewData(data);
       } else {
-        const error = await res.json();
-        alert(`파일 분석 실패: ${error.error || '알 수 없는 오류'}`);
+        const error = await res.json().catch(() => ({ error: res.statusText }));
+        console.error('❌ Upload error:', error);
+        alert(`파일 분석 실패: ${error.error || error.details || res.statusText || '알 수 없는 오류'}\n\n상태 코드: ${res.status}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Excel preview error:', error);
-      alert('파일 분석 중 오류가 발생했습니다.');
+      alert(`파일 분석 중 오류가 발생했습니다.\n\n오류: ${error?.message || '네트워크 오류'}`);
     } finally {
       setIsUploading(false);
     }
