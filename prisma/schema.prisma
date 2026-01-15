@@ -217,6 +217,7 @@ model IngredientMaster {
   quantity     Float                    @default(0)
   unit         String
   yieldRate    Float                    @default(100)
+  imageUrl     String?                  // 제품 이미지 URL
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
   manualIngredients ManualIngredient[]  @relation("MasterToManualIngredient")

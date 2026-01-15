@@ -36,6 +36,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const contentType = request.headers.get('content-type') || '';
+    
+    // Handle direct import mode (JSON body with confirmed manuals)
+    if (contentType.includes('application/json')) {
+      const body = await request.json();
+      if (body.importMode === 'import-direct' && body.manuals) {
+        return handleDirectImport(body.manuals, session);
+      }
+    }
+    
+    // Handle file upload mode
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const importMode = formData.get('importMode') as string || 'preview'; // 'preview' | 'import'
@@ -76,13 +87,17 @@ export async function POST(request: NextRequest) {
 
     // If preview mode, just return the parsed data
     if (importMode === 'preview') {
+      // Combine all manuals for individual preview
+      const allManuals = [...parsedManuals, ...manualsWithIssues];
+      
       return NextResponse.json({
         success: true,
         totalSheets: workbook.SheetNames.length,
         parsedCount: parsedManuals.length,
         issuesCount: manualsWithIssues.length,
         manuals: parsedManuals,
-        manualsWithIssues
+        manualsWithIssues,
+        allManuals // For individual preview navigation
       });
     }
 
@@ -321,5 +336,58 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
     hasLinkingIssue: ingredients.length === 0, // Only mark as issue if no ingredients
     issueDetails
   };
+}
+
+// Handle direct import from confirmed preview data
+async function handleDirectImport(manuals: ParsedManual[], session: any) {
+  const createdManuals = [];
+  
+  for (const manual of manuals) {
+    try {
+      const created = await prisma.menuManual.create({
+        data: {
+          name: manual.name,
+          koreanName: manual.koreanName,
+          sellingPrice: manual.sellingPrice,
+          shelfLife: manual.shelfLife,
+          cookingMethod: manual.cookingMethod ? JSON.stringify(manual.cookingMethod) : null,
+          isMaster: true,
+          isActive: true,
+          ingredients: {
+            create: manual.ingredients.map((ing, index) => ({
+              name: ing.name,
+              koreanName: ing.koreanName || ing.name,
+              quantity: ing.quantity || 0,
+              unit: ing.unit || 'g',
+              notes: ing.purchase,
+              orderIndex: index
+            }))
+          }
+        }
+      });
+      createdManuals.push(created);
+    } catch (createError) {
+      console.error('Failed to create manual:', manual.name, createError);
+    }
+  }
+
+  // Create audit log
+  try {
+    await createAuditLog({
+      action: 'MANUAL_IMPORT',
+      userId: session.user.id,
+      entityType: 'MenuManual',
+      entityId: 'bulk-import',
+      newValue: { importedCount: createdManuals.length }
+    });
+  } catch (err) {
+    console.warn('Failed to create audit log:', err);
+  }
+
+  return NextResponse.json({
+    success: true,
+    importedCount: createdManuals.length,
+    createdManuals: createdManuals.map(m => ({ id: m.id, name: m.name }))
+  });
 }
 

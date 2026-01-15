@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, Upload, Image, ChevronUp, Archive, History, Globe, Copy } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -87,14 +87,27 @@ interface PriceTemplate {
 
 const DEFAULT_COOKING_PROCESSES = [
   'Ingredients Preparation',
+  'Thawing',
   'Marination',
   'Batter Mix Solution Preparation',
   'Battering',
   'Breading',
   'Frying',
+  'Grilling',
+  'Boiling',
+  'Steaming',
+  'Sautéing',
+  'Baking',
+  'Sauce Preparation',
+  'Seasoning',
+  'Mixing',
+  'Cutting',
+  'Plating',
   'Assemble',
+  'Garnish',
   'Serve',
-  'Take Out & Delivery'
+  'Take Out & Delivery',
+  'Custom'
 ];
 
 const EMPTY_INGREDIENT: ManualIngredient = {
@@ -168,6 +181,8 @@ export default function TemplatesPage() {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelPreviewData, setExcelPreviewData] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [excelPreviewIndex, setExcelPreviewIndex] = useState(0); // Current manual index in preview
+  const [excelConfirmedManuals, setExcelConfirmedManuals] = useState<Set<number>>(new Set()); // Confirmed manual indices
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -306,8 +321,9 @@ export default function TemplatesPage() {
               quantity: item.localQuantity ?? item.quantity,
               unit: item.localUnit || item.unit,
               yieldRate: item.localYieldRate ?? item.yieldRate,
-              // Include price from template item
-              unitPrice: item.unitPrice,
+              // Include price from template item (mapped to 'price' for UI)
+              price: item.unitPrice,
+              currency: 'CAD',
             }));
           
           setSuggestions(filtered);
@@ -931,27 +947,35 @@ export default function TemplatesPage() {
     }
   };
 
-  // Import Excel manuals
+  // Import Excel manuals (only confirmed ones)
   const handleExcelImport = async () => {
-    if (!excelFile) return;
+    if (!excelFile || !excelPreviewData?.allManuals || excelConfirmedManuals.size === 0) return;
+    
+    // Get only confirmed manuals
+    const confirmedManualData = excelPreviewData.allManuals.filter((_: any, idx: number) => 
+      excelConfirmedManuals.has(idx)
+    );
     
     setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', excelFile);
-      formData.append('importMode', 'import');
-      
+      // Send confirmed manuals directly instead of re-parsing the file
       const res = await fetch('/api/manuals/upload', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          importMode: 'import-direct',
+          manuals: confirmedManualData
+        })
       });
       
       if (res.ok) {
         const data = await res.json();
-        alert(`${data.importedCount}개 매뉴얼이 가져오기 되었습니다.\n${data.issuesCount}개는 확인이 필요합니다.`);
+        alert(`${data.importedCount}개 매뉴얼이 가져오기 되었습니다.`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);
+        setExcelConfirmedManuals(new Set());
+        setExcelPreviewIndex(0);
         fetchData();
       } else {
         const error = await res.json();
@@ -1176,7 +1200,7 @@ export default function TemplatesPage() {
             }`}
           >
             <Settings className="w-4 h-4 inline mr-2" />
-            📋 매뉴얼 마스터 ({savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false && (m as any).isMaster !== 0).length})
+            매뉴얼 마스터 ({savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false && (m as any).isMaster !== 0).length})
           </button>
           <button
             onClick={() => setActiveTab('countryManuals')}
@@ -1187,7 +1211,7 @@ export default function TemplatesPage() {
             }`}
           >
             <Globe className="w-4 h-4 inline mr-2" />
-            🌍 국가별 매뉴얼 ({savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length})
+            국가별 매뉴얼 ({savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length})
           </button>
           <button
             onClick={() => setActiveTab('costTable')}
@@ -1455,34 +1479,86 @@ export default function TemplatesPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold">Cooking Method</h3>
-                <p className="text-sm text-gray-500">한글로 입력하면 AI가 영문으로 번역합니다.</p>
+                <p className="text-sm text-gray-500">조리구분을 선택하고 한글로 입력하면 AI가 영문으로 번역합니다.</p>
               </div>
-              <button
-                onClick={translateAllCookingMethods}
-                disabled={isTranslating}
-                className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 mr-1 ${isTranslating ? 'animate-spin' : ''}`} />
-                {isTranslating ? 'Translating...' : 'Translate All'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCookingSteps([...cookingSteps, { process: '', manual: '', translatedManual: '' }])}
+                  className="flex items-center px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  단계 추가
+                </button>
+                <button
+                  onClick={translateAllCookingMethods}
+                  disabled={isTranslating}
+                  className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1 ${isTranslating ? 'animate-spin' : ''}`} />
+                  {isTranslating ? 'Translating...' : 'Translate All'}
+                </button>
+              </div>
             </div>
             <div className="space-y-4">
               {cookingSteps.map((step, i) => (
-                <div key={i} className="grid grid-cols-4 gap-4 items-start">
-                  <div className="bg-gray-100 px-3 py-2 rounded font-medium text-sm">{step.process}</div>
-                  <div className="col-span-3 space-y-2">
+                <div key={i} className="grid grid-cols-12 gap-4 items-start">
+                  {/* Process Dropdown */}
+                  <div className="col-span-3">
+                    <select
+                      value={step.process}
+                      onChange={(e) => {
+                        const newSteps = [...cookingSteps];
+                        newSteps[i] = { ...newSteps[i], process: e.target.value };
+                        setCookingSteps(newSteps);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50"
+                    >
+                      <option value="">조리구분 선택</option>
+                      {DEFAULT_COOKING_PROCESSES.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    {step.process === 'Custom' && (
+                      <input
+                        type="text"
+                        placeholder="직접 입력..."
+                        value={step.process === 'Custom' ? '' : step.process}
+                        onChange={(e) => {
+                          const newSteps = [...cookingSteps];
+                          newSteps[i] = { ...newSteps[i], process: e.target.value };
+                          setCookingSteps(newSteps);
+                        }}
+                        className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      />
+                    )}
+                  </div>
+                  {/* Manual Input */}
+                  <div className="col-span-8 space-y-2">
                     <textarea
                       value={step.manual}
                       onChange={(e) => updateCookingStep(i, e.target.value)}
                       onBlur={() => step.manual && translateCookingMethod(i)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md min-h-[60px]"
-                      placeholder={`${step.process.toLowerCase()} 지침 입력 (한글 가능)...`}
+                      placeholder={`${step.process || '조리 방법'} 지침 입력 (한글 가능)...`}
                     />
                     {step.translatedManual && (
                       <div className="bg-green-50 border border-green-200 rounded p-2 text-sm text-green-800">
                         <span className="font-medium">EN: </span>{step.translatedManual}
                       </div>
                     )}
+                  </div>
+                  {/* Delete Button */}
+                  <div className="col-span-1 flex justify-center pt-2">
+                    <button
+                      onClick={() => {
+                        const newSteps = cookingSteps.filter((_, idx) => idx !== i);
+                        setCookingSteps(newSteps.length > 0 ? newSteps : [{ process: '', manual: '', translatedManual: '' }]);
+                      }}
+                      className="p-1 text-red-500 hover:bg-red-50 rounded"
+                      title="이 단계 삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1500,7 +1576,7 @@ export default function TemplatesPage() {
               {/* Left: Info */}
               <div className="flex-1 min-w-[200px]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {activeTab === 'countryManuals' ? '🌍 국가별 매뉴얼' : '📋 매뉴얼 마스터'}
+                  {activeTab === 'countryManuals' ? '국가별 매뉴얼' : '매뉴얼 마스터'}
                 </label>
                 <p className="text-sm text-gray-500">
                   {activeTab === 'countryManuals' 
@@ -1980,13 +2056,13 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {/* Excel Upload Modal */}
+      {/* Excel Upload Modal with Individual Preview */}
       {showExcelUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-lg shadow-lg max-w-5xl w-full max-h-[90vh] overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h2 className="text-xl font-bold">📊 엑셀 파일에서 매뉴얼 가져오기</h2>
-              <button onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); }}>
+              <h2 className="text-xl font-bold">엑셀 파일에서 매뉴얼 가져오기</h2>
+              <button onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); }}>
                 <X className="w-6 h-6 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
@@ -2014,93 +2090,270 @@ export default function TemplatesPage() {
                 </div>
               )}
 
-              {/* Preview Data */}
-              {excelPreviewData && (
+              {/* Individual Manual Preview */}
+              {excelPreviewData && excelPreviewData.allManuals?.length > 0 && (
                 <div className="space-y-4">
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-2">📋 분석 결과</h3>
-                    <p>총 {excelPreviewData.totalSheets}개 시트 중 {excelPreviewData.parsedCount}개 매뉴얼 발견</p>
-                    {excelPreviewData.issuesCount > 0 && (
-                      <p className="text-orange-600">{excelPreviewData.issuesCount}개 매뉴얼은 확인이 필요합니다</p>
-                    )}
+                  {/* Progress Bar */}
+                  <div className="bg-gray-100 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium">
+                        {excelPreviewIndex + 1} / {excelPreviewData.allManuals.length} 매뉴얼
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        확인 완료: {excelConfirmedManuals.size}개
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(excelConfirmedManuals.size / excelPreviewData.allManuals.length) * 100}%` }}
+                      />
+                    </div>
                   </div>
 
-                  {/* Successfully parsed manuals */}
-                  {excelPreviewData.manuals?.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-2 text-green-600">✅ 가져올 수 있는 매뉴얼</h4>
-                      <div className="max-h-40 overflow-y-auto border rounded">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50 sticky top-0">
-                            <tr>
-                              <th className="px-3 py-2 text-left">메뉴명</th>
-                              <th className="px-3 py-2 text-left">재료 수</th>
-                              <th className="px-3 py-2 text-left">조리법</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {excelPreviewData.manuals.map((m: any, i: number) => (
-                              <tr key={i}>
-                                <td className="px-3 py-2">{m.name || m.koreanName}</td>
-                                <td className="px-3 py-2">{m.ingredients?.length || 0}개</td>
-                                <td className="px-3 py-2">{m.cookingMethod?.length || 0}단계</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
+                  {/* Navigation Arrows and Manual Preview */}
+                  <div className="flex items-stretch gap-4">
+                    {/* Left Arrow */}
+                    <button
+                      onClick={() => setExcelPreviewIndex(Math.max(0, excelPreviewIndex - 1))}
+                      disabled={excelPreviewIndex === 0}
+                      className="px-3 py-6 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
 
-                  {/* Manuals with issues */}
-                  {excelPreviewData.manualsWithIssues?.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-2 text-orange-600">⚠️ 확인이 필요한 매뉴얼</h4>
-                      <div className="max-h-40 overflow-y-auto border rounded border-orange-200 bg-orange-50">
-                        <table className="w-full text-sm">
-                          <thead className="bg-orange-100 sticky top-0">
-                            <tr>
-                              <th className="px-3 py-2 text-left">메뉴명</th>
-                              <th className="px-3 py-2 text-left">문제점</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {excelPreviewData.manualsWithIssues.map((m: any, i: number) => (
-                              <tr key={i}>
-                                <td className="px-3 py-2">{m.name || m.koreanName}</td>
-                                <td className="px-3 py-2 text-sm text-orange-700">{m.issueDetails?.join(', ')}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <p className="text-sm text-gray-500 mt-2">
-                        이 매뉴얼들은 가져온 후 수동으로 식재료 링킹과 가격 템플릿을 지정해주세요.
-                      </p>
+                    {/* Manual Preview Card */}
+                    <div className="flex-1 border rounded-lg overflow-hidden">
+                      {(() => {
+                        const currentManual = excelPreviewData.allManuals[excelPreviewIndex];
+                        const isConfirmed = excelConfirmedManuals.has(excelPreviewIndex);
+                        return (
+                          <div className={`${isConfirmed ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                            {/* Manual Header */}
+                            <div className={`px-4 py-3 border-b flex justify-between items-center ${isConfirmed ? 'bg-green-100' : 'bg-gray-50'}`}>
+                              <div>
+                                <h3 className="font-bold text-lg">{currentManual.name || currentManual.koreanName || '(이름 없음)'}</h3>
+                                {currentManual.koreanName && currentManual.name !== currentManual.koreanName && (
+                                  <p className="text-sm text-gray-500">{currentManual.koreanName}</p>
+                                )}
+                              </div>
+                              {isConfirmed && (
+                                <span className="px-3 py-1 bg-green-500 text-white rounded-full text-sm flex items-center">
+                                  <Check className="w-4 h-4 mr-1" /> 확인됨
+                                </span>
+                              )}
+                              {currentManual.hasLinkingIssue && (
+                                <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm">
+                                  확인 필요
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Manual Content */}
+                            <div className="p-4 grid grid-cols-2 gap-6">
+                              {/* Left: Basic Info & Ingredients */}
+                              <div className="space-y-4">
+                                {/* Basic Info */}
+                                <div>
+                                  <h4 className="font-semibold text-sm text-gray-600 mb-2">기본 정보</h4>
+                                  <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <div className="bg-gray-50 p-2 rounded">
+                                      <span className="text-gray-500">메뉴명:</span>
+                                      <span className="ml-2 font-medium">{currentManual.name || '-'}</span>
+                                    </div>
+                                    <div className="bg-gray-50 p-2 rounded">
+                                      <span className="text-gray-500">판매가:</span>
+                                      <span className="ml-2 font-medium">{currentManual.sellingPrice || '-'}</span>
+                                    </div>
+                                    <div className="bg-gray-50 p-2 rounded">
+                                      <span className="text-gray-500">유통기한:</span>
+                                      <span className="ml-2 font-medium">{currentManual.shelfLife || '-'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Ingredients */}
+                                <div>
+                                  <h4 className="font-semibold text-sm text-gray-600 mb-2">
+                                    식재료 ({currentManual.ingredients?.length || 0}개)
+                                  </h4>
+                                  <div className="border rounded max-h-48 overflow-y-auto">
+                                    <table className="w-full text-xs">
+                                      <thead className="bg-gray-50 sticky top-0">
+                                        <tr>
+                                          <th className="px-2 py-1 text-left">재료명</th>
+                                          <th className="px-2 py-1 text-right">용량</th>
+                                          <th className="px-2 py-1 text-center">단위</th>
+                                          <th className="px-2 py-1 text-left">구매</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y">
+                                        {currentManual.ingredients?.map((ing: any, idx: number) => (
+                                          <tr key={idx}>
+                                            <td className="px-2 py-1">{ing.name || ing.koreanName}</td>
+                                            <td className="px-2 py-1 text-right">{ing.quantity || '-'}</td>
+                                            <td className="px-2 py-1 text-center">{ing.unit || '-'}</td>
+                                            <td className="px-2 py-1">{ing.purchase || '-'}</td>
+                                          </tr>
+                                        ))}
+                                        {(!currentManual.ingredients || currentManual.ingredients.length === 0) && (
+                                          <tr>
+                                            <td colSpan={4} className="px-2 py-4 text-center text-gray-400">
+                                              식재료 정보 없음
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Right: Cooking Method */}
+                              <div>
+                                <h4 className="font-semibold text-sm text-gray-600 mb-2">
+                                  조리 방법 ({currentManual.cookingMethod?.length || 0}단계)
+                                </h4>
+                                <div className="border rounded max-h-64 overflow-y-auto">
+                                  {currentManual.cookingMethod?.map((step: any, idx: number) => (
+                                    <div key={idx} className="px-3 py-2 border-b last:border-b-0 text-sm">
+                                      <div className="font-medium text-orange-600">{step.process}</div>
+                                      <div className="text-gray-700 mt-1">{step.manual}</div>
+                                    </div>
+                                  ))}
+                                  {(!currentManual.cookingMethod || currentManual.cookingMethod.length === 0) && (
+                                    <div className="px-3 py-4 text-center text-gray-400 text-sm">
+                                      조리 방법 정보 없음
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Issues */}
+                                {currentManual.issueDetails?.length > 0 && (
+                                  <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded text-sm">
+                                    <div className="font-medium text-orange-700 mb-1">확인 필요 사항:</div>
+                                    <ul className="list-disc list-inside text-orange-600 text-xs">
+                                      {currentManual.issueDetails.map((issue: string, idx: number) => (
+                                        <li key={idx}>{issue}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Confirm Button */}
+                            <div className="px-4 py-3 border-t bg-gray-50 flex justify-center gap-3">
+                              <button
+                                onClick={() => {
+                                  const newConfirmed = new Set(excelConfirmedManuals);
+                                  if (newConfirmed.has(excelPreviewIndex)) {
+                                    newConfirmed.delete(excelPreviewIndex);
+                                  } else {
+                                    newConfirmed.add(excelPreviewIndex);
+                                  }
+                                  setExcelConfirmedManuals(newConfirmed);
+                                  // Auto advance to next if confirmed
+                                  if (!excelConfirmedManuals.has(excelPreviewIndex) && excelPreviewIndex < excelPreviewData.allManuals.length - 1) {
+                                    setExcelPreviewIndex(excelPreviewIndex + 1);
+                                  }
+                                }}
+                                className={`px-4 py-2 rounded-lg flex items-center ${
+                                  isConfirmed 
+                                    ? 'bg-gray-300 text-gray-700 hover:bg-gray-400' 
+                                    : 'bg-green-500 text-white hover:bg-green-600'
+                                }`}
+                              >
+                                <Check className="w-4 h-4 mr-2" />
+                                {isConfirmed ? '확인 취소' : '확인 완료'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
-                  )}
+
+                    {/* Right Arrow */}
+                    <button
+                      onClick={() => setExcelPreviewIndex(Math.min(excelPreviewData.allManuals.length - 1, excelPreviewIndex + 1))}
+                      disabled={excelPreviewIndex >= excelPreviewData.allManuals.length - 1}
+                      className="px-3 py-6 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  {/* Thumbnail Navigation */}
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {excelPreviewData.allManuals.map((m: any, idx: number) => (
+                        <button
+                          key={idx}
+                          onClick={() => setExcelPreviewIndex(idx)}
+                          className={`flex-shrink-0 px-3 py-2 rounded text-xs border transition-all ${
+                            idx === excelPreviewIndex 
+                              ? 'bg-orange-500 text-white border-orange-500' 
+                              : excelConfirmedManuals.has(idx)
+                                ? 'bg-green-100 text-green-700 border-green-300'
+                                : m.hasLinkingIssue
+                                  ? 'bg-orange-50 text-orange-700 border-orange-200'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300'
+                          }`}
+                        >
+                          {excelConfirmedManuals.has(idx) && <Check className="w-3 h-3 inline mr-1" />}
+                          {idx + 1}. {(m.name || m.koreanName || '이름없음').slice(0, 10)}...
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Footer Actions */}
-            <div className="px-6 py-4 border-t flex justify-end gap-3">
-              <button
-                onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); }}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                취소
-              </button>
-              {excelPreviewData && (
+            <div className="px-6 py-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {excelPreviewData?.allManuals?.length > 0 && (
+                  <span>
+                    {excelConfirmedManuals.size === excelPreviewData.allManuals.length 
+                      ? '✅ 모든 매뉴얼 확인 완료!'
+                      : `${excelPreviewData.allManuals.length - excelConfirmedManuals.size}개 매뉴얼 확인 대기 중`
+                    }
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-3">
                 <button
-                  onClick={handleExcelImport}
-                  disabled={isUploading || !excelPreviewData.parsedCount}
-                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
-                  {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                  {excelPreviewData.parsedCount + excelPreviewData.issuesCount}개 매뉴얼 가져오기
+                  취소
                 </button>
-              )}
+                {excelPreviewData?.allManuals?.length > 0 && (
+                  <>
+                    {/* Confirm All Button */}
+                    <button
+                      onClick={() => {
+                        const allIndices = new Set<number>(excelPreviewData.allManuals.map((_: any, idx: number) => idx));
+                        setExcelConfirmedManuals(allIndices);
+                      }}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center"
+                    >
+                      <CheckCheck className="w-4 h-4 mr-2" />
+                      전체 확인
+                    </button>
+                    {/* Import Button */}
+                    <button
+                      onClick={handleExcelImport}
+                      disabled={isUploading || excelConfirmedManuals.size === 0}
+                      className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                      확인된 {excelConfirmedManuals.size}개 가져오기
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

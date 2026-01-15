@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square } from 'lucide-react';
 
 interface IngredientMaster {
   id: string;
@@ -13,6 +13,7 @@ interface IngredientMaster {
   quantity: number;
   unit: string;
   yieldRate: number;
+  imageUrl?: string;
 }
 
 interface PriceTemplate {
@@ -94,8 +95,12 @@ export default function PricingPage() {
     englishName: '',
     quantity: 0,
     unit: 'g',
-    yieldRate: 100
+    yieldRate: 100,
+    imageUrl: ''
   });
+  
+  // Image upload state for ingredient
+  const [ingredientImageFile, setIngredientImageFile] = useState<File | null>(null);
   
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -112,6 +117,16 @@ export default function PricingPage() {
   
   // Modal for editing template item details
   const [editingTemplateItem, setEditingTemplateItem] = useState<PriceTemplateItem | null>(null);
+
+  // Selection state for bulk operations (Master ingredients)
+  const [selectedIngredientIds, setSelectedIngredientIds] = useState<Set<string>>(new Set());
+  const [selectAllIngredients, setSelectAllIngredients] = useState(false);
+  
+  // Selection state for template items
+  const [selectedTemplateItemIds, setSelectedTemplateItemIds] = useState<Set<string>>(new Set());
+  
+  // Image preview state
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') redirect('/login');
@@ -358,8 +373,10 @@ export default function PricingPage() {
       englishName: '',
       quantity: 0,
       unit: 'g',
-      yieldRate: 100
+      yieldRate: 100,
+      imageUrl: ''
     });
+    setIngredientImageFile(null);
   };
 
   const resetTemplateForm = () => {
@@ -449,13 +466,30 @@ export default function PricingPage() {
                 ))}
               </select>
             </div>
-            <button
-              onClick={() => { setShowAddIngredient(true); setEditingIngredient(null); resetIngredientForm(); }}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-            >
-              <Plus className="w-4 h-4" />
-              식재료 추가
-            </button>
+            <div className="flex gap-2">
+              {selectedIngredientIds.size > 0 && (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`선택된 ${selectedIngredientIds.size}개 식재료를 삭제하시겠습니까?`)) return;
+                    for (const id of selectedIngredientIds) {
+                      await handleDeleteIngredient(id);
+                    }
+                    setSelectedIngredientIds(new Set());
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {selectedIngredientIds.size}개 삭제
+                </button>
+              )}
+              <button
+                onClick={() => { setShowAddIngredient(true); setEditingIngredient(null); resetIngredientForm(); }}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+              >
+                <Plus className="w-4 h-4" />
+                식재료 추가
+              </button>
+            </div>
           </div>
 
           {/* Ingredients Table */}
@@ -463,6 +497,21 @@ export default function PricingPage() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={selectAllIngredients && filteredIngredients.length > 0}
+                      onChange={(e) => {
+                        setSelectAllIngredients(e.target.checked);
+                        if (e.target.checked) {
+                          setSelectedIngredientIds(new Set(filteredIngredients.map(i => i.id)));
+                        } else {
+                          setSelectedIngredientIds(new Set());
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-gray-300"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">카테고리</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">식재료명 (한글)</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Ingredient (EN)</th>
@@ -474,11 +523,39 @@ export default function PricingPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {filteredIngredients.map(ing => (
-                  <tr key={ing.id} className="hover:bg-gray-50">
+                  <tr key={ing.id} className={`hover:bg-gray-50 ${selectedIngredientIds.has(ing.id) ? 'bg-blue-50' : ''}`}>
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIngredientIds.has(ing.id)}
+                        onChange={(e) => {
+                          const newSet = new Set(selectedIngredientIds);
+                          if (e.target.checked) {
+                            newSet.add(ing.id);
+                          } else {
+                            newSet.delete(ing.id);
+                          }
+                          setSelectedIngredientIds(newSet);
+                        }}
+                        className="w-4 h-4 rounded border-gray-300"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-1 bg-gray-100 rounded text-gray-700">{ing.category}</span>
                     </td>
-                    <td className="px-4 py-3 font-medium">{ing.koreanName}</td>
+                    <td className="px-4 py-3 font-medium relative group">
+                      <span 
+                        className={`${ing.imageUrl ? 'cursor-pointer hover:text-orange-600 underline' : ''}`}
+                        onClick={() => ing.imageUrl && setPreviewImageUrl(ing.imageUrl)}
+                      >
+                        {ing.koreanName}
+                      </span>
+                      {ing.imageUrl && (
+                        <div className="absolute z-50 left-0 top-full hidden group-hover:block bg-white border shadow-xl rounded-lg p-2 w-48">
+                          <img src={ing.imageUrl} alt={ing.koreanName} className="w-full h-auto rounded" />
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{ing.englishName}</td>
                     <td className="px-4 py-3 text-right">{ing.quantity}</td>
                     <td className="px-4 py-3 text-center">{ing.unit}</td>
@@ -488,7 +565,7 @@ export default function PricingPage() {
                         <button
                           onClick={() => {
                             setEditingIngredient(ing);
-                            setIngredientForm(ing);
+                            setIngredientForm({ ...ing, imageUrl: ing.imageUrl || '' });
                             setShowAddIngredient(true);
                           }}
                           className="p-1 text-blue-500 hover:bg-blue-50 rounded"
@@ -507,7 +584,7 @@ export default function PricingPage() {
                 ))}
                 {filteredIngredients.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                       등록된 식재료가 없습니다.
                     </td>
                   </tr>
@@ -801,6 +878,56 @@ export default function PricingPage() {
                   />
                 </div>
               </div>
+              
+              {/* Image Upload */}
+              <div>
+                <label className="block text-sm font-medium mb-1">제품 이미지</label>
+                <div className="flex items-center gap-4">
+                  {(ingredientForm.imageUrl || ingredientImageFile) && (
+                    <div className="w-20 h-20 border rounded overflow-hidden bg-gray-100 flex items-center justify-center">
+                      <img 
+                        src={ingredientImageFile ? URL.createObjectURL(ingredientImageFile) : ingredientForm.imageUrl} 
+                        alt="제품" 
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                      <Image className="w-4 h-4" />
+                      이미지 선택
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setIngredientImageFile(file);
+                            // Convert to base64 for preview
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setIngredientForm({ ...ingredientForm, imageUrl: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    {ingredientForm.imageUrl && (
+                      <button
+                        onClick={() => {
+                          setIngredientForm({ ...ingredientForm, imageUrl: '' });
+                          setIngredientImageFile(null);
+                        }}
+                        className="ml-2 text-red-500 text-sm hover:underline"
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="p-4 border-t flex justify-end gap-2">
               <button
@@ -914,6 +1041,30 @@ export default function PricingPage() {
                 <Copy className="w-4 h-4" />
                 템플릿 생성
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl max-h-[80vh] overflow-hidden">
+            <div className="p-2 border-b flex justify-between items-center">
+              <span className="text-sm text-gray-500">제품 이미지</span>
+              <button onClick={() => setPreviewImageUrl(null)}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <img 
+                src={previewImageUrl} 
+                alt="제품 이미지" 
+                className="max-w-full max-h-[60vh] mx-auto object-contain"
+              />
             </div>
           </div>
         </div>

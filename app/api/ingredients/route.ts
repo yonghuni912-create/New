@@ -66,7 +66,8 @@ export async function POST(request: NextRequest) {
       englishName, 
       quantity,
       unit, 
-      yieldRate 
+      yieldRate,
+      imageUrl
     } = body;
 
     if (!koreanName || !englishName || !unit) {
@@ -82,7 +83,8 @@ export async function POST(request: NextRequest) {
         englishName,
         quantity: quantity || 0,
         unit,
-        yieldRate: yieldRate || 100
+        yieldRate: yieldRate || 100,
+        imageUrl: imageUrl || null
       }
     });
 
