@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Parse a single sheet as a manual - BBQ Chicken Format
+// Parse a single sheet as a manual - BBQ Chicken Format (키워드 기반 상대 위치 파싱)
 function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null {
   if (data.length < 5) return null;
 
@@ -171,7 +171,8 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
       sheetLower.includes('contents') || 
       sheetLower.includes('목차') ||
       sheetLower.includes('index') ||
-      sheetLower.includes('summary')) {
+      sheetLower.includes('summary') ||
+      sheetLower.includes('recipe')) {
     return null;
   }
 
@@ -183,89 +184,122 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
   const cookingMethod: ParsedManual['cookingMethod'] = [];
   const issueDetails: string[] = [];
 
-  // Parse BBQ Chicken format
-  // Row 1: ["Name", " Corn Salad "]
-  for (let i = 0; i < Math.min(15, data.length); i++) {
-    const row = data[i] || [];
-    if (row[0] && String(row[0]).toLowerCase().trim() === 'name' && row[1]) {
-      name = String(row[1]).trim();
-    }
-    if (row[0] && (String(row[0]).includes('한글') || String(row[0]).toLowerCase().includes('korean')) && row[1]) {
-      koreanName = String(row[1]).trim();
-    }
-    if (row[0] && (String(row[0]).toLowerCase().includes('price') || String(row[0]).includes('판매가')) && row[1]) {
-      const priceVal = parseFloat(String(row[1]).replace(/[^0-9.]/g, ''));
-      if (!isNaN(priceVal)) sellingPrice = priceVal;
-    }
-  }
-
-  // If no Korean name, use English name
-  if (!koreanName) {
-    koreanName = name;
-  }
-
-  // Find ingredients section - look for "Ingredients Composition" or similar header
-  let ingredientStartRow = -1;
-  let ingredientColIndex = { name: 2, weight: 4, unit: 5, purchase: 6, others: 7 };
-  
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i] || [];
-    const rowText = row.map(c => String(c || '').toLowerCase()).join(' ');
-    
-    if (rowText.includes('ingredients composition') || rowText.includes('ingredients') && rowText.includes('no')) {
-      // Found header row, ingredients start on next row
-      ingredientStartRow = i + 1;
-      
-      // Find column indices from header
-      for (let j = 0; j < row.length; j++) {
-        const cellText = String(row[j] || '').toLowerCase();
-        if (cellText.includes('ingredient')) ingredientColIndex.name = j;
-        if (cellText.includes('weight')) ingredientColIndex.weight = j;
-        if (cellText.includes('unit')) ingredientColIndex.unit = j;
-        if (cellText.includes('purchase')) ingredientColIndex.purchase = j;
-        if (cellText.includes('other')) ingredientColIndex.others = j;
+  // Helper function to find cell by keyword
+  const findCellByKeyword = (keyword: string, caseSensitive = false): { row: number, col: number } | null => {
+    for (let r = 0; r < data.length; r++) {
+      const row = data[r] || [];
+      for (let c = 0; c < row.length; c++) {
+        const cellValue = String(row[c] || '');
+        const searchValue = caseSensitive ? cellValue : cellValue.toLowerCase();
+        const searchKeyword = caseSensitive ? keyword : keyword.toLowerCase();
+        if (searchValue.includes(searchKeyword)) {
+          return { row: r, col: c };
+        }
       }
-      break;
+    }
+    return null;
+  };
+
+  // Helper to get cell value at position
+  const getCellValue = (row: number, col: number): string => {
+    if (row < 0 || row >= data.length) return '';
+    const rowData = data[row] || [];
+    if (col < 0 || col >= rowData.length) return '';
+    return String(rowData[col] || '').trim();
+  };
+
+  // 1. Find "Name" keyword and get menu name from adjacent cell
+  const nameCell = findCellByKeyword('Name');
+  if (nameCell) {
+    // Name value is to the right of "Name" label
+    const nameValue = getCellValue(nameCell.row, nameCell.col + 1);
+    if (nameValue) {
+      name = nameValue;
     }
   }
 
-  // Parse ingredients
+  // 2. Find Korean name (한글명)
+  const koreanCell = findCellByKeyword('한글') || findCellByKeyword('korean');
+  if (koreanCell) {
+    const kValue = getCellValue(koreanCell.row, koreanCell.col + 1);
+    if (kValue) koreanName = kValue;
+  }
+  if (!koreanName) koreanName = name;
+
+  // 3. Find price
+  const priceCell = findCellByKeyword('price') || findCellByKeyword('판매가');
+  if (priceCell) {
+    const priceVal = parseFloat(getCellValue(priceCell.row, priceCell.col + 1).replace(/[^0-9.]/g, ''));
+    if (!isNaN(priceVal)) sellingPrice = priceVal;
+  }
+
+  // 4. Find Ingredients section by looking for "Ingredients Composition" or "NO | Ingredients | Weight"
+  const ingredientHeaderCell = findCellByKeyword('Ingredients Composition') || findCellByKeyword('Ingredients');
+  let ingredientStartRow = -1;
+  let colNo = 1, colName = 2, colWeight = 4, colUnit = 5, colPurchase = 6;
+
+  if (ingredientHeaderCell) {
+    // Look for the actual column headers (NO, Ingredients, Weight, Unit, etc.) in nearby rows
+    for (let r = ingredientHeaderCell.row; r < Math.min(ingredientHeaderCell.row + 3, data.length); r++) {
+      const row = data[r] || [];
+      const rowText = row.map(c => String(c || '').toLowerCase()).join(' ');
+      
+      // If this row contains "no" and "weight", it's the header row
+      if (rowText.includes('no') && (rowText.includes('weight') || rowText.includes('qty'))) {
+        // Find column positions dynamically
+        for (let c = 0; c < row.length; c++) {
+          const cellText = String(row[c] || '').toLowerCase().trim();
+          if (cellText === 'no') colNo = c;
+          else if (cellText.includes('ingredient') && !cellText.includes('composition')) colName = c;
+          else if (cellText.includes('weight') || cellText === 'qty') colWeight = c;
+          else if (cellText === 'unit') colUnit = c;
+          else if (cellText.includes('purchase')) colPurchase = c;
+        }
+        ingredientStartRow = r + 1;
+        break;
+      }
+    }
+  }
+
+  // 5. Parse ingredients from the found start row
   if (ingredientStartRow > 0) {
     for (let i = ingredientStartRow; i < data.length && i < ingredientStartRow + 50; i++) {
       const row = data[i] || [];
       
-      // Check if we hit cooking method section
-      const rowText = row.map(c => String(c || '')).join(' ').toLowerCase();
-      if (rowText.includes('cooking method') || rowText.includes('process')) {
+      // Stop if we hit cooking method section or empty section
+      const firstCellText = String(row[0] || '').toLowerCase();
+      if (firstCellText.includes('cooking') || firstCellText.includes('method') || firstCellText.includes('process')) {
         break;
       }
       
-      // Skip empty rows or header-like rows
-      const ingredientName = String(row[ingredientColIndex.name] || row[2] || '').trim();
-      if (!ingredientName || ingredientName.toLowerCase().includes('total') || 
+      // Get ingredient name - check the identified column
+      const ingredientName = String(row[colName] || row[2] || '').trim();
+      
+      // Skip empty, total, or note rows
+      if (!ingredientName || 
+          ingredientName.toLowerCase().includes('total') || 
           ingredientName.toLowerCase().includes('합계') ||
-          ingredientName.startsWith('*')) {
+          ingredientName.startsWith('*') ||
+          ingredientName.toLowerCase().includes('기준')) {
         continue;
       }
       
-      // Extract weight and unit
+      // Extract weight
       let weight = 0;
-      let unit = 'g';
-      
-      // Weight is usually in column 4
-      const weightVal = row[ingredientColIndex.weight] || row[4];
+      const weightVal = row[colWeight] ?? row[4];
       if (weightVal !== undefined && weightVal !== null) {
         weight = parseFloat(String(weightVal).replace(/[^0-9.]/g, '')) || 0;
       }
       
-      // Unit is usually in column 5
-      const unitVal = row[ingredientColIndex.unit] || row[5];
+      // Extract unit
+      let unit = 'g';
+      const unitVal = row[colUnit] ?? row[5];
       if (unitVal) {
         unit = String(unitVal).trim().toLowerCase() || 'g';
       }
       
-      // Purchase type in column 6
-      const purchaseVal = row[ingredientColIndex.purchase] || row[6];
+      // Purchase type
+      const purchaseVal = row[colPurchase] ?? row[6];
       const purchase = purchaseVal ? String(purchaseVal).trim() : 'Local';
 
       ingredients.push({
@@ -278,34 +312,52 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
     }
   }
 
-  // Find cooking method section
+  // 6. Find COOKING METHOD section by keyword
+  const cookingCell = findCellByKeyword('COOKING METHOD');
   let cookingStartRow = -1;
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i] || [];
-    const firstCell = String(row[0] || '').toLowerCase();
-    if (firstCell.includes('cooking method')) {
-      cookingStartRow = i + 2; // Skip header rows
-      break;
+  let manualCol = 3; // Default: D column (index 3)
+
+  if (cookingCell) {
+    // Look for "PROCESS" and "MANUAL" headers to find the correct columns
+    for (let r = cookingCell.row; r < Math.min(cookingCell.row + 3, data.length); r++) {
+      const row = data[r] || [];
+      for (let c = 0; c < row.length; c++) {
+        const cellText = String(row[c] || '').toUpperCase().trim();
+        if (cellText === 'MANUAL') {
+          manualCol = c;
+          cookingStartRow = r + 1;
+          break;
+        }
+      }
+      if (cookingStartRow > 0) break;
+    }
+    
+    // If we didn't find MANUAL header, just start after COOKING METHOD
+    if (cookingStartRow < 0) {
+      cookingStartRow = cookingCell.row + 2;
     }
   }
 
-  // Parse cooking method
+  // 7. Parse cooking method steps
   if (cookingStartRow > 0) {
-    let currentProcess = 'Cooking';
     const manualSteps: string[] = [];
     
     for (let i = cookingStartRow; i < data.length && i < cookingStartRow + 30; i++) {
       const row = data[i] || [];
       
-      // Manual text is usually in column 3 (index 3)
-      const manualText = String(row[3] || row[2] || row[1] || '').trim();
-      if (manualText && manualText.startsWith('▶')) {
-        manualSteps.push(manualText.replace('▶', '').trim());
-      } else if (manualText && !manualText.toLowerCase().includes('bbq')) {
+      // Manual text is in the identified column
+      const manualText = String(row[manualCol] || row[3] || row[2] || '').trim();
+      
+      // Skip BBQ branding or empty
+      if (!manualText || manualText.toLowerCase().includes('bbq canada') || manualText.toLowerCase().includes('bbq korea')) {
+        continue;
+      }
+      
+      if (manualText.startsWith('▶') || manualText.startsWith('•') || manualText.startsWith('-')) {
+        manualSteps.push(manualText.replace(/^[▶•-]\s*/, '').trim());
+      } else if (manualSteps.length > 0 && manualText.length > 2) {
         // Continuation of previous step
-        if (manualSteps.length > 0) {
-          manualSteps[manualSteps.length - 1] += ' ' + manualText.trim();
-        }
+        manualSteps[manualSteps.length - 1] += ' ' + manualText.trim();
       }
     }
     
@@ -360,7 +412,7 @@ async function handleDirectImport(manuals: ParsedManual[], session: any) {
               quantity: ing.quantity || 0,
               unit: ing.unit || 'g',
               notes: ing.purchase,
-              orderIndex: index
+              sortOrder: index
             }))
           }
         }
