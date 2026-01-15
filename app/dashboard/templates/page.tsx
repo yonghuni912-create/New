@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -184,6 +185,10 @@ export default function TemplatesPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [excelPreviewIndex, setExcelPreviewIndex] = useState(0); // Current manual index in preview
   const [excelConfirmedManuals, setExcelConfirmedManuals] = useState<Set<number>>(new Set()); // Confirmed manual indices
+  
+  // Chunk upload state
+  const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number; saved: number } | null>(null);
+  const [pendingManuals, setPendingManuals] = useState<any[]>([]);
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -920,47 +925,206 @@ export default function TemplatesPage() {
     }
   };
 
-  // Excel file upload preview
+  // Client-side Excel parsing function
+  const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string): any | null => {
+    const getCell = (addr: string): string => {
+      const cell = sheet[addr];
+      if (!cell) return '';
+      if (cell.t === 'n') return String(cell.v);
+      return String(cell.v ?? cell.w ?? '').trim();
+    };
+    
+    // C4: menu name
+    const menuName = getCell('C4');
+    if (!menuName) return null;
+    
+    // Check if this is a valid manual sheet
+    const titleCell = getCell('A1') || getCell('B1') || getCell('C1');
+    const isLikelyManual = 
+      titleCell.includes('조리') || 
+      titleCell.includes('레시피') || 
+      menuName.length > 0;
+    
+    if (!isLikelyManual && !menuName) return null;
+    
+    // Extract manual info
+    const manual: any = {
+      menuName,
+      sheetName,
+      cookingTime: getCell('E4'),
+      servingSize: getCell('G4'),
+      storageTemp: getCell('I4') || getCell('H4'),
+      difficulty: getCell('K4') || getCell('J4'),
+      ingredients: [],
+      steps: []
+    };
+    
+    // Parse ingredients (rows 8-18, columns B, D, F, H)
+    for (let row = 8; row <= 18; row++) {
+      const ingredientGroups = [
+        { name: getCell(`B${row}`), qty: getCell(`C${row}`) },
+        { name: getCell(`D${row}`), qty: getCell(`E${row}`) },
+        { name: getCell(`F${row}`), qty: getCell(`G${row}`) },
+        { name: getCell(`H${row}`), qty: getCell(`I${row}`) }
+      ];
+      
+      for (const ing of ingredientGroups) {
+        if (ing.name && ing.name !== '재료' && ing.name !== '조리법' && 
+            ing.name !== '양념' && ing.name !== '부재료') {
+          manual.ingredients.push({
+            name: ing.name,
+            quantity: ing.qty || ''
+          });
+        }
+      }
+    }
+    
+    // Parse cooking steps (rows 21+, column B)
+    for (let row = 21; row <= 40; row++) {
+      const step = getCell(`B${row}`) || getCell(`C${row}`);
+      if (step && step.length > 5 && !step.includes('조리법') && !step.includes('Step')) {
+        manual.steps.push({
+          orderIndex: manual.steps.length + 1,
+          description: step
+        });
+      }
+    }
+    
+    return manual;
+  };
+
+  // Excel file upload - client-side parsing for large files
   const handleExcelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Check file size - Vercel has 4.5MB limit
     const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > 4) {
-      alert(`파일 크기가 너무 큽니다: ${fileSizeMB.toFixed(1)}MB\n\n서버 제한: 4MB\n\n이미지가 포함된 대용량 엑셀은 시트별로 분리하거나, 이미지를 제거한 후 다시 시도해주세요.`);
-      return;
-    }
+    console.log(`📂 Selected file: ${file.name} (${fileSizeMB.toFixed(1)}MB)`);
     
     setExcelFile(file);
     setIsUploading(true);
     
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('importMode', 'preview');
+      // Always parse client-side for reliability
+      console.log('📊 Parsing Excel client-side...');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
       
-      console.log('📤 Uploading file:', file.name, 'Size:', file.size, 'bytes');
+      console.log(`📋 Found ${workbook.SheetNames.length} sheets`);
       
-      const res = await fetch('/api/manuals/upload', {
-        method: 'POST',
-        body: formData
+      const allManuals: any[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const manual = parseManualSheet(sheet, sheetName);
+        if (manual) {
+          allManuals.push(manual);
+        }
+      }
+      
+      console.log(`✅ Parsed ${allManuals.length} manuals from ${workbook.SheetNames.length} sheets`);
+      
+      if (allManuals.length === 0) {
+        alert('파싱 가능한 매뉴얼이 없습니다.\n\n엑셀 형식이 올바른지 확인해주세요.');
+        return;
+      }
+      
+      // Calculate total ingredients
+      const totalIngredients = allManuals.reduce((sum, m) => sum + (m.ingredients?.length || 0), 0);
+      
+      setExcelPreviewData({
+        parsedCount: allManuals.length,
+        totalSheets: workbook.SheetNames.length,
+        totalIngredients,
+        allManuals
       });
       
-      console.log('📥 Response status:', res.status);
-      
-      if (res.ok) {
-        const data = await res.json();
-        console.log('✅ Preview data received:', data.parsedCount, 'manuals');
-        setExcelPreviewData(data);
-      } else {
-        const error = await res.json().catch(() => ({ error: res.statusText }));
-        console.error('❌ Upload error:', error);
-        alert(`파일 분석 실패: ${error.error || error.details || res.statusText || '알 수 없는 오류'}\n\n상태 코드: ${res.status}`);
+      // For large files, show chunk confirmation
+      if (allManuals.length > 10) {
+        setPendingManuals(allManuals);
+        setChunkProgress({ current: 0, total: allManuals.length, saved: 0 });
       }
+      
     } catch (error: any) {
-      console.error('Excel preview error:', error);
-      alert(`파일 분석 중 오류가 발생했습니다.\n\n오류: ${error?.message || '네트워크 오류'}`);
+      console.error('❌ Excel parsing error:', error);
+      alert(`파일 분석 중 오류가 발생했습니다.\n\n오류: ${error?.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Upload manuals in chunks
+  const uploadChunk = async (manuals: any[], startIdx: number, chunkSize: number = 10) => {
+    const chunk = manuals.slice(startIdx, startIdx + chunkSize);
+    if (chunk.length === 0) return { success: true, count: 0 };
+    
+    const res = await fetch('/api/manuals/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        importMode: 'import-direct',
+        manuals: chunk
+      })
+    });
+    
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(error.error || 'Upload failed');
+    }
+    
+    const data = await res.json();
+    return { success: true, count: data.importedCount };
+  };
+
+  // Chunked upload with confirmation
+  const handleChunkedUpload = async () => {
+    if (pendingManuals.length === 0) return;
+    
+    const CHUNK_SIZE = 10;
+    let currentIdx = chunkProgress?.saved || 0;
+    const total = pendingManuals.length;
+    
+    setIsUploading(true);
+    
+    try {
+      while (currentIdx < total) {
+        // Upload one chunk
+        const result = await uploadChunk(pendingManuals, currentIdx, CHUNK_SIZE);
+        const newSaved = currentIdx + result.count;
+        
+        setChunkProgress({ current: currentIdx, total, saved: newSaved });
+        
+        const remaining = total - newSaved;
+        
+        if (remaining > 0) {
+          // Ask user to continue
+          const continueUpload = confirm(
+            `✅ ${newSaved}개 저장 완료!\n\n남은 매뉴얼: ${remaining}개\n\n계속 진행하시겠습니까?`
+          );
+          
+          if (!continueUpload) {
+            alert(`업로드 중단됨.\n\n저장 완료: ${newSaved}개\n미저장: ${remaining}개`);
+            break;
+          }
+        }
+        
+        currentIdx = newSaved;
+      }
+      
+      if (currentIdx >= total) {
+        alert(`✅ 모든 매뉴얼 업로드 완료!\n\n총 ${total}개 매뉴얼이 저장되었습니다.`);
+        setShowExcelUploadModal(false);
+        setExcelFile(null);
+        setExcelPreviewData(null);
+        setExcelConfirmedManuals(new Set());
+        setExcelPreviewIndex(0);
+        setPendingManuals([]);
+        setChunkProgress(null);
+        fetchData();
+      }
+      
+    } catch (error: any) {
+      console.error('Chunk upload error:', error);
+      alert(`업로드 오류: ${error.message}\n\n저장 완료: ${chunkProgress?.saved || 0}개`);
     } finally {
       setIsUploading(false);
     }
@@ -2337,16 +2501,18 @@ export default function TemplatesPage() {
               <div className="text-sm text-gray-500">
                 {excelPreviewData?.allManuals?.length > 0 && (
                   <span>
-                    {excelConfirmedManuals.size === excelPreviewData.allManuals.length 
-                      ? '✅ 모든 매뉴얼 확인 완료!'
-                      : `${excelPreviewData.allManuals.length - excelConfirmedManuals.size}개 매뉴얼 확인 대기 중`
+                    {chunkProgress 
+                      ? `📦 청크 업로드: ${chunkProgress.saved}/${chunkProgress.total} 저장됨`
+                      : excelConfirmedManuals.size === excelPreviewData.allManuals.length 
+                        ? '✅ 모든 매뉴얼 확인 완료!'
+                        : `${excelPreviewData.allManuals.length - excelConfirmedManuals.size}개 매뉴얼 확인 대기 중`
                     }
                   </span>
                 )}
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); }}
+                  onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); setPendingManuals([]); setChunkProgress(null); }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   취소
@@ -2364,15 +2530,30 @@ export default function TemplatesPage() {
                       <CheckCheck className="w-4 h-4 mr-2" />
                       전체 확인
                     </button>
-                    {/* Import Button */}
-                    <button
-                      onClick={handleExcelImport}
-                      disabled={isUploading || excelConfirmedManuals.size === 0}
-                      className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                    >
-                      {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                      확인된 {excelConfirmedManuals.size}개 가져오기
-                    </button>
+                    
+                    {/* Chunked Upload Button - for large datasets */}
+                    {pendingManuals.length > 10 && (
+                      <button
+                        onClick={handleChunkedUpload}
+                        disabled={isUploading}
+                        className="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                      >
+                        {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                        청크 업로드 ({pendingManuals.length}개)
+                      </button>
+                    )}
+                    
+                    {/* Import Button - for small datasets or confirmed manuals */}
+                    {pendingManuals.length <= 10 && (
+                      <button
+                        onClick={handleExcelImport}
+                        disabled={isUploading || excelConfirmedManuals.size === 0}
+                        className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                      >
+                        {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                        확인된 {excelConfirmedManuals.size}개 가져오기
+                      </button>
+                    )}
                   </>
                 )}
               </div>
