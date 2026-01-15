@@ -281,11 +281,17 @@ model MenuManual {
   deletedBy       String?
   groupId         String?
   priceTemplateId String?
+  // 마스터/복제본 관계 필드
+  isMaster        Boolean            @default(true)   // true = 마스터, false = 국가 복제본
+  masterManualId  String?                             // 복제본일 경우 원본 마스터 ID
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   ingredients     ManualIngredient[]
   posMenuLinks    PosMenuLink[]      @relation("ManualToPosLink")
   priceTemplate   PriceTemplate?     @relation("TemplateTomanual", fields: [priceTemplateId], references: [id], onDelete: SetNull)
+  // Self-relation for master/copy
+  masterManual    MenuManual?        @relation("ManualCopies", fields: [masterManualId], references: [id], onDelete: SetNull)
+  copies          MenuManual[]       @relation("ManualCopies")
 }
 
 // 매뉴얼 재료

@@ -17,13 +17,33 @@ export async function GET(request: NextRequest) {
   const includeIngredients = searchParams.get('includeIngredients') === 'true';
   const includeCostVersions = searchParams.get('includeCostVersions') === 'true';
   const groupId = searchParams.get('groupId');
+  const masterOnly = searchParams.get('masterOnly') === 'true';
+  const priceTemplateId = searchParams.get('priceTemplateId');
 
   try {
     console.log('🔍 Fetching manuals...');
-    console.log('Query params:', { groupId, includeIngredients, includeCostVersions });
+    console.log('Query params:', { groupId, includeIngredients, includeCostVersions, masterOnly, priceTemplateId });
+    
+    // Build where clause
+    const whereClause: any = {};
+    
+    if (masterOnly) {
+      // Only return master manuals (isMaster = true or isMaster is null for legacy)
+      whereClause.OR = [
+        { isMaster: true },
+        { isMaster: null } // Legacy manuals without isMaster field
+      ];
+    }
+    
+    if (priceTemplateId) {
+      // Return copies for specific template
+      whereClause.priceTemplateId = priceTemplateId;
+      whereClause.isMaster = false;
+    }
     
     // Return all manuals, let frontend filter by isActive/isArchived
     const manuals = await prisma.menuManual.findMany({
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
       include: {
         ingredients: includeIngredients ? {
           orderBy: [
@@ -32,7 +52,8 @@ export async function GET(request: NextRequest) {
           include: {
             ingredientMaster: true
           }
-        } : false
+        } : false,
+        priceTemplate: true
       },
       orderBy: { name: 'asc' }
     });

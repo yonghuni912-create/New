@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, Upload, Image, ChevronUp, Archive, History } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, Upload, Image, ChevronUp, Archive, History, Globe, Copy } from 'lucide-react';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -82,6 +82,7 @@ interface PriceTemplate {
   country?: string;
   region?: string;
   currency?: string;
+  isMaster?: boolean;
 }
 
 const DEFAULT_COOKING_PROCESSES = [
@@ -109,7 +110,7 @@ const EMPTY_INGREDIENT: ManualIngredient = {
 export default function TemplatesPage() {
   const { data: session } = useSession();
   const isMaster = session?.user?.email === 'kun.lee@bbqchickenca.com';
-  const [activeTab, setActiveTab] = useState<'editor' | 'manuals' | 'costTable' | 'trash' | 'archived'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'manuals' | 'countryManuals' | 'costTable' | 'trash' | 'archived'>('editor');
   
   // Editor State
   const [menuName, setMenuName] = useState('');
@@ -146,6 +147,9 @@ export default function TemplatesPage() {
   // Selection State for bulk operations
   const [selectedManualIds, setSelectedManualIds] = useState<Set<string>>(new Set());
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [cloneTemplateId, setCloneTemplateId] = useState<string>(''); // 복제 대상 국가 템플릿
+  const [isCloning, setIsCloning] = useState(false);
+  const [countryFilterTemplateId, setCountryFilterTemplateId] = useState<string>(''); // 국가별 매뉴얼 필터
   
   // Sorting state for manuals table
   const [sortField, setSortField] = useState<'name' | 'country' | 'cost' | 'sellingPrice' | 'costPct' | null>(null);
@@ -158,6 +162,12 @@ export default function TemplatesPage() {
   const [menuImage, setMenuImage] = useState<File | null>(null);
   const [menuImageName, setMenuImageName] = useState<string>('');
   const [menuImageUrl, setMenuImageUrl] = useState<string>(''); // Base64 또는 URL
+
+  // Excel upload state
+  const [showExcelUploadModal, setShowExcelUploadModal] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelPreviewData, setExcelPreviewData] = useState<any>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -551,8 +561,8 @@ export default function TemplatesPage() {
           }
         }
         
-        // Template ID - not available in Turso
-        setEditorTemplateId('');
+        // Load price template ID
+        setEditorTemplateId(fullManual.priceTemplateId || '');
         
         setEditingManualId(manual.id);
         setActiveTab('editor');
@@ -758,6 +768,7 @@ export default function TemplatesPage() {
         yieldUnit: 'ea', // 기본 단위
         sellingPrice: sellingPrice ? parseFloat(sellingPrice) : null,
         imageUrl, // 이미지 URL 추가
+        priceTemplateId: editorTemplateId || null, // 가격 템플릿 ID
         cookingMethod: cookingSteps.filter(s => s.manual || s.translatedManual),
         ingredients: ingredients.filter(ing => ing.name || ing.koreanName).map(ing => ({
           ingredientId: ing.ingredientId,
@@ -846,6 +857,114 @@ export default function TemplatesPage() {
     alert('템플릿 적용 기능은 현재 사용할 수 없습니다.');
   };
 
+  // Clone selected master manuals to a country template
+  const cloneToCountryTemplate = async () => {
+    if (selectedManualIds.size === 0) {
+      alert('복제할 매뉴얼을 선택해주세요.');
+      return;
+    }
+    if (!cloneTemplateId) {
+      alert('복제할 국가 템플릿을 선택해주세요.');
+      return;
+    }
+
+    setIsCloning(true);
+    try {
+      const res = await fetch('/api/manuals/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manualIds: Array.from(selectedManualIds),
+          priceTemplateId: cloneTemplateId
+        })
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        const template = priceTemplates.find(t => t.id === cloneTemplateId);
+        alert(`${result.clonedCount}개의 매뉴얼이 ${template?.country || '선택한 국가'}에 복제되었습니다.`);
+        setSelectedManualIds(new Set());
+        setCloneTemplateId('');
+        fetchData();
+      } else {
+        const error = await res.json();
+        alert(`복제 실패: ${error.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Clone error:', error);
+      alert('복제 중 오류가 발생했습니다.');
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
+  // Excel file upload preview
+  const handleExcelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setExcelFile(file);
+    setIsUploading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('importMode', 'preview');
+      
+      const res = await fetch('/api/manuals/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setExcelPreviewData(data);
+      } else {
+        const error = await res.json();
+        alert(`파일 분석 실패: ${error.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Excel preview error:', error);
+      alert('파일 분석 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Import Excel manuals
+  const handleExcelImport = async () => {
+    if (!excelFile) return;
+    
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', excelFile);
+      formData.append('importMode', 'import');
+      
+      const res = await fetch('/api/manuals/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        alert(`${data.importedCount}개 매뉴얼이 가져오기 되었습니다.\n${data.issuesCount}개는 확인이 필요합니다.`);
+        setShowExcelUploadModal(false);
+        setExcelFile(null);
+        setExcelPreviewData(null);
+        fetchData();
+      } else {
+        const error = await res.json();
+        alert(`가져오기 실패: ${error.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Excel import error:', error);
+      alert('가져오기 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Toggle manual selection
   const toggleManualSelection = (manualId: string) => {
     setSelectedManualIds(prev => {
@@ -901,9 +1020,20 @@ export default function TemplatesPage() {
     if (activeTab === 'trash' || activeTab === 'archived') {
       // Show archived manuals
       filtered = filtered.filter(m => !!(m as any).isArchived);
+    } else if (activeTab === 'countryManuals') {
+      // Show only country copies (non-master)
+      filtered = filtered.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0);
+      // Further filter by selected country template
+      if (countryFilterTemplateId) {
+        filtered = filtered.filter(m => (m as any).priceTemplateId === countryFilterTemplateId);
+      }
     } else {
-      // Show active (not archived) manuals
+      // Show active (not archived) manuals - for manuals tab, show only masters
       filtered = filtered.filter(m => !(m as any).isArchived);
+      if (activeTab === 'manuals') {
+        // Show only master manuals (isMaster = true or null for legacy)
+        filtered = filtered.filter(m => (m as any).isMaster !== false && (m as any).isMaster !== 0);
+      }
     }
     
     // Apply sorting (simplified - no cost/template data available)
@@ -918,9 +1048,9 @@ export default function TemplatesPage() {
             bValue = b.name?.toLowerCase() || '';
             break;
           case 'country':
-            // Not available in Turso
-            aValue = '';
-            bValue = '';
+            // Get country from price template
+            aValue = ((a as any).priceTemplate?.country || '').toLowerCase();
+            bValue = ((b as any).priceTemplate?.country || '').toLowerCase();
             break;
           case 'cost':
             // Not available in Turso
@@ -1046,7 +1176,18 @@ export default function TemplatesPage() {
             }`}
           >
             <Settings className="w-4 h-4 inline mr-2" />
-            Saved Manuals ({savedManuals.filter(m => !(m as any).isDeleted).length})
+            📋 매뉴얼 마스터 ({savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false && (m as any).isMaster !== 0).length})
+          </button>
+          <button
+            onClick={() => setActiveTab('countryManuals')}
+            className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+              activeTab === 'countryManuals' 
+                ? 'border-blue-500 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Globe className="w-4 h-4 inline mr-2" />
+            🌍 국가별 매뉴얼 ({savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length})
           </button>
           <button
             onClick={() => setActiveTab('costTable')}
@@ -1068,21 +1209,8 @@ export default function TemplatesPage() {
             }`}
           >
             <Trash2 className="w-4 h-4 inline mr-2" />
-            Trash ({savedManuals.filter(m => !!(m as any).isDeleted).length})
+            Trash ({savedManuals.filter(m => !!(m as any).isArchived).length})
           </button>
-          {isMaster && (
-            <button
-              onClick={() => setActiveTab('archived')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'archived' 
-                  ? 'border-purple-500 text-purple-600' 
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <Archive className="w-4 h-4 inline mr-2" />
-              Archived ({savedManuals.filter(m => !!(m as any).isDeleted).length})
-            </button>
-          )}
         </nav>
       </div>
 
@@ -1363,20 +1491,84 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {/* Saved Manuals, Trash & Archived Tab */}
-      {(activeTab === 'manuals' || activeTab === 'trash' || activeTab === 'archived') && (
+      {/* Saved Manuals, Trash & Country Manuals Tab */}
+      {(activeTab === 'manuals' || activeTab === 'trash' || activeTab === 'archived' || activeTab === 'countryManuals') && (
         <div className="space-y-4">
           {/* Controls Row */}
           <div className="bg-white rounded-lg shadow p-4">
-            <div className="flex items-end gap-4">
+            <div className="flex items-end gap-4 flex-wrap">
               {/* Left: Info */}
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">메뉴얼 목록</label>
-                <p className="text-sm text-gray-500">총 {savedManuals.filter(m => !(m as any).isArchived).length}개 매뉴얼</p>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {activeTab === 'countryManuals' ? '🌍 국가별 매뉴얼' : '📋 매뉴얼 마스터'}
+                </label>
+                <p className="text-sm text-gray-500">
+                  {activeTab === 'countryManuals' 
+                    ? `총 ${savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length}개 국가별 매뉴얼`
+                    : `총 ${savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false).length}개 마스터 매뉴얼`
+                  }
+                </p>
               </div>
 
+              {/* Excel Upload Button (for manuals tab) */}
+              {activeTab === 'manuals' && (
+                <button
+                  onClick={() => setShowExcelUploadModal(true)}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  엑셀 업로드
+                </button>
+              )}
+
+              {/* Country Filter (for countryManuals tab) */}
+              {activeTab === 'countryManuals' && (
+                <div className="min-w-[200px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">국가 필터</label>
+                  <select
+                    value={countryFilterTemplateId}
+                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">모든 국가</option>
+                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                      <option key={t.id} value={t.id}>{t.country}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Clone to Country (for manuals tab) */}
+              {activeTab === 'manuals' && selectedManualIds.size > 0 && (
+                <div className="min-w-[250px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <Copy className="w-4 h-4 inline mr-1" />
+                    국가 템플릿에 복제 ({selectedManualIds.size}개 선택)
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={cloneTemplateId}
+                      onChange={(e) => setCloneTemplateId(e.target.value)}
+                      className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                    >
+                      <option value="">국가 선택...</option>
+                      {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                        <option key={t.id} value={t.id}>{t.country}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={cloneToCountryTemplate}
+                      disabled={!cloneTemplateId || isCloning}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center"
+                    >
+                      {isCloning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Right: Actions */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-[200px]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {selectedManualIds.size > 0 ? (
                     <span className="text-blue-600 font-semibold">{selectedManualIds.size}개 선택됨</span>
@@ -1385,7 +1577,7 @@ export default function TemplatesPage() {
                   )}
                 </label>
                 <div className="flex gap-2 justify-end">
-                  {activeTab === 'manuals' && (
+                  {(activeTab === 'manuals' || activeTab === 'countryManuals') && (
                     <>
                       <button
                         onClick={handleBulkDelete}
@@ -1426,6 +1618,11 @@ export default function TemplatesPage() {
                   <th onClick={() => handleSort('name')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     메뉴명 <SortIcon field="name" />
                   </th>
+                  {activeTab === 'countryManuals' && (
+                    <th onClick={() => handleSort('country')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
+                      국가 <SortIcon field="country" />
+                    </th>
+                  )}
                   <th onClick={() => handleSort('sellingPrice')} className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     판매가 (Selling Price) <SortIcon field="sellingPrice" />
                   </th>
@@ -1460,6 +1657,14 @@ export default function TemplatesPage() {
                           )}
                         </div>
                       </td>
+                      {activeTab === 'countryManuals' && (
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                            <Globe className="w-3 h-3 mr-1" />
+                            {(manual as any).priceTemplate?.country || '국가 미지정'}
+                          </span>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         {manual.sellingPrice ? (
                           <span className="font-medium">${manual.sellingPrice.toFixed(2)}</span>
@@ -1489,7 +1694,7 @@ export default function TemplatesPage() {
                               <Eye className="w-4 h-4" />
                             </button>
                           )}
-                          {activeTab === 'manuals' && (
+                          {(activeTab === 'manuals' || activeTab === 'countryManuals') && (
                             <>
                               <button 
                                 onClick={() => handleDownloadExcel(manual)}
@@ -1774,6 +1979,135 @@ export default function TemplatesPage() {
           </div>
         </div>
       )}
+
+      {/* Excel Upload Modal */}
+      {showExcelUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h2 className="text-xl font-bold">📊 엑셀 파일에서 매뉴얼 가져오기</h2>
+              <button onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); }}>
+                <X className="w-6 h-6 text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {/* File Input */}
+              {!excelPreviewData && (
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                  <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-600 mb-4">엑셀 파일(.xlsx)을 선택해주세요</p>
+                  <label className="cursor-pointer bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600">
+                    파일 선택
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleExcelFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+                  {isUploading && (
+                    <p className="mt-4 text-gray-500 flex items-center justify-center">
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      파일 분석 중...
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Preview Data */}
+              {excelPreviewData && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-2">📋 분석 결과</h3>
+                    <p>총 {excelPreviewData.totalSheets}개 시트 중 {excelPreviewData.parsedCount}개 매뉴얼 발견</p>
+                    {excelPreviewData.issuesCount > 0 && (
+                      <p className="text-orange-600">{excelPreviewData.issuesCount}개 매뉴얼은 확인이 필요합니다</p>
+                    )}
+                  </div>
+
+                  {/* Successfully parsed manuals */}
+                  {excelPreviewData.manuals?.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 text-green-600">✅ 가져올 수 있는 매뉴얼</h4>
+                      <div className="max-h-40 overflow-y-auto border rounded">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left">메뉴명</th>
+                              <th className="px-3 py-2 text-left">재료 수</th>
+                              <th className="px-3 py-2 text-left">조리법</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {excelPreviewData.manuals.map((m: any, i: number) => (
+                              <tr key={i}>
+                                <td className="px-3 py-2">{m.name || m.koreanName}</td>
+                                <td className="px-3 py-2">{m.ingredients?.length || 0}개</td>
+                                <td className="px-3 py-2">{m.cookingMethod?.length || 0}단계</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manuals with issues */}
+                  {excelPreviewData.manualsWithIssues?.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 text-orange-600">⚠️ 확인이 필요한 매뉴얼</h4>
+                      <div className="max-h-40 overflow-y-auto border rounded border-orange-200 bg-orange-50">
+                        <table className="w-full text-sm">
+                          <thead className="bg-orange-100 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left">메뉴명</th>
+                              <th className="px-3 py-2 text-left">문제점</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {excelPreviewData.manualsWithIssues.map((m: any, i: number) => (
+                              <tr key={i}>
+                                <td className="px-3 py-2">{m.name || m.koreanName}</td>
+                                <td className="px-3 py-2 text-sm text-orange-700">{m.issueDetails?.join(', ')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-2">
+                        이 매뉴얼들은 가져온 후 수동으로 식재료 링킹과 가격 템플릿을 지정해주세요.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button
+                onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                취소
+              </button>
+              {excelPreviewData && (
+                <button
+                  onClick={handleExcelImport}
+                  disabled={isUploading || !excelPreviewData.parsedCount}
+                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                  {excelPreviewData.parsedCount + excelPreviewData.issuesCount}개 매뉴얼 가져오기
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+
