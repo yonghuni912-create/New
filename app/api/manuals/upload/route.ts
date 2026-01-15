@@ -30,13 +30,17 @@ interface ParsedManual {
 
 // POST - Upload and parse Excel file with multiple manuals
 export async function POST(request: NextRequest) {
+  console.log('📤 Manual upload API called');
+  
   const session = await getServerSession(authOptions);
   if (!session) {
+    console.log('❌ Unauthorized - no session');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const contentType = request.headers.get('content-type') || '';
+    console.log('📋 Content-Type:', contentType);
     
     // Handle direct import mode (JSON body with confirmed manuals)
     if (contentType.includes('application/json')) {
@@ -47,21 +51,36 @@ export async function POST(request: NextRequest) {
     }
     
     // Handle file upload mode
+    console.log('📁 Parsing form data...');
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const importMode = formData.get('importMode') as string || 'preview'; // 'preview' | 'import'
 
     if (!file) {
+      console.log('❌ No file provided');
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
+    console.log('📄 File received:', file.name, 'Size:', file.size, 'bytes');
+    
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-
-    console.log('📊 Excel sheets:', workbook.SheetNames);
+    console.log('📦 Buffer size:', buffer.byteLength);
+    
+    let workbook;
+    try {
+      workbook = XLSX.read(buffer, { type: 'array' });
+      console.log('📊 Excel sheets:', workbook.SheetNames.length, 'sheets');
+    } catch (xlsxError: any) {
+      console.error('❌ XLSX parse error:', xlsxError?.message);
+      return NextResponse.json({ 
+        error: 'Excel 파일을 읽을 수 없습니다', 
+        details: xlsxError?.message 
+      }, { status: 400 });
+    }
 
     const parsedManuals: ParsedManual[] = [];
     const manualsWithIssues: ParsedManual[] = [];
+    const parseErrors: string[] = [];
 
     // Process each sheet as a separate manual
     for (const sheetName of workbook.SheetNames) {
@@ -72,18 +91,25 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+      try {
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 
-      const parsed = parseManualSheet(sheetName, jsonData);
-      if (parsed) {
-        if (parsed.hasLinkingIssue) {
-          manualsWithIssues.push(parsed);
-        } else {
-          parsedManuals.push(parsed);
+        const parsed = parseManualSheet(sheetName, jsonData);
+        if (parsed) {
+          if (parsed.hasLinkingIssue) {
+            manualsWithIssues.push(parsed);
+          } else {
+            parsedManuals.push(parsed);
+          }
         }
+      } catch (sheetError: any) {
+        console.error(`❌ Error parsing sheet "${sheetName}":`, sheetError?.message);
+        parseErrors.push(`${sheetName}: ${sheetError?.message}`);
       }
     }
+
+    console.log(`✅ Parsed ${parsedManuals.length} manuals, ${manualsWithIssues.length} with issues, ${parseErrors.length} errors`);
 
     // If preview mode, just return the parsed data
     if (importMode === 'preview') {
@@ -95,6 +121,7 @@ export async function POST(request: NextRequest) {
         totalSheets: workbook.SheetNames.length,
         parsedCount: parsedManuals.length,
         issuesCount: manualsWithIssues.length,
+        parseErrors: parseErrors.length > 0 ? parseErrors : undefined,
         manuals: parsedManuals,
         manualsWithIssues,
         allManuals // For individual preview navigation
