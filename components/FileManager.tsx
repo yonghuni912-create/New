@@ -8,10 +8,11 @@ import toast from 'react-hot-toast';
 interface StoreFile {
   id: string;
   fileName: string;
-  fileType: string;
-  fileSize: number;
-  filePath: string;
-  uploadedBy: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+  uploadedById?: string | null;
   createdAt: Date;
 }
 
@@ -58,19 +59,19 @@ export default function FileManager({ storeId, initialFiles, userId }: Props) {
     }
   };
 
-  const getFileIcon = (fileType: string) => {
-    if (fileType.startsWith('image/')) {
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) {
       return '🖼️';
-    } else if (fileType === 'application/pdf') {
+    } else if (mimeType === 'application/pdf') {
       return '📄';
     } else if (
-      fileType.includes('word') ||
-      fileType.includes('document')
+      mimeType.includes('word') ||
+      mimeType.includes('document')
     ) {
       return '📝';
     } else if (
-      fileType.includes('sheet') ||
-      fileType.includes('excel')
+      mimeType.includes('sheet') ||
+      mimeType.includes('excel')
     ) {
       return '📊';
     }
@@ -139,13 +140,13 @@ export default function FileManager({ storeId, initialFiles, userId }: Props) {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4 flex-1 min-w-0">
-                    <div className="text-3xl">{getFileIcon(file.fileType)}</div>
+                    <div className="text-3xl">{getFileIcon(file.mimeType)}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
-                        {file.fileName}
+                        {file.originalName || file.fileName}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {formatFileSize(file.fileSize)} • Uploaded{' '}
+                        {formatFileSize(file.size)} • Uploaded{' '}
                         {formatDate(file.createdAt)}
                       </p>
                     </div>
@@ -153,8 +154,8 @@ export default function FileManager({ storeId, initialFiles, userId }: Props) {
 
                   <div className="flex items-center space-x-2 ml-4">
                     <a
-                      href={file.filePath}
-                      download={file.fileName}
+                      href={file.path}
+                      download={file.originalName || file.fileName}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 text-gray-600 hover:text-orange-600 hover:bg-gray-100 rounded-md transition-colors"

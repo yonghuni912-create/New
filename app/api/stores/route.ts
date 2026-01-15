@@ -55,32 +55,17 @@ export async function POST(request: NextRequest) {
 
     const store = await prisma.store.create({
       data: {
-        tempName: data.tempName || null,
-        officialName: data.officialName || null,
-        country: data.country,
+        storeCode: data.storeCode || `STORE-${Date.now()}`,
+        storeName: data.storeName || data.tempName || 'New Store',
+        countryId: data.countryId,
+        country: data.country || 'CA',
         city: data.city || null,
         address: data.address || null,
-        timezone: data.timezone,
-        storePhone: data.storePhone || null,
-        storeEmail: data.storeEmail || null,
-        ownerName: data.ownerName || null,
-        ownerPhone: data.ownerPhone || null,
-        ownerEmail: data.ownerEmail || null,
-        ownerAddress: data.ownerAddress || null,
+        franchiseePhone: data.franchiseePhone || data.storePhone || null,
+        franchiseeEmail: data.franchiseeEmail || data.storeEmail || null,
+        franchiseeName: data.franchiseeName || data.ownerName || null,
         status: data.status || 'PLANNING',
-        createdBy: data.createdBy,
-        ...(data.plannedOpenDate && {
-          plannedOpenDates: {
-            create: {
-              date: new Date(data.plannedOpenDate),
-              reason: data.openDateReason || 'Initial planned date',
-              changedBy: data.createdBy,
-            },
-          },
-        }),
-      },
-      include: {
-        plannedOpenDates: true,
+        plannedOpenDate: data.plannedOpenDate ? new Date(data.plannedOpenDate) : null,
       },
     });
 
@@ -90,8 +75,8 @@ export async function POST(request: NextRequest) {
         entityType: 'Store',
         entityId: store.id,
         action: 'CREATE',
-        changedBy: user.id,
-        afterJson: JSON.stringify(store),
+        userId: user.id,
+        newValue: JSON.stringify(store),
       },
     });
 

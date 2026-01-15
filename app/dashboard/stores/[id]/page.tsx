@@ -23,12 +23,6 @@ export default async function StoreDetailPage({
     prisma.store.findUnique({
       where: { id },
       include: {
-        plannedOpenDates: {
-          orderBy: { createdAt: 'desc' },
-        },
-        milestones: {
-          orderBy: { date: 'asc' },
-        },
         files: {
           orderBy: { createdAt: 'desc' },
         },
@@ -47,7 +41,7 @@ export default async function StoreDetailPage({
     notFound();
   }
 
-  const storeName = store.officialName || store.tempName || 'Unnamed Store';
+  const storeName = store.storeName || store.storeCode || 'Unnamed Store';
   const user = session.user as { id: string; role: string };
 
   return (

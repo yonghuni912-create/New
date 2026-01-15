@@ -76,12 +76,12 @@ export async function POST(
     const storeFile = await prisma.storeFile.create({
       data: {
         storeId: id,
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        filePath: `/uploads/stores/${id}/${fileName}`,
-        storageType: 'LOCAL',
-        uploadedBy: user.id,
+        fileName: fileName,
+        originalName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        path: `/uploads/stores/${id}/${fileName}`,
+        uploadedById: user.id,
       },
     });
 
@@ -91,8 +91,8 @@ export async function POST(
         entityType: 'StoreFile',
         entityId: storeFile.id,
         action: 'CREATE',
-        changedBy: user.id,
-        afterJson: JSON.stringify(storeFile),
+        userId: user.id,
+        newValue: JSON.stringify(storeFile),
       },
     });
 

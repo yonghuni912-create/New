@@ -17,12 +17,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Search stores
+    // Search stores (using Turso schema fields)
     const stores = await prisma.store.findMany({
       where: {
         OR: [
-          { tempName: { contains: query } },
-          { officialName: { contains: query } },
+          { storeName: { contains: query } },
+          { storeCode: { contains: query } },
           { city: { contains: query } },
           { country: { contains: query } },
         ],
@@ -30,12 +30,12 @@ export async function GET(request: NextRequest) {
       take: 5,
     });
 
-    // Search manuals (Turso schema uses nameKo)
+    // Search manuals (Turso schema uses koreanName)
     const manuals = await prisma.menuManual.findMany({
       where: {
         OR: [
           { name: { contains: query } },
-          { nameKo: { contains: query } },
+          { koreanName: { contains: query } },
         ],
       },
       take: 5,
@@ -56,15 +56,15 @@ export async function GET(request: NextRequest) {
       ...stores.map((store) => ({
         type: 'store' as const,
         id: store.id,
-        title: store.officialName || store.tempName || 'Unnamed Store',
-        subtitle: `${store.city}, ${store.country}`,
+        title: store.storeName || store.storeCode || 'Unnamed Store',
+        subtitle: `${store.city || ''}, ${store.country || ''}`,
         href: `/dashboard/stores/${store.id}`,
       })),
       ...manuals.map((manual) => ({
         type: 'manual' as const,
         id: manual.id,
         title: manual.name,
-        subtitle: manual.nameKo || 'Menu Manual',
+        subtitle: manual.koreanName || 'Menu Manual',
         href: `/dashboard/templates?manual=${manual.id}`,
       })),
       ...ingredients.map((ing) => ({

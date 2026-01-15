@@ -292,10 +292,10 @@ export async function GET(
 
     // ===== PAGE 2 & 3: Cooking Method with Auto-Pagination =====
     
-    // Parse cooking method - Turso schema doesn't have cookingMethod, use description
+    // Parse cooking method from Turso schema
     let cookingSteps: { process: string; manual: string; translatedManual?: string }[] = [];
-    if (manual.description) {
-      cookingSteps = [{ process: 'Process', manual: manual.description }];
+    if (manual.cookingMethod) {
+      cookingSteps = [{ process: 'Process', manual: manual.cookingMethod }];
     }
 
     // Function to create cooking method page

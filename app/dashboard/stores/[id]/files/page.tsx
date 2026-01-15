@@ -24,8 +24,8 @@ export default async function StoreFilesPage({
     where: { id },
     select: {
       id: true,
-      officialName: true,
-      tempName: true,
+      storeName: true,
+      storeCode: true,
       city: true,
       country: true,
     },
@@ -40,7 +40,7 @@ export default async function StoreFilesPage({
     orderBy: { createdAt: 'desc' },
   });
 
-  const storeName = store.officialName || store.tempName || 'Unnamed Store';
+  const storeName = store.storeName || store.storeCode || 'Unnamed Store';
 
   return (
     <div className="space-y-6">

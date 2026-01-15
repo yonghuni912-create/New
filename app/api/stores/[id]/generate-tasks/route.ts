@@ -21,10 +21,6 @@ export async function POST(
     const store = await prisma.store.findUnique({
       where: { id },
       include: {
-        plannedOpenDates: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
         tasks: true,
       },
     });
@@ -33,7 +29,7 @@ export async function POST(
       return NextResponse.json({ error: 'Store not found' }, { status: 404 });
     }
 
-    const openDate = store.plannedOpenDates[0]?.date;
+    const openDate = store.plannedOpenDate;
 
     if (!openDate) {
       return NextResponse.json(
@@ -58,19 +54,16 @@ export async function POST(
 
     const generatedTasks = generateStoreTimeline(anchorDates);
 
-    // Create tasks in database
+    // Create tasks in database (Turso schema compatible)
     const createdTasks = await prisma.$transaction(
       generatedTasks.map((task) =>
         prisma.task.create({
           data: {
             title: task.title,
-            phase: task.phase,
-            startDate: task.startDate,
+            description: `Phase: ${task.phase}`,
             dueDate: task.dueDate,
-            status: task.status,
-            priority: task.priority,
-            sourceType: task.sourceType,
-            calendarRule: task.calendarRule,
+            status: task.status || 'TODO',
+            priority: task.priority || 'MEDIUM',
             storeId: id,
           },
         })

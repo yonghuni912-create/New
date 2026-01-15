@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { addDays } from 'date-fns';
 
-// Update a task (reschedule)
+// Update a task
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -17,122 +16,60 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
-    const { newStartDate, policy, status } = body;
+    const { status, dueDate, title, description, priority, assigneeId } = body;
 
-    // If just updating status
-    if (status && !newStartDate) {
-      const task = await prisma.task.update({
-        where: { id },
-        data: { status }
-      });
-      return NextResponse.json(task);
-    }
+    const updateData: any = {};
+    if (status) updateData.status = status;
+    if (dueDate) updateData.dueDate = new Date(dueDate);
+    if (title) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (priority) updateData.priority = priority;
+    if (assigneeId !== undefined) updateData.assigneeId = assigneeId;
 
-    if (!newStartDate || !policy) {
-      return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
-    }
-
-    // Get the current task
-    const currentTask = await prisma.task.findUnique({
-      where: { id }
+    const task = await prisma.task.update({
+      where: { id },
+      data: updateData
     });
 
-    if (!currentTask) {
+    return NextResponse.json(task);
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
+  }
+}
+
+// Get a task
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: {
+        store: true,
+        assignee: true,
+        comments: {
+          include: { user: true },
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const oldStartDate = currentTask.startDate;
-    const newStart = new Date(newStartDate);
-    const deltaDays = Math.round((newStart.getTime() - new Date(oldStartDate).getTime()) / (1000 * 60 * 60 * 24));
-
-    // Calculate new due date maintaining duration
-    const duration = currentTask.dueDate
-      ? Math.round((new Date(currentTask.dueDate).getTime() - new Date(oldStartDate).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-    const newDueDate = addDays(newStart, duration);
-
-    if (policy === 'THIS_ONLY') {
-      // Update only this task
-      await prisma.task.update({
-        where: { id },
-        data: {
-          startDate: newStart,
-          dueDate: newDueDate,
-          manualOverride: true
-        }
-      });
-    } else if (policy === 'CASCADE_LATER') {
-      // Update this task and all tasks that start after it in the same store
-      await prisma.task.update({
-        where: { id },
-        data: {
-          startDate: newStart,
-          dueDate: newDueDate,
-          manualOverride: true
-        }
-      });
-
-      // Get all later tasks
-      const laterTasks = await prisma.task.findMany({
-        where: {
-          storeId: currentTask.storeId,
-          id: { not: id },
-          startDate: { gt: oldStartDate }
-        }
-      });
-
-      // Update each later task
-      for (const task of laterTasks) {
-        if (task.manualOverride) continue; // Skip manually overridden tasks
-
-        const taskDuration = task.dueDate
-          ? Math.round((new Date(task.dueDate).getTime() - new Date(task.startDate).getTime()) / (1000 * 60 * 60 * 24))
-          : 0;
-
-        await prisma.task.update({
-          where: { id: task.id },
-          data: {
-            startDate: addDays(task.startDate, deltaDays),
-            dueDate: addDays(task.startDate, deltaDays + taskDuration)
-          }
-        });
-      }
-    } else if (policy === 'CASCADE_ALL') {
-      // Update all tasks in the same store
-      const allTasks = await prisma.task.findMany({
-        where: { storeId: currentTask.storeId }
-      });
-
-      for (const task of allTasks) {
-        if (task.id === id) {
-          await prisma.task.update({
-            where: { id },
-            data: {
-              startDate: newStart,
-              dueDate: newDueDate,
-              manualOverride: true
-            }
-          });
-        } else if (!task.manualOverride) {
-          const taskDuration = task.dueDate
-            ? Math.round((new Date(task.dueDate).getTime() - new Date(task.startDate).getTime()) / (1000 * 60 * 60 * 24))
-            : 0;
-
-          await prisma.task.update({
-            where: { id: task.id },
-            data: {
-              startDate: addDays(task.startDate, deltaDays),
-              dueDate: addDays(task.startDate, deltaDays + taskDuration)
-            }
-          });
-        }
-      }
-    }
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json(task);
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to reschedule' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch task' }, { status: 500 });
   }
 }
 
@@ -154,7 +91,7 @@ export async function DELETE(
       where: {
         OR: [
           { taskId: id },
-          { dependsOnTaskId: id }
+          { dependsOnId: id }
         ]
       }
     });

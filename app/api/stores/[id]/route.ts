@@ -12,12 +12,6 @@ export async function GET(
     const store = await prisma.store.findUnique({
       where: { id },
       include: {
-        plannedOpenDates: {
-          orderBy: { createdAt: 'desc' },
-        },
-        milestones: {
-          orderBy: { date: 'asc' },
-        },
         files: {
           orderBy: { createdAt: 'desc' },
         },
@@ -73,24 +67,18 @@ export async function PUT(
     const store = await prisma.store.update({
       where: { id },
       data: {
-        tempName: data.tempName || null,
-        officialName: data.officialName || null,
+        storeName: data.storeName || data.tempName || null,
+        storeCode: data.storeCode || undefined,
         country: data.country,
         city: data.city || null,
         address: data.address || null,
-        timezone: data.timezone,
-        storePhone: data.storePhone || null,
-        storeEmail: data.storeEmail || null,
-        ownerName: data.ownerName || null,
-        ownerPhone: data.ownerPhone || null,
-        ownerEmail: data.ownerEmail || null,
-        ownerAddress: data.ownerAddress || null,
+        franchiseePhone: data.franchiseePhone || data.storePhone || null,
+        franchiseeEmail: data.franchiseeEmail || data.storeEmail || null,
+        franchiseeName: data.franchiseeName || data.ownerName || null,
         status: data.status,
       },
       include: {
-        plannedOpenDates: {
-          orderBy: { createdAt: 'desc' },
-        },
+        files: true,
       },
     });
 
@@ -100,9 +88,9 @@ export async function PUT(
         entityType: 'Store',
         entityId: store.id,
         action: 'UPDATE',
-        changedBy: user.id,
-        beforeJson: JSON.stringify(currentStore),
-        afterJson: JSON.stringify(store),
+        userId: user.id,
+        oldValue: JSON.stringify(currentStore),
+        newValue: JSON.stringify(store),
       },
     });
 

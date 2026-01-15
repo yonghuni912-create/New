@@ -89,9 +89,9 @@ export async function POST(
     const allSales = await prisma.periodSales.findMany({
       where: { inventoryPeriodId: periodId },
       include: {
-        posMenuLink: {
+        posLink: {
           include: {
-            menuManual: {
+            manual: {
               include: {
                 ingredients: true // 레시피 재료 목록
               }
@@ -108,7 +108,7 @@ export async function POST(
       const qty = sale.quantitySold;
       if (qty <= 0) continue;
 
-      const ingredients = sale.posMenuLink.menuManual.ingredients;
+      const ingredients = sale.posLink.manual.ingredients;
       for (const ing of ingredients) {
         // 매뉴얼 재료가 마스터 식재료와 연결되어 있을 때만 계산 가능
         if (ing.ingredientId) {

@@ -45,15 +45,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { userId, type, title, message, payload } = body;
+    const { userId, type, title, message } = body;
 
     const notification = await prisma.notification.create({
       data: {
         userId,
         type: type || 'INFO',
         title,
-        message,
-        payload: payload ? JSON.stringify(payload) : null
+        message
       }
     });
 

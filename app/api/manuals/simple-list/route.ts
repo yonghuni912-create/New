@@ -14,12 +14,12 @@ export async function GET() {
     const manuals = await prisma.menuManual.findMany({
       where: { 
         isActive: true,
-        isDeleted: false,
+        isArchived: false,
       },
       select: {
         id: true,
         name: true,
-        nameKo: true,
+        koreanName: true,
       },
       orderBy: { name: 'asc' },
     });

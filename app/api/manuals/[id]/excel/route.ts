@@ -21,11 +21,6 @@ export async function GET(
         ingredients: {
           orderBy: { sortOrder: 'asc' },
           include: { ingredientMaster: true }
-        },
-        costVersions: {
-          include: { template: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1
         }
       }
     });
@@ -40,7 +35,7 @@ export async function GET(
       manual: {
         id: manual.id,
         name: manual.name,
-        nameKo: manual.nameKo,
+        koreanName: manual.koreanName,
         yield: manual.yield,
         ingredientCount: manual.ingredients.length
       }

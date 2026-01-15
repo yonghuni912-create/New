@@ -1,0 +1,7 @@
+import { createClient } from "@libsql/client";
+const client = createClient({
+  url: "libsql://bbqtest-kunikun.aws-us-west-2.turso.io",
+  authToken: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NjgyNTQ5NDIsImlkIjoiYjg0NDM1NGUtZjE4YS00NWMzLWI1ZDctNDk2NjljOTM3ZDY3IiwicmlkIjoiZWYzYzk2MGItMDk4Mi00ODhiLWJiNjEtMzc2YzJhNzgwYTliIn0.KSdizD28gjbcZiAjX7KOywhPusSQcPcLDd89ovltYNQX9y2tKakH83Dwxv-iR9JnP5mqOWFGZIT5afP3n6obBA"
+});
+const tables = await client.execute("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name");
+tables.rows.forEach(row => console.log(`\n=== ${row.name} ===\n${row.sql}`));

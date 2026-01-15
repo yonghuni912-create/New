@@ -20,7 +20,7 @@ interface MenuManual {
 interface PosLink {
   id: string;
   posMenuName: string;
-  menuManual: MenuManual;
+  manual: MenuManual;
 }
 
 export default function PosLinkSettingsPage() {
@@ -205,8 +205,8 @@ export default function PosLinkSettingsPage() {
                     {link.posMenuName}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {link.menuManual.name}
-                    <span className="text-gray-400 text-xs ml-2">{link.menuManual.koreanName}</span>
+                    {link.manual.name}
+                    <span className="text-gray-400 text-xs ml-2">{link.manual.koreanName}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button 

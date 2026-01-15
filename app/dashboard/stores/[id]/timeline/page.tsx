@@ -22,12 +22,8 @@ export default async function StoreTimelinePage({
   const store = await prisma.store.findUnique({
     where: { id },
     include: {
-      plannedOpenDates: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
       tasks: {
-        orderBy: [{ startDate: 'asc' }, { dueDate: 'asc' }],
+        orderBy: [{ dueDate: 'asc' }],
       },
     },
   });
@@ -36,13 +32,13 @@ export default async function StoreTimelinePage({
     notFound();
   }
 
-  const storeName = store.officialName || store.tempName || 'Unnamed Store';
-  const openDate = store.plannedOpenDates[0]?.date;
+  const storeName = store.storeName || store.storeCode || 'Unnamed Store';
+  const openDate = store.plannedOpenDate;
   const today = new Date();
 
-  // Group tasks by phase
+  // Group tasks by description (which might contain phase info)
   const tasksByPhase = store.tasks.reduce((acc: Record<string, typeof store.tasks>, task) => {
-    const phase = task.phase || 'Other';
+    const phase = task.description?.replace('Phase: ', '') || 'Other';
     if (!acc[phase]) acc[phase] = [];
     acc[phase].push(task);
     return acc;
@@ -161,8 +157,8 @@ export default async function StoreTimelinePage({
             const phaseCompleted = phaseTasks.filter(t => t.status === 'DONE' || t.status === 'COMPLETED').length;
             const phaseProgress = Math.round((phaseCompleted / phaseTasks.length) * 100);
             
-            // Get date range for phase
-            const startDate = phaseTasks[0]?.startDate;
+            // Get date range for phase - use dueDate only since we don't have startDate
+            const firstDueDate = phaseTasks[0]?.dueDate;
             const endDate = phaseTasks[phaseTasks.length - 1]?.dueDate;
 
             return (
@@ -174,9 +170,9 @@ export default async function StoreTimelinePage({
                       <h3 className="font-bold text-lg text-gray-900">{phase}</h3>
                       <p className="text-sm text-gray-500">
                         {phaseTasks.length} tasks • {phaseCompleted} completed
-                        {startDate && endDate && (
+                        {firstDueDate && endDate && (
                           <span className="ml-2 text-gray-400">
-                            ({format(startDate, 'MMM d')} - {format(endDate, 'MMM d')})
+                            ({format(firstDueDate, 'MMM d')} - {format(endDate, 'MMM d')})
                           </span>
                         )}
                       </p>
@@ -197,7 +193,7 @@ export default async function StoreTimelinePage({
                 {/* Tasks */}
                 <div className="divide-y divide-gray-100">
                   {phaseTasks.map((task) => {
-                    const isOverdue = task.dueDate && new Date(task.dueDate) < today && task.status !== 'DONE' && task.status !== 'COMPLETED';
+                    const isOverdue = !!(task.dueDate && new Date(task.dueDate) < today && task.status !== 'DONE' && task.status !== 'COMPLETED');
                     const isMilestone = task.priority === 'HIGH';
                     
                     return (
@@ -223,9 +219,9 @@ export default async function StoreTimelinePage({
                                 )}
                               </div>
                               <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                                {task.calendarRule && (
+                                {task.description && (
                                   <span className="bg-gray-100 px-1.5 py-0.5 rounded">
-                                    {task.calendarRule === 'BUSINESS_DAYS_MON_FRI' ? '📅 Business Days' : '📆 Calendar Days'}
+                                    {task.description}
                                   </span>
                                 )}
                               </div>
@@ -235,13 +231,11 @@ export default async function StoreTimelinePage({
                           {/* Dates */}
                           <div className="text-right">
                             <div className={`font-mono text-sm ${isOverdue ? 'text-red-600' : 'text-gray-600'}`}>
-                              {task.startDate && format(task.startDate, 'MMM d')}
-                              {task.startDate && task.dueDate && ' → '}
                               {task.dueDate && format(task.dueDate, 'MMM d')}
                             </div>
-                            {openDate && task.startDate && (
+                            {openDate && task.dueDate && (
                               <div className="text-xs text-gray-400 mt-0.5">
-                                D{differenceInDays(task.startDate, openDate) >= 0 ? '+' : ''}{differenceInDays(task.startDate, openDate)}
+                                D{differenceInDays(task.dueDate, openDate) >= 0 ? '+' : ''}{differenceInDays(task.dueDate, openDate)}
                               </div>
                             )}
                           </div>

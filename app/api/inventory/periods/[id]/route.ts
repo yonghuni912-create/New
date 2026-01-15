@@ -22,11 +22,10 @@ export async function GET(
         group: true,
         items: {
           include: {
-            ingredientMaster: true,
+            ingredient: true,
           },
-          // 식재료 이름(영어) 순으로 정렬
           orderBy: {
-            ingredientMaster: {
+            ingredient: {
               englishName: 'asc',
             },
           },

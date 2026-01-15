@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     console.log('🔍 Fetching manuals...');
     console.log('Query params:', { groupId, includeIngredients, includeCostVersions });
     
-    // Return all manuals, let frontend filter by isActive/isDeleted
+    // Return all manuals, let frontend filter by isActive/isArchived
     const manuals = await prisma.menuManual.findMany({
       include: {
         ingredients: includeIngredients ? {
@@ -31,12 +31,6 @@ export async function GET(request: NextRequest) {
           include: {
             ingredientMaster: true
           }
-        } : false,
-        costVersions: includeCostVersions ? {
-          include: {
-            template: true
-          },
-          orderBy: { createdAt: 'desc' }
         } : false
       },
       orderBy: { name: 'asc' }
@@ -85,7 +79,7 @@ export async function POST(request: NextRequest) {
     const manual = await prisma.menuManual.create({
       data: {
         name,
-        nameKo: koreanName || null,
+        koreanName: koreanName || null,
         yield: yieldValue || 1,
         yieldUnit: yieldUnit || 'ea',
         sellingPrice: sellingPrice ? parseFloat(sellingPrice) : null,
@@ -93,7 +87,7 @@ export async function POST(request: NextRequest) {
         cookingMethod: cookingMethod ? JSON.stringify(cookingMethod) : null,
         shelfLife: shelfLife || null,
         isActive: true,
-        isDeleted: false,
+        isArchived: false,
         ingredients: ingredients && ingredients.length > 0 ? {
           create: ingredients.map((ing: any, index: number) => ({
             ingredientId: ing.ingredientId || null,

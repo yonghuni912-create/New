@@ -26,12 +26,10 @@ export async function POST(
       data: {
         storeId: id,
         title,
-        startDate: new Date(startDate),
+        description: phase ? `Phase: ${phase}` : null,
         dueDate: new Date(dueDate),
-        phase: phase || 'Ad-hoc',
-        status: 'NOT_STARTED',
-        priority: 'MEDIUM',
-        sourceType: 'MANUAL'
+        status: 'TODO',
+        priority: 'MEDIUM'
       }
     });
 
@@ -52,7 +50,7 @@ export async function GET(
 
     const tasks = await prisma.task.findMany({
       where: { storeId: id },
-      orderBy: { startDate: 'asc' }
+      orderBy: { dueDate: 'asc' }
     });
 
     return NextResponse.json(tasks);

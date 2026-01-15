@@ -21,11 +21,11 @@ export async function GET(request: Request) {
     const links = await prisma.posMenuLink.findMany({
       where: { groupId },
       include: {
-        menuManual: {
+        manual: {
           select: {
             id: true,
             name: true,
-            nameKo: true,
+            koreanName: true,
           }
         }
       },
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
         menuManualId,
       },
       include: {
-        menuManual: true,
+        manual: true,
       }
     });
 

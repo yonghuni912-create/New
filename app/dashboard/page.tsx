@@ -54,12 +54,6 @@ export default async function DashboardPage() {
     const recentStores = await prisma.store.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },
-      include: {
-        plannedOpenDates: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
     });
 
   return (
@@ -172,21 +166,21 @@ export default async function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-gray-900">
-                      {store.officialName || store.tempName}
+                      {store.storeName || store.storeCode}
                     </h3>
                     <p className="text-sm text-gray-500">
-                      {store.city}, {store.country}
+                      {store.city || ''}, {store.country || ''}
                     </p>
                   </div>
                   <div className="text-right">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                       {store.status}
                     </span>
-                    {store.plannedOpenDates[0] && (
+                    {store.plannedOpenDate && (
                       <p className="text-xs text-gray-500 mt-1">
                         Opens:{' '}
                         {new Date(
-                          store.plannedOpenDates[0].date
+                          store.plannedOpenDate
                         ).toLocaleDateString()}
                       </p>
                     )}

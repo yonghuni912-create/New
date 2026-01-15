@@ -61,25 +61,32 @@ interface Country {
   id: string;
   code: string;
   name: string;
-  currency: string;
-  timezone: string;
+  currency?: string | null;
+  timezone?: string | null;
 }
 
 interface Store {
   id?: string;
-  tempName?: string | null;
-  officialName?: string | null;
-  country: string;
+  storeCode?: string;
+  storeName?: string;
+  countryId?: string;
+  country?: string;
   city?: string | null;
   address?: string | null;
-  timezone: string;
+  franchiseePhone?: string | null;
+  franchiseeEmail?: string | null;
+  franchiseeName?: string | null;
+  // Legacy fields for compatibility
+  tempName?: string | null;
+  officialName?: string | null;
+  timezone?: string;
   storePhone?: string | null;
   storeEmail?: string | null;
   ownerName?: string | null;
   ownerPhone?: string | null;
   ownerEmail?: string | null;
   ownerAddress?: string | null;
-  status: string;
+  status?: string;
   plannedOpenDate?: Date | string | null;
   openDateReason?: string | null;
 }
@@ -97,7 +104,7 @@ export default function StoreForm({ countries, userId, store }: Props) {
     store?.country || countries[0]?.code || ''
   );
   const [selectedTimezone, setSelectedTimezone] = useState(
-    store?.timezone || TIMEZONES_BY_COUNTRY[store?.country || 'CA']?.[0]?.value || 'America/Toronto'
+    TIMEZONES_BY_COUNTRY[store?.country || 'CA']?.[0]?.value || 'America/Toronto'
   );
 
   const selectedCountryData = countries.find((c) => c.code === selectedCountry);
