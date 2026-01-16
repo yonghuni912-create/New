@@ -439,13 +439,26 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
 async function handleDirectImport(manuals: ParsedManual[]) {
   console.log('📥 handleDirectImport called with', manuals.length, 'manuals');
   
+  if (!manuals || manuals.length === 0) {
+    console.log('⚠️ No manuals to import');
+    return NextResponse.json({
+      success: true,
+      importedCount: 0,
+      createdManuals: [],
+      warning: 'No manuals provided to import'
+    });
+  }
+  
   const db = getDb();
   const createdManuals = [];
+  const errors: string[] = [];
   
   for (const manual of manuals) {
     try {
       const manualId = generateId();
       const now = new Date().toISOString();
+      
+      console.log(`📝 Creating manual: ${manual.name}`);
       
       // Create manual
       await db.execute({
@@ -487,15 +500,17 @@ async function handleDirectImport(manuals: ParsedManual[]) {
       console.log('✅ Created manual:', manual.name);
     } catch (createError: any) {
       console.error('❌ Failed to create manual:', manual.name, createError?.message);
+      errors.push(`${manual.name}: ${createError?.message}`);
     }
   }
 
-  console.log(`✅ Total created: ${createdManuals.length} manuals`);
+  console.log(`✅ Total created: ${createdManuals.length} manuals, ${errors.length} errors`);
 
   return NextResponse.json({
     success: true,
     importedCount: createdManuals.length,
-    createdManuals: createdManuals
+    createdManuals: createdManuals,
+    errors: errors.length > 0 ? errors : undefined
   });
 }
 

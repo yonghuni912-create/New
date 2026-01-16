@@ -1341,7 +1341,9 @@ export default function TemplatesPage() {
   // Upload manuals in chunks
   const uploadChunk = async (manuals: any[], startIdx: number, chunkSize: number = 10) => {
     const chunk = manuals.slice(startIdx, startIdx + chunkSize);
-    if (chunk.length === 0) return { success: true, count: 0 };
+    if (chunk.length === 0) return { success: true, count: 0, errors: [] };
+    
+    console.log(`📤 Uploading chunk of ${chunk.length} manuals starting at index ${startIdx}`);
     
     const res = await fetch('/api/manuals/upload', {
       method: 'POST',
@@ -1354,11 +1356,12 @@ export default function TemplatesPage() {
     
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.error || 'Upload failed');
+      throw new Error(error.error || error.details || 'Upload failed');
     }
     
     const data = await res.json();
-    return { success: true, count: data.importedCount };
+    console.log(`✅ Chunk uploaded: ${data.importedCount} manuals created`, data.errors || []);
+    return { success: true, count: data.importedCount, errors: data.errors || [] };
   };
 
   // Chunked upload with confirmation
@@ -1509,9 +1512,19 @@ export default function TemplatesPage() {
   const getFilteredManuals = () => {
     let filtered = savedManuals;
 
-    // Filter by Active/Trash tab using isArchived field
-    if (activeTab === 'trash' || activeTab === 'archived') {
-      // Show archived manuals
+    // Filter by Active/Trash/Archive tab
+    // Active: isActive=true (default state)
+    // Trash: isActive=false AND isArchived=false (soft deleted)
+    // Archive: isArchived=true (hard deleted, master admin only)
+    if (activeTab === 'trash') {
+      // Show soft deleted manuals (Trash)
+      filtered = filtered.filter(m => {
+        const isActive = (m as any).isActive;
+        const isArchived = (m as any).isArchived;
+        return (isActive === false || isActive === 0) && (isArchived === false || isArchived === 0 || !isArchived);
+      });
+    } else if (activeTab === 'archived') {
+      // Show archived manuals (hard deleted, master admin only)
       filtered = filtered.filter(m => !!(m as any).isArchived);
     } else if (activeTab === 'countryManuals') {
       // Show only country copies (non-master)
@@ -1702,8 +1715,26 @@ export default function TemplatesPage() {
             }`}
           >
             <Trash2 className="w-4 h-4 inline mr-2" />
-            Trash ({savedManuals.filter(m => !!(m as any).isArchived).length})
+            Trash ({savedManuals.filter(m => {
+              const isActive = (m as any).isActive;
+              const isArchived = (m as any).isArchived;
+              return (isActive === false || isActive === 0) && (isArchived === false || isArchived === 0 || !isArchived);
+            }).length})
           </button>
+          {/* Archive tab - master admin only */}
+          {isMaster && (
+            <button
+              onClick={() => setActiveTab('archived')}
+              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                activeTab === 'archived' 
+                  ? 'border-purple-500 text-purple-600' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Archive className="w-4 h-4 inline mr-2" />
+              Archive ({savedManuals.filter(m => !!(m as any).isArchived).length})
+            </button>
+          )}
         </nav>
       </div>
 

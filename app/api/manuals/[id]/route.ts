@@ -214,7 +214,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-// DELETE /api/manuals/[id] - Soft delete (archive) manual
+// DELETE /api/manuals/[id] - Soft delete (move to Trash)
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   
@@ -231,13 +231,15 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
     }
     
-    // Soft delete - set isActive=false, isArchived=true
+    // Soft delete - set isActive=false, isArchived=false (move to Trash)
+    // Trash: isActive=0, isArchived=0
+    // Archive: isActive=0, isArchived=1 (only master admin can see)
     await db.execute({
-      sql: `UPDATE MenuManual SET isActive = 0, isArchived = 1, updatedAt = ? WHERE id = ?`,
+      sql: `UPDATE MenuManual SET isActive = 0, isArchived = 0, updatedAt = ? WHERE id = ?`,
       args: [new Date().toISOString(), id],
     });
     
-    console.log('✅ Manual archived:', id);
+    console.log('✅ Manual moved to trash:', id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error deleting manual:', error);
