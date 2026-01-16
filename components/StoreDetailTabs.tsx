@@ -455,7 +455,7 @@ export default function StoreDetailTabs({
           <OpeningReadiness
             tasks={tasks as any}
             targetOpenDate={store.targetOpenDate}
-            storeName={store.officialName || store.tempName || 'Store'}
+            storeName={store.storeName || store.storeCode || 'Store'}
           />
         </div>
       ) : (
