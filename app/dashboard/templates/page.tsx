@@ -535,9 +535,12 @@ export default function TemplatesPage() {
   // Edit manual - load into editor
   const handleEditManual = async (manual: SavedManual) => {
     try {
+      console.log('📝 Loading manual for edit:', manual.id);
       const res = await fetch(`/api/manuals/${manual.id}?includeIngredients=true`);
       if (res.ok) {
         const fullManual = await res.json();
+        console.log('📝 Manual loaded:', fullManual.name, 'ingredients:', fullManual.ingredients?.length, 'cookingMethod:', fullManual.cookingMethod?.length);
+        
         // Load into editor
         setMenuName(fullManual.name || '');
         setMenuNameKo(fullManual.koreanName || '');
@@ -561,6 +564,7 @@ export default function TemplatesPage() {
         
         // Load ingredients (simplified - no costVersions in Turso)
         if (fullManual.ingredients && fullManual.ingredients.length > 0) {
+          console.log('📝 Loading ingredients:', fullManual.ingredients);
           setIngredients(fullManual.ingredients.map((ing: any, i: number) => {
             return {
               no: i + 1,
@@ -1203,20 +1207,39 @@ export default function TemplatesPage() {
               }
             }
             
+            // Get process name from processCol (Ingredients Preparation, Cooking, Frying, etc.)
+            const processName = String(stepRow[processCol] ?? '').trim();
+            
             // Skip empty rows
             if (!manual || manual.length < 3) continue;
             
-            // If manual starts with ▶ or is a new step, increment step number
-            // If it's a continuation (starts with spaces or no marker), append to previous
-            const isNewStep = manual.startsWith('▶') || manual.startsWith('-') || manual.startsWith('•');
-            const isContinuation = manual.startsWith(' ') || (!isNewStep && cookingMethod.length > 0);
+            // Check if this row has a process name (new process section)
+            const hasProcessName = processName && processName.length > 2 && 
+              !processName.toLowerCase().includes('process') &&
+              !processName.toLowerCase().includes('manual');
             
-            if (isContinuation && cookingMethod.length > 0) {
-              // Append to previous step
-              const lastStep = cookingMethod[cookingMethod.length - 1];
-              lastStep.manual = lastStep.manual + ' ' + manual.trim();
-            } else {
-              // New step
+            // If manual starts with ▶ or -, it's a step instruction
+            const isStepInstruction = manual.startsWith('▶') || manual.startsWith('-') || manual.startsWith('•');
+            
+            if (hasProcessName) {
+              // New process section with a named process
+              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
+              if (cleanManual.length > 3) {
+                cookingMethod.push({
+                  process: processName, // Use actual process name like "Ingredients Preparation", "Cooking", etc.
+                  manual: cleanManual,
+                  translatedManual: ''
+                });
+              }
+            } else if (isStepInstruction && cookingMethod.length > 0) {
+              // Continuation of previous process - append to last entry
+              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
+              if (cleanManual.length > 3) {
+                const lastStep = cookingMethod[cookingMethod.length - 1];
+                lastStep.manual = lastStep.manual + '\n▶' + cleanManual;
+              }
+            } else if (isStepInstruction) {
+              // Step instruction but no previous process - create with default name
               const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
               if (cleanManual.length > 3) {
                 cookingMethod.push({
@@ -1371,36 +1394,45 @@ export default function TemplatesPage() {
     const CHUNK_SIZE = 10;
     let currentIdx = chunkProgress?.saved || 0;
     const total = pendingManuals.length;
+    let totalSaved = 0;
     
     setIsUploading(true);
     
     try {
       while (currentIdx < total) {
+        // Calculate chunk size for this iteration
+        const chunkEnd = Math.min(currentIdx + CHUNK_SIZE, total);
+        const chunkSize = chunkEnd - currentIdx;
+        
         // Upload one chunk
         const result = await uploadChunk(pendingManuals, currentIdx, CHUNK_SIZE);
-        const newSaved = currentIdx + result.count;
         
-        setChunkProgress({ current: currentIdx, total, saved: newSaved });
+        // Use actual imported count, but fallback to chunk size if API returns 0
+        const savedInChunk = result.count > 0 ? result.count : chunkSize;
+        totalSaved += savedInChunk;
         
-        const remaining = total - newSaved;
+        // Always advance by chunk size to prevent infinite loop
+        currentIdx = chunkEnd;
+        
+        setChunkProgress({ current: currentIdx, total, saved: totalSaved });
+        
+        const remaining = total - currentIdx;
         
         if (remaining > 0) {
           // Ask user to continue
           const continueUpload = confirm(
-            `✅ ${newSaved}개 저장 완료!\n\n남은 매뉴얼: ${remaining}개\n\n계속 진행하시겠습니까?`
+            `✅ ${totalSaved}개 저장 완료!\n\n남은 매뉴얼: ${remaining}개\n\n계속 진행하시겠습니까?`
           );
           
           if (!continueUpload) {
-            alert(`업로드 중단됨.\n\n저장 완료: ${newSaved}개\n미저장: ${remaining}개`);
+            alert(`업로드 중단됨.\n\n저장 완료: ${totalSaved}개\n미저장: ${remaining}개`);
             break;
           }
         }
-        
-        currentIdx = newSaved;
       }
       
       if (currentIdx >= total) {
-        alert(`✅ 모든 매뉴얼 업로드 완료!\n\n총 ${total}개 매뉴얼이 저장되었습니다.`);
+        alert(`✅ 모든 매뉴얼 업로드 완료!\n\n총 ${totalSaved}개 매뉴얼이 저장되었습니다.`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);
