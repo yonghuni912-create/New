@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     
     // Get ingredients with master data
     const ingredientsResult = await db.execute({
-      sql: `SELECT mi.*, im.name as masterName, im.koreanName as masterKoreanName, im.unit as masterUnit
+      sql: `SELECT mi.*, im.englishName as masterName, im.koreanName as masterKoreanName, im.unit as masterUnit
             FROM ManualIngredient mi
             LEFT JOIN IngredientMaster im ON mi.ingredientId = im.id
             WHERE mi.manualId = ?
