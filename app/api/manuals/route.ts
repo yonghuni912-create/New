@@ -65,6 +65,19 @@ export async function GET(request: NextRequest) {
       const linkedIngredients = manual.ingredients?.filter(ing => ing.ingredientId !== null).length || 0;
       const unlinkedIngredients = totalIngredients - linkedIngredients;
       
+      // Check for unassigned cooking processes
+      let hasUnassignedProcess = false;
+      if (manual.cookingMethod) {
+        try {
+          const steps = JSON.parse(manual.cookingMethod as string);
+          if (Array.isArray(steps)) {
+            hasUnassignedProcess = steps.some((s: any) => s.manual && !s.process);
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+      
       return {
         ...manual,
         // Include ingredients only if requested
@@ -76,7 +89,9 @@ export async function GET(request: NextRequest) {
           unlinked: unlinkedIngredients,
           isFullyLinked: totalIngredients > 0 && unlinkedIngredients === 0,
           hasUnlinked: unlinkedIngredients > 0
-        }
+        },
+        // Include process status
+        hasUnassignedProcess
       };
     });
 

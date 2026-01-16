@@ -385,33 +385,57 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
     }
   }
 
-  // 7. Parse cooking method steps
+  // 7. Parse cooking method steps - Blank rows separate different process steps
   if (cookingStartRow > 0) {
-    const manualSteps: string[] = [];
+    let currentStepNumber = 1;
+    let currentStepItems: string[] = [];
     
-    for (let i = cookingStartRow; i < data.length && i < cookingStartRow + 30; i++) {
+    for (let i = cookingStartRow; i < data.length && i < cookingStartRow + 50; i++) {
       const row = data[i] || [];
       
       // Manual text is in the identified column
       const manualText = String(row[manualCol] || row[3] || row[2] || '').trim();
       
-      // Skip BBQ branding or empty
-      if (!manualText || manualText.toLowerCase().includes('bbq canada') || manualText.toLowerCase().includes('bbq korea')) {
+      // Skip BBQ branding lines
+      if (manualText.toLowerCase().includes('bbq canada') || manualText.toLowerCase().includes('bbq korea')) {
         continue;
       }
       
+      // Check if this is a blank row (process separator)
+      const isBlankRow = !manualText || manualText === '';
+      
+      if (isBlankRow) {
+        // Save current step if it has content
+        if (currentStepItems.length > 0) {
+          cookingMethod.push({
+            process: '', // Empty = needs process selection via dropdown
+            manual: currentStepItems.join('\n'),
+            translatedManual: ''
+          });
+          currentStepNumber++;
+          currentStepItems = [];
+        }
+        continue;
+      }
+      
+      // Add text to current step
       if (manualText.startsWith('▶') || manualText.startsWith('•') || manualText.startsWith('-')) {
-        manualSteps.push(manualText.replace(/^[▶•-]\s*/, '').trim());
-      } else if (manualSteps.length > 0 && manualText.length > 2) {
-        // Continuation of previous step
-        manualSteps[manualSteps.length - 1] += ' ' + manualText.trim();
+        currentStepItems.push(manualText.replace(/^[▶•-]\s*/, '').trim());
+      } else if (manualText.length > 2) {
+        // Text without bullet - could be continuation or standalone
+        if (currentStepItems.length > 0) {
+          currentStepItems[currentStepItems.length - 1] += ' ' + manualText;
+        } else {
+          currentStepItems.push(manualText);
+        }
       }
     }
     
-    if (manualSteps.length > 0) {
+    // Don't forget the last step
+    if (currentStepItems.length > 0) {
       cookingMethod.push({
-        process: 'Cooking Instructions',
-        manual: manualSteps.join('\n'),
+        process: '', // Empty = needs process selection via dropdown
+        manual: currentStepItems.join('\n'),
         translatedManual: ''
       });
     }
@@ -553,6 +577,10 @@ async function handleDirectImport(manuals: ParsedManual[]) {
       const now = new Date().toISOString();
       
       console.log(`📝 Creating manual: ${manual.name}`);
+      console.log(`   📦 Ingredients count: ${manual.ingredients?.length || 0}`);
+      if (manual.ingredients && manual.ingredients.length > 0) {
+        console.log(`   📦 First ingredient: ${manual.ingredients[0]?.name}`);
+      }
       
       // Create manual
       await db.execute({

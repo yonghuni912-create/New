@@ -64,6 +64,7 @@ interface SavedManual {
   ingredients?: any[];
   isDeleted?: boolean;
   isArchived?: boolean;
+  hasUnassignedProcess?: boolean;
   linkingStats?: {
     total: number;
     linked: number;
@@ -2201,6 +2202,12 @@ export default function TemplatesPage() {
             {/* Cooking Method Section */}
             <div>
               <h3 className="text-lg font-bold mb-3">COOKING METHOD</h3>
+              {cookingSteps.some(s => (s.manual && !s.process)) && (
+                <div className="mb-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded text-orange-700 text-sm flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>프로세스가 지정되지 않은 단계가 있습니다. 수정하기를 눌러 프로세스를 선택하세요.</span>
+                </div>
+              )}
               <table className="w-full border-collapse border">
                 <thead>
                   <tr className="bg-gray-50">
@@ -2210,8 +2217,14 @@ export default function TemplatesPage() {
                 </thead>
                 <tbody>
                   {cookingSteps.filter(s => s.process || s.manual).map((step, idx) => (
-                    <tr key={idx} className={idx % 2 === 1 ? 'bg-gray-50' : ''}>
-                      <td className="border px-3 py-2 font-medium align-top">{step.process || '-'}</td>
+                    <tr key={idx} className={`${idx % 2 === 1 ? 'bg-gray-50' : ''} ${(!step.process && step.manual) ? 'bg-orange-50' : ''}`}>
+                      <td className="border px-3 py-2 font-medium align-top">
+                        {step.process || (
+                          <span className="text-orange-600 flex items-center gap-1">
+                            <span>⚠️</span> 미지정
+                          </span>
+                        )}
+                      </td>
                       <td className="border px-3 py-2">
                         {step.translatedManual || step.manual || '-'}
                       </td>
@@ -2405,10 +2418,20 @@ export default function TemplatesPage() {
                         />
                       </td>
                       <td className="px-4 py-3">
-                        <div>
-                          <div className="font-medium">{manual.name}</div>
-                          {manual.koreanName && manual.koreanName !== manual.name && (
-                            <div className="text-sm text-gray-500">{manual.koreanName}</div>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className="font-medium">{manual.name}</div>
+                            {manual.koreanName && manual.koreanName !== manual.name && (
+                              <div className="text-sm text-gray-500">{manual.koreanName}</div>
+                            )}
+                          </div>
+                          {manual.hasUnassignedProcess && (
+                            <span 
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-orange-100 text-orange-700" 
+                              title="프로세스 미지정 - 수정 필요"
+                            >
+                              🍳
+                            </span>
                           )}
                         </div>
                       </td>
