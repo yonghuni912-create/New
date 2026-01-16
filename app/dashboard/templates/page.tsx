@@ -1148,8 +1148,9 @@ export default function TemplatesPage() {
     const cookingRow = findRowWithKeyword('COOKING METHOD');
     if (cookingRow >= 0) {
       let processCol = 0, manualCol = -1;
+      let headerFound = false;
       
-      // Find header row for cooking method
+      // Find header row for cooking method (PROCESS / MANUAL)
       for (let r = cookingRow; r < Math.min(cookingRow + 3, data.length); r++) {
         const row = data[r] || [];
         for (let c = 0; c < row.length; c++) {
@@ -1158,29 +1159,85 @@ export default function TemplatesPage() {
           if (cellText === 'manual') manualCol = c;
         }
         if (manualCol >= 0) {
+          headerFound = true;
+          let stepNumber = 1;
+          
           // Parse cooking steps starting from next row
-          for (let sr = r + 1; sr < Math.min(data.length, r + 30); sr++) {
+          for (let sr = r + 1; sr < Math.min(data.length, r + 50); sr++) {
             const stepRow = data[sr] || [];
             const firstCell = String(stepRow[0] ?? '').toLowerCase();
             
             // Stop at tips/notes/signature section
             if (firstCell.includes('tip') || firstCell.includes('note') || 
-                firstCell.includes('서명') || firstCell.includes('signature')) {
+                firstCell.includes('서명') || firstCell.includes('signature') ||
+                firstCell.includes('bbq canada') || firstCell.includes('bbq ')) {
               break;
             }
             
-            const process = String(stepRow[processCol] ?? '').trim();
-            const manual = String(stepRow[manualCol] ?? stepRow[manualCol + 1] ?? '').trim();
+            // Get manual content - could be in manualCol or nearby
+            let manual = '';
+            for (let c = manualCol; c < Math.min(manualCol + 3, stepRow.length); c++) {
+              const val = String(stepRow[c] ?? '').trim();
+              if (val && val.length > 3) {
+                manual = val;
+                break;
+              }
+            }
             
-            if (process && manual && manual.length > 3) {
-              cookingMethod.push({
-                process,
-                manual,
-                translatedManual: ''
-              });
+            // Skip empty rows
+            if (!manual || manual.length < 3) continue;
+            
+            // If manual starts with ▶ or is a new step, increment step number
+            // If it's a continuation (starts with spaces or no marker), append to previous
+            const isNewStep = manual.startsWith('▶') || manual.startsWith('-') || manual.startsWith('•');
+            const isContinuation = manual.startsWith(' ') || (!isNewStep && cookingMethod.length > 0);
+            
+            if (isContinuation && cookingMethod.length > 0) {
+              // Append to previous step
+              const lastStep = cookingMethod[cookingMethod.length - 1];
+              lastStep.manual = lastStep.manual + ' ' + manual.trim();
+            } else {
+              // New step
+              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
+              if (cleanManual.length > 3) {
+                cookingMethod.push({
+                  process: `Step ${stepNumber}`,
+                  manual: cleanManual,
+                  translatedManual: ''
+                });
+                stepNumber++;
+              }
             }
           }
           break;
+        }
+      }
+      
+      // Fallback: If no PROCESS/MANUAL header found, just look for steps after COOKING METHOD
+      if (!headerFound) {
+        let stepNumber = 1;
+        for (let sr = cookingRow + 1; sr < Math.min(data.length, cookingRow + 50); sr++) {
+          const stepRow = data[sr] || [];
+          
+          // Find any text content in the row
+          let manual = '';
+          for (let c = 0; c < stepRow.length; c++) {
+            const val = String(stepRow[c] ?? '').trim();
+            if (val && val.length > 10 && (val.startsWith('▶') || val.startsWith('-'))) {
+              manual = val;
+              break;
+            }
+          }
+          
+          if (manual) {
+            const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
+            cookingMethod.push({
+              process: `Step ${stepNumber}`,
+              manual: cleanManual,
+              translatedManual: ''
+            });
+            stepNumber++;
+          }
         }
       }
     }
