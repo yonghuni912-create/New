@@ -1,34 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { createClient } from '@libsql/client';
 import * as XLSX from 'xlsx';
+
+function getDb() {
+  return createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN!,
+  });
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { id } = await params;
+    const db = getDb();
 
-    const manual = await prisma.menuManual.findUnique({
-      where: { id },
-      include: {
-        ingredients: {
-          orderBy: { sortOrder: 'asc' },
-          include: { ingredientMaster: true }
-        }
-      }
+    // Get manual
+    const manualResult = await db.execute({
+      sql: `SELECT * FROM MenuManual WHERE id = ?`,
+      args: [id],
     });
 
-    if (!manual) {
+    if (manualResult.rows.length === 0) {
       return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
     }
+
+    const manual = manualResult.rows[0];
+
+    // Get ingredients
+    const ingredientsResult = await db.execute({
+      sql: `SELECT * FROM ManualIngredient WHERE manualId = ? ORDER BY sortOrder ASC`,
+      args: [id],
+    });
+    
+    const ingredients = ingredientsResult.rows;
 
     // Create workbook
     const wb = XLSX.utils.book_new();
@@ -44,7 +51,7 @@ export async function GET(
     
     // Ingredients header
     const ingredientsHeader = ['No.', 'Ingredients', 'Qty', 'Unit', 'Notes'];
-    const ingredientsData = manual.ingredients.map((ing, idx) => [
+    const ingredientsData = ingredients.map((ing, idx) => [
       idx + 1,
       ing.koreanName || ing.name,
       ing.quantity || 0,
@@ -61,7 +68,7 @@ export async function GET(
     }
     
     const cookingHeader = ['PROCESS', 'MANUAL'];
-    const cookingData = cookingMethod.map(step => [
+    const cookingData = cookingMethod.map((step: any) => [
       step.process || '',
       step.translatedManual || step.manual || ''
     ]);
@@ -90,7 +97,8 @@ export async function GET(
       { wch: 15 }
     ];
     
-    XLSX.utils.book_append_sheet(wb, ws, manual.name?.substring(0, 30) || 'Manual');
+    const sheetName = typeof manual.name === 'string' ? manual.name.substring(0, 30) : 'Manual';
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
     
     // Generate Excel buffer
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
@@ -98,14 +106,16 @@ export async function GET(
     // Return Excel file
     const fileName = encodeURIComponent(`${manual.name || 'manual'}.xlsx`);
     
+    console.log('✅ Excel generated for manual:', id);
+    
     return new NextResponse(excelBuffer, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${fileName}"`,
       },
     });
-  } catch (error) {
-    console.error('Error generating Excel:', error);
-    return NextResponse.json({ error: 'Failed to generate Excel' }, { status: 500 });
+  } catch (error: any) {
+    console.error('❌ Error generating Excel:', error);
+    return NextResponse.json({ error: 'Failed to generate Excel', details: error?.message || String(error) }, { status: 500 });
   }
 }

@@ -42,11 +42,11 @@
     "react-is": "^19.2.3",
     "recharts": "^3.6.0",
     "tailwind-merge": "^3.4.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@prisma/client": "^5.22.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
-    "@prisma/client": "^5.22.0",
     "@types/node": "^25.0.8",
     "@types/react": "^19.2.8",
     "@types/react-big-calendar": "^1.16.3",
