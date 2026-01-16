@@ -744,7 +744,8 @@ export default function TemplatesPage() {
   const handleDownloadExcel = async (manual: SavedManual) => {
     console.log('📥 Download clicked for:', manual.id, manual.name);
     try {
-      const response = await fetch(`/api/manuals/${manual.id}/excel`);
+      // Use export-template for proper BBQ template format
+      const response = await fetch(`/api/manuals/${manual.id}/export-template`);
       console.log('📥 Download response status:', response.status);
       if (response.ok) {
         const blob = await response.blob();

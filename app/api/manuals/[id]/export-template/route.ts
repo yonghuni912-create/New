@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { createClient } from '@libsql/client';
 import ExcelJS from 'exceljs';
+
+function getDb() {
+  return createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN!,
+  });
+}
 
 // Template Configuration based on user specifications
 const TEMPLATE_CONFIG = {
@@ -93,27 +100,52 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const db = getDb();
 
-    // Fetch manual with ingredients
-    const manual = await prisma.menuManual.findUnique({
-      where: { id },
-      include: {
-        ingredients: {
-          orderBy: { sortOrder: 'asc' },
-          include: {
-            ingredientMaster: true,
-          },
-        },
-      },
+    // Fetch manual
+    const manualResult = await db.execute({
+      sql: `SELECT * FROM MenuManual WHERE id = ?`,
+      args: [id],
     });
 
-    if (!manual) {
+    if (manualResult.rows.length === 0) {
       return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
     }
 
+    const manualRow = manualResult.rows[0];
+
+    // Fetch ingredients
+    const ingredientsResult = await db.execute({
+      sql: `SELECT * FROM ManualIngredient WHERE manualId = ? ORDER BY sortOrder ASC`,
+      args: [id],
+    });
+
+    // Build manual object with proper string types
+    const manual = {
+      id: String(manualRow.id || ''),
+      name: String(manualRow.name || ''),
+      koreanName: String(manualRow.koreanName || ''),
+      yield: String(manualRow.yield || ''),
+      yieldUnit: String(manualRow.yieldUnit || ''),
+      sellingPrice: manualRow.sellingPrice ? Number(manualRow.sellingPrice) : null,
+      imageUrl: String(manualRow.imageUrl || ''),
+      shelfLife: String(manualRow.shelfLife || ''),
+      cookingMethod: manualRow.cookingMethod,
+      ingredients: ingredientsResult.rows.map(row => ({
+        id: String(row.id || ''),
+        name: String(row.name || ''),
+        koreanName: String(row.koreanName || ''),
+        quantity: row.quantity ? Number(row.quantity) : 0,
+        unit: String(row.unit || 'g'),
+        sortOrder: row.sortOrder ? Number(row.sortOrder) : 0,
+        notes: String(row.notes || ''),
+        section: String(row.section || ''),
+      })),
+    };
+
     // Create workbook
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(manual.name || 'Manual');
+    const worksheet = workbook.addWorksheet(String(manual.name) || 'Manual');
 
     // Set column widths (convert pixels to Excel width units, ~7.5 pixels per unit)
     const pixelToWidth = (px: number) => px / 7.5;
@@ -295,7 +327,22 @@ export async function GET(
     // Parse cooking method from Turso schema
     let cookingSteps: { process: string; manual: string; translatedManual?: string }[] = [];
     if (manual.cookingMethod) {
-      cookingSteps = [{ process: 'Process', manual: manual.cookingMethod }];
+      try {
+        // Try to parse as JSON first
+        const parsed = typeof manual.cookingMethod === 'string' 
+          ? JSON.parse(manual.cookingMethod) 
+          : manual.cookingMethod;
+        if (Array.isArray(parsed)) {
+          cookingSteps = parsed.map((step: any) => ({
+            process: String(step.process || ''),
+            manual: String(step.manual || step.translatedManual || ''),
+            translatedManual: String(step.translatedManual || step.manual || '')
+          }));
+        }
+      } catch {
+        // If not JSON, use as plain text
+        cookingSteps = [{ process: 'Process', manual: String(manual.cookingMethod) }];
+      }
     }
 
     // Function to create cooking method page
