@@ -76,19 +76,9 @@ interface Store {
   franchiseePhone?: string | null;
   franchiseeEmail?: string | null;
   franchiseeName?: string | null;
-  // Legacy fields for compatibility
-  tempName?: string | null;
-  officialName?: string | null;
   timezone?: string;
-  storePhone?: string | null;
-  storeEmail?: string | null;
-  ownerName?: string | null;
-  ownerPhone?: string | null;
-  ownerEmail?: string | null;
-  ownerAddress?: string | null;
   status?: string;
   plannedOpenDate?: Date | string | null;
-  openDateReason?: string | null;
 }
 
 interface Props {
@@ -189,27 +179,28 @@ export default function StoreForm({ countries, userId, store }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Temporary Name
+                Store Name *
               </label>
               <input
                 type="text"
-                name="tempName"
-                defaultValue={store?.tempName || ''}
+                name="storeName"
+                defaultValue={store?.storeName || ''}
+                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="BBQ Mexico City Centro"
+                placeholder="BBQ Chicken Mexico City Centro"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Official Name
+                Store Code
               </label>
               <input
                 type="text"
-                name="officialName"
-                defaultValue={store?.officialName || ''}
+                name="storeCode"
+                defaultValue={store?.storeCode || ''}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="BBQ Chicken Mexico City Centro"
+                placeholder="MX-001"
               />
             </div>
 
@@ -308,54 +299,20 @@ export default function StoreForm({ countries, userId, store }: Props) {
           </div>
         </div>
 
-        {/* Store Contact */}
+        {/* Franchisee Information */}
         <div>
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Store Contact Information
+            Franchisee Information
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Store Phone
-              </label>
-              <input
-                type="tel"
-                name="storePhone"
-                defaultValue={store?.storePhone || ''}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="+52-555-1234567"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Store Email
-              </label>
-              <input
-                type="email"
-                name="storeEmail"
-                defaultValue={store?.storeEmail || ''}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="store@bbqchicken.com"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Owner Information */}
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Owner Information
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Owner Name
+                Franchisee Name
               </label>
               <input
                 type="text"
-                name="ownerName"
-                defaultValue={store?.ownerName || ''}
+                name="franchiseeName"
+                defaultValue={store?.franchiseeName || ''}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 placeholder="Juan Rodriguez"
               />
@@ -363,40 +320,27 @@ export default function StoreForm({ countries, userId, store }: Props) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Owner Phone
+                Franchisee Phone
               </label>
               <input
                 type="tel"
-                name="ownerPhone"
-                defaultValue={store?.ownerPhone || ''}
+                name="franchiseePhone"
+                defaultValue={store?.franchiseePhone || ''}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="+52-555-9876543"
+                placeholder="+52-555-1234567"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Owner Email
+                Franchisee Email
               </label>
               <input
                 type="email"
-                name="ownerEmail"
-                defaultValue={store?.ownerEmail || ''}
+                name="franchiseeEmail"
+                defaultValue={store?.franchiseeEmail || ''}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="owner@example.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Owner Address
-              </label>
-              <input
-                type="text"
-                name="ownerAddress"
-                defaultValue={store?.ownerAddress || ''}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="456 Residential Street"
+                placeholder="franchisee@example.com"
               />
             </div>
           </div>
@@ -417,19 +361,6 @@ export default function StoreForm({ countries, userId, store }: Props) {
                   type="date"
                   name="plannedOpenDate"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reason
-                </label>
-                <input
-                  type="text"
-                  name="openDateReason"
-                  defaultValue="Initial planned date"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  placeholder="Initial planned date"
                 />
               </div>
             </div>

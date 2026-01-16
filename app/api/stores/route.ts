@@ -52,18 +52,52 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await request.json();
+    
+    // Validate required fields
+    if (!data.storeName) {
+      return NextResponse.json({ error: '스토어 이름을 입력해주세요.', message: 'Store name is required' }, { status: 400 });
+    }
+    
+    if (!data.country) {
+      return NextResponse.json({ error: '국가를 선택해주세요.', message: 'Country is required' }, { status: 400 });
+    }
+    
+    // Find or create country
+    let countryRecord = await prisma.country.findFirst({
+      where: {
+        OR: [
+          { code: data.country },
+          { name: data.country }
+        ]
+      }
+    });
+    
+    if (!countryRecord) {
+      // Create the country if it doesn't exist
+      countryRecord = await prisma.country.create({
+        data: {
+          code: data.country.length === 2 ? data.country : 'XX',
+          name: data.country.length === 2 ? data.country : data.country,
+          currency: 'USD'
+        }
+      });
+    }
+    
+    // Generate unique store code
+    const storeCount = await prisma.store.count();
+    const storeCode = data.storeCode || `${countryRecord.code}-${String(storeCount + 1).padStart(3, '0')}`;
 
     const store = await prisma.store.create({
       data: {
-        storeCode: data.storeCode || `STORE-${Date.now()}`,
-        storeName: data.storeName || data.tempName || 'New Store',
-        countryId: data.countryId,
-        country: data.country || 'CA',
+        storeCode,
+        storeName: data.storeName,
+        countryId: countryRecord.id,
+        country: countryRecord.code,
         city: data.city || null,
         address: data.address || null,
-        franchiseePhone: data.franchiseePhone || data.storePhone || null,
-        franchiseeEmail: data.franchiseeEmail || data.storeEmail || null,
-        franchiseeName: data.franchiseeName || data.ownerName || null,
+        franchiseePhone: data.franchiseePhone || null,
+        franchiseeEmail: data.franchiseeEmail || null,
+        franchiseeName: data.franchiseeName || null,
         status: data.status || 'PLANNING',
         plannedOpenDate: data.plannedOpenDate ? new Date(data.plannedOpenDate) : null,
       },
