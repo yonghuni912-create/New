@@ -167,8 +167,8 @@ export async function POST(request: NextRequest) {
         const ing = manual.ingredients[idx];
         const ingId = generateId();
         await db.execute({
-          sql: `INSERT INTO ManualIngredient (id, manualId, name, koreanName, quantity, unit, sortOrder, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO ManualIngredient (id, manualId, name, koreanName, quantity, unit, sortOrder, notes, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             ingId,
             manualId,
@@ -177,7 +177,9 @@ export async function POST(request: NextRequest) {
             ing.quantity || 0,
             ing.unit || 'g',
             idx,
-            ing.purchase || null
+            ing.purchase || null,
+            now,
+            now
           ],
         });
       }
@@ -578,8 +580,8 @@ async function handleDirectImport(manuals: ParsedManual[]) {
         const ingredientId = linkedMaster?.id || null;
         
         await db.execute({
-          sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             ingId,
             manualId,
@@ -589,7 +591,9 @@ async function handleDirectImport(manuals: ParsedManual[]) {
             ing.quantity || 0,
             ing.unit || 'g',
             idx,
-            ing.purchase || null
+            ing.purchase || null,
+            now,
+            now
           ],
         });
       }
