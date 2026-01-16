@@ -42,28 +42,47 @@ export async function GET(request: NextRequest) {
     }
     
     // Return all manuals, let frontend filter by isActive/isArchived
+    // Always include ingredients to calculate linking stats
     const manuals = await prisma.menuManual.findMany({
       where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
       include: {
-        ingredients: includeIngredients ? {
+        ingredients: {
           orderBy: [
             { sortOrder: 'asc' }
           ],
-          include: {
+          include: includeIngredients ? {
             ingredientMaster: true
-          }
-        } : false,
+          } : undefined
+        },
         priceTemplate: true
       },
       orderBy: { name: 'asc' }
     });
 
-    console.log(`✅ Found ${manuals.length} manuals`);
-    if (manuals.length > 0) {
-      console.log('First manual:', JSON.stringify(manuals[0], null, 2));
-    }
+    // Add linking stats to each manual
+    const manualsWithStats = manuals.map(manual => {
+      const totalIngredients = manual.ingredients?.length || 0;
+      const linkedIngredients = manual.ingredients?.filter(ing => ing.ingredientId !== null).length || 0;
+      const unlinkedIngredients = totalIngredients - linkedIngredients;
+      
+      return {
+        ...manual,
+        // Include ingredients only if requested
+        ingredients: includeIngredients ? manual.ingredients : undefined,
+        // Always include linking stats
+        linkingStats: {
+          total: totalIngredients,
+          linked: linkedIngredients,
+          unlinked: unlinkedIngredients,
+          isFullyLinked: totalIngredients > 0 && unlinkedIngredients === 0,
+          hasUnlinked: unlinkedIngredients > 0
+        }
+      };
+    });
 
-    return NextResponse.json(manuals);
+    console.log(`✅ Found ${manuals.length} manuals`);
+
+    return NextResponse.json(manualsWithStats);
   } catch (error: any) {
     console.error('❌ Error fetching manuals:', error);
     console.error('Error message:', error?.message);

@@ -64,6 +64,13 @@ interface SavedManual {
   ingredients?: any[];
   isDeleted?: boolean;
   isArchived?: boolean;
+  linkingStats?: {
+    total: number;
+    linked: number;
+    unlinked: number;
+    isFullyLinked: boolean;
+    hasUnlinked: boolean;
+  };
 }
 
 interface CostVersion {
@@ -189,6 +196,9 @@ export default function TemplatesPage() {
   // Chunk upload state
   const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number; saved: number } | null>(null);
   const [pendingManuals, setPendingManuals] = useState<any[]>([]);
+  
+  // Linking filter state
+  const [linkingFilter, setLinkingFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -1577,6 +1587,15 @@ export default function TemplatesPage() {
       }
     }
     
+    // Apply linking filter
+    if (linkingFilter === 'linked') {
+      // Only fully linked manuals
+      filtered = filtered.filter(m => m.linkingStats?.isFullyLinked === true);
+    } else if (linkingFilter === 'unlinked') {
+      // Only manuals with at least one unlinked ingredient
+      filtered = filtered.filter(m => m.linkingStats?.hasUnlinked === true);
+    }
+    
     // Apply sorting (simplified - no cost/template data available)
     if (sortField) {
       filtered = [...filtered].sort((a, b) => {
@@ -1718,6 +1737,19 @@ export default function TemplatesPage() {
           >
             <Settings className="w-4 h-4 inline mr-2" />
             매뉴얼 마스터 ({savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false && (m as any).isMaster !== 0).length})
+            {(() => {
+              const unlinkedCount = savedManuals.filter(m => 
+                !(m as any).isArchived && 
+                (m as any).isMaster !== false && 
+                (m as any).isMaster !== 0 &&
+                m.linkingStats?.hasUnlinked
+              ).length;
+              return unlinkedCount > 0 ? (
+                <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded-full" title={`${unlinkedCount}개 미링킹`}>
+                  ⚠️{unlinkedCount}
+                </span>
+              ) : null;
+            })()}
           </button>
           <button
             onClick={() => setActiveTab('countryManuals')}
@@ -2326,6 +2358,21 @@ export default function TemplatesPage() {
                   <th onClick={() => handleSort('name')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     메뉴명 <SortIcon field="name" />
                   </th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">
+                    <div className="flex items-center justify-center gap-1">
+                      식재료 링킹
+                      <select
+                        value={linkingFilter}
+                        onChange={(e) => setLinkingFilter(e.target.value as 'all' | 'linked' | 'unlinked')}
+                        onClick={(e) => e.stopPropagation()}
+                        className="ml-1 text-xs border rounded px-1 py-0.5 bg-white"
+                      >
+                        <option value="all">전체</option>
+                        <option value="linked">완료</option>
+                        <option value="unlinked">미완료</option>
+                      </select>
+                    </div>
+                  </th>
                   {activeTab === 'countryManuals' && (
                     <th onClick={() => handleSort('country')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                       국가 <SortIcon field="country" />
@@ -2364,6 +2411,26 @@ export default function TemplatesPage() {
                             <div className="text-sm text-gray-500">{manual.koreanName}</div>
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {manual.linkingStats ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              manual.linkingStats.isFullyLinked
+                                ? 'bg-green-100 text-green-700'
+                                : manual.linkingStats.hasUnlinked
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {manual.linkingStats.linked}/{manual.linkingStats.total}
+                            </span>
+                            {manual.linkingStats.hasUnlinked && (
+                              <span className="text-yellow-500" title={`${manual.linkingStats.unlinked}개 미링킹`}>⚠️</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
                       </td>
                       {activeTab === 'countryManuals' && (
                         <td className="px-4 py-3">
@@ -2461,7 +2528,7 @@ export default function TemplatesPage() {
                 })}
                 {getGroupManuals().length === 0 && (
                   <tr>
-                    <td colSpan={activeTab === 'trash' ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={activeTab === 'trash' ? 9 : 8} className="px-4 py-8 text-center text-gray-500">
                       {activeTab === 'manuals' 
                         ? '저장된 매뉴얼이 없습니다. Manual Editor에서 새 매뉴얼을 작성하세요.'
                         : activeTab === 'trash'
