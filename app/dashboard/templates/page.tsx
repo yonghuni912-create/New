@@ -628,7 +628,9 @@ export default function TemplatesPage() {
         alert('매뉴얼이 복구되었습니다.');
         fetchData();
       } else {
-        alert('복구 실패');
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Restore failed:', res.status, errorData);
+        alert(`복구 실패: ${errorData.error || errorData.details || res.statusText}`);
       }
     } catch (error) {
       console.error('Restore error:', error);
