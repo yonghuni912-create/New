@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,8 @@ interface ParsedManual {
   koreanName: string;
   sellingPrice?: number;
   shelfLife?: string;
+  imageUrl?: string; // Base64 data URL or uploaded URL
+  imageData?: string; // Base64 image data
   ingredients: Array<{
     name: string;
     koreanName?: string;
@@ -35,6 +38,99 @@ interface ParsedManual {
   }>;
   hasLinkingIssue: boolean;
   issueDetails?: string[];
+}
+
+// Extract images from xlsx file (which is actually a ZIP file)
+async function extractImagesFromXlsx(buffer: ArrayBuffer): Promise<Map<string, Map<number, string>>> {
+  const sheetImages = new Map<string, Map<number, string>>(); // sheetName -> (imageIndex -> base64)
+  
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    
+    // Get all image files from xl/media/
+    const mediaFiles: { name: string; data: string }[] = [];
+    const mediaFolder = zip.folder('xl/media');
+    
+    if (mediaFolder) {
+      const promises: Promise<void>[] = [];
+      
+      mediaFolder.forEach((relativePath, file) => {
+        if (!file.dir && /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(relativePath)) {
+          promises.push(
+            file.async('base64').then(data => {
+              const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
+              const mimeType = ext === 'jpg' ? 'jpeg' : ext;
+              mediaFiles.push({
+                name: relativePath,
+                data: `data:image/${mimeType};base64,${data}`
+              });
+            })
+          );
+        }
+      });
+      
+      await Promise.all(promises);
+    }
+    
+    console.log(`📷 Found ${mediaFiles.length} images in Excel file`);
+    
+    // Parse drawing relationships to map images to sheets
+    // xl/drawings/_rels/drawing1.xml.rels contains image references
+    const drawingRelsFolder = zip.folder('xl/drawings/_rels');
+    const drawingsFolder = zip.folder('xl/drawings');
+    
+    // Get sheet-drawing mappings from xl/worksheets/_rels/
+    const sheetRelsFolder = zip.folder('xl/worksheets/_rels');
+    const sheetToDrawing = new Map<string, string>(); // sheet1.xml -> drawing1.xml
+    
+    if (sheetRelsFolder) {
+      const sheetRelPromises: Promise<void>[] = [];
+      
+      sheetRelsFolder.forEach((relativePath, file) => {
+        if (relativePath.endsWith('.rels')) {
+          sheetRelPromises.push(
+            file.async('string').then(content => {
+              const sheetName = relativePath.replace('.xml.rels', '.xml');
+              // Find drawing reference
+              const drawingMatch = content.match(/Target="\.\.\/drawings\/(drawing\d+\.xml)"/);
+              if (drawingMatch) {
+                sheetToDrawing.set(sheetName, drawingMatch[1]);
+              }
+            })
+          );
+        }
+      });
+      
+      await Promise.all(sheetRelPromises);
+    }
+    
+    // For simplicity, assign first image found to each sheet in order
+    // (More complex: parse drawing XML to get exact image positions)
+    if (mediaFiles.length > 0) {
+      // Get workbook.xml to find sheet order
+      const workbookFile = zip.file('xl/workbook.xml');
+      if (workbookFile) {
+        const workbookContent = await workbookFile.async('string');
+        const sheetMatches = workbookContent.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*sheetId="(\d+)"/g);
+        
+        let imageIndex = 0;
+        for (const match of sheetMatches) {
+          const sheetName = match[1];
+          if (imageIndex < mediaFiles.length) {
+            const imagesForSheet = new Map<number, string>();
+            imagesForSheet.set(0, mediaFiles[imageIndex].data);
+            sheetImages.set(sheetName, imagesForSheet);
+            imageIndex++;
+          }
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Error extracting images:', error);
+  }
+  
+  return sheetImages;
 }
 
 // POST - Upload and parse Excel file with multiple manuals
@@ -92,6 +188,10 @@ export async function POST(request: NextRequest) {
     const manualsWithIssues: ParsedManual[] = [];
     const parseErrors: string[] = [];
 
+    // Extract images from Excel file
+    const sheetImages = await extractImagesFromXlsx(buffer);
+    console.log(`📷 Extracted images for ${sheetImages.size} sheets`);
+
     // Process each sheet as a separate manual
     for (const sheetName of workbook.SheetNames) {
       // Skip sheets that don't look like manual sheets
@@ -107,6 +207,13 @@ export async function POST(request: NextRequest) {
 
         const parsed = parseManualSheet(sheetName, jsonData);
         if (parsed) {
+          // Attach image if found for this sheet
+          const images = sheetImages.get(sheetName);
+          if (images && images.size > 0) {
+            parsed.imageData = images.get(0); // First image
+            console.log(`📷 Attached image to: ${parsed.name}`);
+          }
+          
           if (parsed.hasLinkingIssue) {
             manualsWithIssues.push(parsed);
           } else {
@@ -581,11 +688,14 @@ async function handleDirectImport(manuals: ParsedManual[]) {
       if (manual.ingredients && manual.ingredients.length > 0) {
         console.log(`   📦 First ingredient: ${manual.ingredients[0]?.name}`);
       }
+      if (manual.imageData) {
+        console.log(`   📷 Has image data`);
+      }
       
-      // Create manual
+      // Create manual with imageUrl
       await db.execute({
-        sql: `INSERT INTO MenuManual (id, name, koreanName, sellingPrice, shelfLife, cookingMethod, isMaster, isActive, isArchived, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?)`,
+        sql: `INSERT INTO MenuManual (id, name, koreanName, sellingPrice, shelfLife, cookingMethod, imageUrl, isMaster, isActive, isArchived, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?)`,
         args: [
           manualId,
           manual.name,
@@ -593,6 +703,7 @@ async function handleDirectImport(manuals: ParsedManual[]) {
           manual.sellingPrice || null,
           manual.shelfLife || null,
           manual.cookingMethod ? JSON.stringify(manual.cookingMethod) : null,
+          manual.imageData || manual.imageUrl || null, // Store base64 or URL
           now,
           now
         ],

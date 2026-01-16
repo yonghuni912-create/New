@@ -2686,12 +2686,12 @@ export default function TemplatesPage() {
                   </div>
                 )}
                 {/* Menu Image */}
-                {(previewManual as any).imageUrl && (
+                {((previewManual as any).imageUrl || (previewManual as any).imageData) && (
                   <div className="grid grid-cols-6 border-b border-black">
                     <div className="col-span-1 bg-gray-200 p-2 border-r border-black font-bold">사진</div>
                     <div className="col-span-5 p-2 flex justify-center">
                       <img 
-                        src={(previewManual as any).imageUrl} 
+                        src={(previewManual as any).imageData || (previewManual as any).imageUrl} 
                         alt={previewManual.name}
                         className="max-h-48 object-contain rounded"
                       />
