@@ -512,15 +512,23 @@ export default function TemplatesPage() {
 
   // Preview manual in modal
   const handlePreviewManual = async (manual: SavedManual) => {
+    console.log('🔍 Preview clicked for:', manual.id, manual.name);
     try {
       const res = await fetch(`/api/manuals/${manual.id}?includeIngredients=true&includeCostVersions=true`);
+      console.log('🔍 Preview response status:', res.status);
       if (res.ok) {
         const fullManual = await res.json();
+        console.log('🔍 Preview loaded:', fullManual.name, 'ingredients:', fullManual.ingredients?.length);
         setPreviewManual(fullManual);
         setShowPreviewModal(true);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('🔍 Preview failed:', res.status, errorData);
+        alert(`미리보기 로드 실패: ${errorData.error || res.statusText}`);
       }
     } catch (error) {
       console.error('Failed to load manual:', error);
+      alert('미리보기 로드 중 오류가 발생했습니다.');
     }
   };
 
@@ -591,9 +599,14 @@ export default function TemplatesPage() {
         
         setEditingManualId(manual.id);
         setActiveTab('editor');
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Edit load failed:', res.status, errorData);
+        alert(`수정 데이터 로드 실패: ${errorData.error || res.statusText}`);
       }
     } catch (error) {
       console.error('Failed to load manual for editing:', error);
+      alert('수정 데이터 로드 중 오류가 발생했습니다.');
     }
   };
 
@@ -729,10 +742,13 @@ export default function TemplatesPage() {
 
   // Download Excel
   const handleDownloadExcel = async (manual: SavedManual) => {
+    console.log('📥 Download clicked for:', manual.id, manual.name);
     try {
       const response = await fetch(`/api/manuals/${manual.id}/excel`);
+      console.log('📥 Download response status:', response.status);
       if (response.ok) {
         const blob = await response.blob();
+        console.log('📥 Blob size:', blob.size);
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -742,7 +758,9 @@ export default function TemplatesPage() {
         window.URL.revokeObjectURL(url);
         a.remove();
       } else {
-        alert('Excel 다운로드에 실패했습니다.');
+        const errorText = await response.text().catch(() => '');
+        console.error('📥 Download failed:', response.status, errorText);
+        alert(`Excel 다운로드 실패: ${response.status} ${errorText}`);
       }
     } catch (error) {
       console.error('Excel download error:', error);
