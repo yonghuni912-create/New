@@ -1474,7 +1474,10 @@ export default function TemplatesPage() {
       
       if (res.ok) {
         const data = await res.json();
-        alert(`${data.importedCount}개 매뉴얼이 가져오기 되었습니다.`);
+        const linkedInfo = data.linkedIngredients 
+          ? `\n🔗 ${data.linkedIngredients}개 식재료 자동 링킹됨` 
+          : '';
+        alert(`✅ ${data.importedCount}개 매뉴얼이 가져오기 되었습니다.${linkedInfo}`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);

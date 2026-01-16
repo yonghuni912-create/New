@@ -436,6 +436,86 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
 }
 
 // Handle direct import from confirmed preview data
+// Auto-link ingredients to master ingredients using fuzzy matching
+async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames: string[]): Promise<Map<string, { id: string; similarity: number }>> {
+  const linkMap = new Map<string, { id: string; similarity: number }>();
+  
+  if (ingredientNames.length === 0) return linkMap;
+  
+  try {
+    // Fetch all master ingredients
+    const mastersResult = await db.execute({
+      sql: `SELECT id, englishName, koreanName FROM IngredientMaster`,
+      args: [],
+    });
+    
+    const masters = mastersResult.rows;
+    
+    // Normalize function
+    const normalize = (name: string): string => {
+      return (name || '')
+        .toLowerCase()
+        .replace(/[()（）\[\]【】]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/^[├└│─\s]+/, '')
+        .replace(/^l\s+/i, '')
+        .trim();
+    };
+    
+    // Simple Levenshtein distance
+    const levenshtein = (a: string, b: string): number => {
+      const matrix: number[][] = [];
+      for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+      for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+      for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+          matrix[i][j] = b[i-1] === a[j-1]
+            ? matrix[i-1][j-1]
+            : Math.min(matrix[i-1][j-1] + 1, matrix[i][j-1] + 1, matrix[i-1][j] + 1);
+        }
+      }
+      return matrix[b.length][a.length];
+    };
+    
+    const similarity = (s1: string, s2: string): number => {
+      const n1 = normalize(s1);
+      const n2 = normalize(s2);
+      if (n1 === n2) return 1;
+      if (n1.includes(n2) || n2.includes(n1)) return 0.9;
+      const maxLen = Math.max(n1.length, n2.length);
+      if (maxLen === 0) return 1;
+      return 1 - levenshtein(n1, n2) / maxLen;
+    };
+    
+    // Match each ingredient name
+    for (const inputName of ingredientNames) {
+      if (!inputName) continue;
+      
+      let bestMatch: { id: string; similarity: number } | null = null;
+      
+      for (const master of masters) {
+        const engSim = similarity(inputName, master.englishName as string || '');
+        const korSim = similarity(inputName, master.koreanName as string || '');
+        const maxSim = Math.max(engSim, korSim);
+        
+        if (maxSim >= 0.6 && (!bestMatch || maxSim > bestMatch.similarity)) {
+          bestMatch = { id: master.id as string, similarity: maxSim };
+        }
+      }
+      
+      if (bestMatch) {
+        linkMap.set(inputName, bestMatch);
+      }
+    }
+    
+    console.log(`🔗 Auto-linked ${linkMap.size}/${ingredientNames.length} ingredients`);
+  } catch (error) {
+    console.error('⚠️ Auto-link failed:', error);
+  }
+  
+  return linkMap;
+}
+
 async function handleDirectImport(manuals: ParsedManual[]) {
   console.log('📥 handleDirectImport called with', manuals.length, 'manuals');
   
@@ -452,6 +532,18 @@ async function handleDirectImport(manuals: ParsedManual[]) {
   const db = getDb();
   const createdManuals = [];
   const errors: string[] = [];
+  
+  // Collect all unique ingredient names for batch linking
+  const allIngredientNames = new Set<string>();
+  for (const manual of manuals) {
+    for (const ing of manual.ingredients) {
+      if (ing.name) allIngredientNames.add(ing.name);
+    }
+  }
+  
+  // Auto-link ingredients to master
+  const ingredientLinks = await autoLinkIngredients(db, Array.from(allIngredientNames));
+  const linkedCount = ingredientLinks.size;
   
   for (const manual of manuals) {
     try {
@@ -476,16 +568,22 @@ async function handleDirectImport(manuals: ParsedManual[]) {
         ],
       });
       
-      // Create ingredients
+      // Create ingredients with auto-linked ingredientId
       for (let idx = 0; idx < manual.ingredients.length; idx++) {
         const ing = manual.ingredients[idx];
         const ingId = generateId();
+        
+        // Get linked master ingredient ID
+        const linkedMaster = ingredientLinks.get(ing.name);
+        const ingredientId = linkedMaster?.id || null;
+        
         await db.execute({
-          sql: `INSERT INTO ManualIngredient (id, manualId, name, koreanName, quantity, unit, sortOrder, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             ingId,
             manualId,
+            ingredientId,
             ing.name,
             ing.koreanName || ing.name,
             ing.quantity || 0,
@@ -505,11 +603,13 @@ async function handleDirectImport(manuals: ParsedManual[]) {
   }
 
   console.log(`✅ Total created: ${createdManuals.length} manuals, ${errors.length} errors`);
+  console.log(`🔗 Auto-linked ${linkedCount} unique ingredients`);
 
   return NextResponse.json({
     success: true,
     importedCount: createdManuals.length,
     createdManuals: createdManuals,
+    linkedIngredients: linkedCount,
     errors: errors.length > 0 ? errors : undefined
   });
 }
