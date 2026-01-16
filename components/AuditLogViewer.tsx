@@ -125,8 +125,8 @@ export default function AuditLogViewer({ entityType, entityId, limit = 50 }: Aud
     return (
       log.action.toLowerCase().includes(query) ||
       log.entityType.toLowerCase().includes(query) ||
-      log.user.name.toLowerCase().includes(query) ||
-      log.user.email.toLowerCase().includes(query)
+      (log.user?.name || '').toLowerCase().includes(query) ||
+      (log.user?.email || '').toLowerCase().includes(query)
     );
   });
 
@@ -281,7 +281,7 @@ export default function AuditLogViewer({ entityType, entityId, limit = 50 }: Aud
 
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <User className="w-4 h-4" />
-                      <span>{log.user.name}</span>
+                      <span>{log.user?.name || log.userId || 'Unknown'}</span>
                     </div>
 
                     <div className="text-sm text-gray-400">
