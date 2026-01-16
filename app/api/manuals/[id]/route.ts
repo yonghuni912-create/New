@@ -104,14 +104,57 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     
     const db = getDb();
     
-    // Check if manual exists
+    // Check if manual exists and get current data
     const existingResult = await db.execute({
-      sql: `SELECT id FROM MenuManual WHERE id = ?`,
+      sql: `SELECT * FROM MenuManual WHERE id = ?`,
       args: [id],
     });
     
     if (existingResult.rows.length === 0) {
       return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
+    }
+    
+    const currentManual = existingResult.rows[0];
+    
+    // Get current ingredients for version history
+    const currentIngredientsResult = await db.execute({
+      sql: `SELECT * FROM ManualIngredient WHERE manualId = ? ORDER BY sortOrder ASC`,
+      args: [id],
+    });
+    
+    // Save version history if content is being changed (not just status changes)
+    const isContentChange = body.name !== undefined || body.koreanName !== undefined || 
+                            body.sellingPrice !== undefined || body.ingredients !== undefined ||
+                            body.cookingMethod !== undefined || body.imageUrl !== undefined;
+    
+    if (isContentChange && !body.skipVersioning) {
+      const versionId = `ver_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const currentVersion = Number(currentManual.version) || 1;
+      
+      try {
+        await db.execute({
+          sql: `INSERT INTO ManualVersion (id, manualId, version, name, koreanName, sellingPrice, ingredients, cookingMethod, imageUrl, changeNote, changedBy, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            versionId,
+            id,
+            currentVersion,
+            currentManual.name,
+            currentManual.koreanName || null,
+            currentManual.sellingPrice || null,
+            JSON.stringify(currentIngredientsResult.rows),
+            currentManual.cookingMethod || null,
+            currentManual.imageUrl || null,
+            body.changeNote || null,
+            body.changedBy || null,
+            new Date().toISOString()
+          ],
+        });
+        console.log(`📜 Saved version ${currentVersion} for manual ${id}`);
+      } catch (versionError: any) {
+        // Version table might not exist yet - ignore
+        console.warn('⚠️ Could not save version:', versionError?.message);
+      }
     }
     
     // Build update query dynamically
@@ -129,6 +172,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (body.priceTemplateId !== undefined) { updateFields.push('priceTemplateId = ?'); updateArgs.push(body.priceTemplateId || null); }
     if (body.isActive !== undefined) { updateFields.push('isActive = ?'); updateArgs.push(body.isActive ? 1 : 0); }
     if (body.isArchived !== undefined) { updateFields.push('isArchived = ?'); updateArgs.push(body.isArchived ? 1 : 0); }
+    
+    // Increment version if content changed
+    if (isContentChange && !body.skipVersioning) {
+      const newVersion = (Number(currentManual.version) || 1) + 1;
+      updateFields.push('version = ?');
+      updateArgs.push(newVersion);
+    }
     
     // Always update updatedAt
     updateFields.push('updatedAt = ?');

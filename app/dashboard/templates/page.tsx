@@ -201,6 +201,12 @@ export default function TemplatesPage() {
   // Linking filter state
   const [linkingFilter, setLinkingFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
 
+  // Version history state
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const [versionHistory, setVersionHistory] = useState<any>(null);
+  const [selectedVersionManual, setSelectedVersionManual] = useState<SavedManual | null>(null);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -663,6 +669,50 @@ export default function TemplatesPage() {
     } catch (error) {
       console.error('Restore error:', error);
       alert('복구 중 오류가 발생했습니다.');
+    }
+  };
+
+  // View version history
+  const handleViewVersionHistory = async (manual: SavedManual) => {
+    setSelectedVersionManual(manual);
+    setIsLoadingVersions(true);
+    setShowVersionModal(true);
+    
+    try {
+      const res = await fetch(`/api/manuals/${manual.id}/versions`);
+      const data = await res.json();
+      setVersionHistory(data);
+    } catch (error) {
+      console.error('Error loading versions:', error);
+      setVersionHistory({ versions: [], error: 'Failed to load version history' });
+    } finally {
+      setIsLoadingVersions(false);
+    }
+  };
+
+  // Restore to a specific version
+  const handleRestoreVersion = async (versionId: string) => {
+    if (!selectedVersionManual) return;
+    if (!confirm('이 버전으로 복구하시겠습니까? 현재 내용은 새로운 버전으로 저장됩니다.')) return;
+    
+    try {
+      const res = await fetch(`/api/manuals/${selectedVersionManual.id}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ versionId })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        alert(`버전이 복구되었습니다. (새 버전: v${data.newVersion})`);
+        setShowVersionModal(false);
+        fetchData();
+      } else {
+        alert('버전 복구 실패');
+      }
+    } catch (error) {
+      console.error('Restore version error:', error);
+      alert('버전 복구 중 오류가 발생했습니다.');
     }
   };
 
@@ -1580,8 +1630,16 @@ export default function TemplatesPage() {
         filtered = filtered.filter(m => (m as any).priceTemplateId === countryFilterTemplateId);
       }
     } else {
-      // Show active (not archived) manuals - for manuals tab, show only masters
-      filtered = filtered.filter(m => !(m as any).isArchived);
+      // Show active (not deleted, not archived) manuals - for manuals tab, show only masters
+      // isActive must be true (or 1) AND isArchived must be false (or 0)
+      filtered = filtered.filter(m => {
+        const isActive = (m as any).isActive;
+        const isArchived = (m as any).isArchived;
+        // Active: isActive is true/1/undefined(legacy) AND isArchived is false/0/undefined
+        const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
+        const notArchived = !isArchived || isArchived === 0 || isArchived === false;
+        return isReallyActive && notArchived;
+      });
       if (activeTab === 'manuals') {
         // Show only master manuals (isMaster = true or null for legacy)
         filtered = filtered.filter(m => (m as any).isMaster !== false && (m as any).isMaster !== 0);
@@ -2395,7 +2453,7 @@ export default function TemplatesPage() {
                     판매가 (Selling Price) <SortIcon field="sellingPrice" />
                   </th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">
-                    Shelf Life
+                    생성/수정일
                   </th>
                   {activeTab === 'trash' && (
                     <>
@@ -2471,7 +2529,12 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className="text-sm text-gray-600">{manual.shelfLife || '-'}</span>
+                        <div className="text-xs text-gray-600">
+                          <div>{(manual as any).createdAt ? new Date((manual as any).createdAt).toLocaleDateString('ko-KR') : '-'}</div>
+                          {(manual as any).updatedAt && (manual as any).updatedAt !== (manual as any).createdAt && (
+                            <div className="text-gray-400">수정: {new Date((manual as any).updatedAt).toLocaleDateString('ko-KR')}</div>
+                          )}
+                        </div>
                       </td>
                       {activeTab === 'trash' && (
                         <td className="px-4 py-3 text-sm text-gray-500">
@@ -2494,6 +2557,13 @@ export default function TemplatesPage() {
                           )}
                           {(activeTab === 'manuals' || activeTab === 'countryManuals') && (
                             <>
+                              <button 
+                                onClick={() => handleViewVersionHistory(manual)}
+                                className="p-1 text-gray-400 hover:text-purple-500" 
+                                title="Version History"
+                              >
+                                <History className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => handleDownloadExcel(manual)}
                                 className="p-1 text-gray-400 hover:text-green-500" 
@@ -3096,6 +3166,93 @@ export default function TemplatesPage() {
                   </>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version History Modal */}
+      {showVersionModal && selectedVersionManual && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h3 className="text-lg font-semibold">버전 히스토리</h3>
+                <p className="text-sm text-gray-500">
+                  {selectedVersionManual.name} - 현재 v{versionHistory?.currentVersion || 1}
+                </p>
+              </div>
+              <button onClick={() => setShowVersionModal(false)} className="p-2 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {isLoadingVersions ? (
+                <div className="text-center py-8 text-gray-500">로딩 중...</div>
+              ) : versionHistory?.versions?.length === 0 ? (
+                <div className="text-center py-8">
+                  <History className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">아직 버전 히스토리가 없습니다.</p>
+                  <p className="text-sm text-gray-400 mt-1">매뉴얼을 수정하면 이전 버전이 자동으로 저장됩니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Current Version */}
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="px-2 py-1 bg-green-500 text-white text-xs rounded font-medium">현재</span>
+                        <span className="ml-2 font-medium">v{versionHistory?.currentVersion || 1}</span>
+                        <span className="ml-2 text-sm text-gray-500">
+                          {versionHistory?.lastUpdated ? new Date(versionHistory.lastUpdated).toLocaleString('ko-KR') : '-'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-600">{selectedVersionManual.name}</div>
+                  </div>
+                  
+                  {/* Previous Versions */}
+                  {versionHistory?.versions?.map((ver: any) => (
+                    <div key={ver.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="px-2 py-1 bg-gray-400 text-white text-xs rounded font-medium">이전</span>
+                          <span className="ml-2 font-medium">v{ver.version}</span>
+                          <span className="ml-2 text-sm text-gray-500">
+                            {ver.createdAt ? new Date(ver.createdAt).toLocaleString('ko-KR') : '-'}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRestoreVersion(ver.id)}
+                          className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600"
+                        >
+                          이 버전으로 복구
+                        </button>
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-sm font-medium">{ver.name}</div>
+                        {ver.changeNote && (
+                          <div className="text-xs text-gray-500 mt-1">변경 사유: {ver.changeNote}</div>
+                        )}
+                        <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                          <span>식재료: {ver.ingredients?.length || 0}개</span>
+                          <span>판매가: ${ver.sellingPrice?.toFixed(2) || '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-2 p-4 border-t">
+              <button
+                onClick={() => setShowVersionModal(false)}
+                className="px-4 py-2 text-gray-600 bg-gray-100 rounded hover:bg-gray-200"
+              >
+                닫기
+              </button>
             </div>
           </div>
         </div>

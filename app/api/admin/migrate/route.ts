@@ -34,6 +34,28 @@ export async function POST(request: NextRequest) {
       name: 'Add updatedAt to ManualIngredient',
       sql: `ALTER TABLE ManualIngredient ADD COLUMN updatedAt TEXT DEFAULT (datetime('now'))`,
     },
+    {
+      name: 'Create ManualVersion table',
+      sql: `CREATE TABLE IF NOT EXISTS ManualVersion (
+        id TEXT PRIMARY KEY,
+        manualId TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        koreanName TEXT,
+        sellingPrice REAL,
+        ingredients TEXT,
+        cookingMethod TEXT,
+        imageUrl TEXT,
+        changeNote TEXT,
+        changedBy TEXT,
+        createdAt TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (manualId) REFERENCES MenuManual(id) ON DELETE CASCADE
+      )`,
+    },
+    {
+      name: 'Add version to MenuManual',
+      sql: `ALTER TABLE MenuManual ADD COLUMN version INTEGER DEFAULT 1`,
+    },
   ];
 
   for (const migration of migrations) {
