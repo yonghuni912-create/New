@@ -1012,19 +1012,21 @@ export default function TemplatesPage() {
   };
 
   // Client-side Excel parsing function - BBQ Chicken 매뉴얼 형식
-  // "Name" 셀 위치를 기준으로 동적 오프셋 계산
-  // 기본 구조 (Name이 A2에 있을 때):
-  // A1:I1 - "Manual(Kitchen)" 제목
-  // A2: "Name", B2: 메뉴명
-  // A3:A11 - "Picture" (병합, 이미지 영역)
-  // H3:I3 - "Item List"
-  // A12:A29 - "Ingredients Composition" (세로 병합)
-  // B12: "NO", C12-D12: "Ingredients", E12: "Weight", F12: "Unit", G12: "Purchase", H12-I12: "Others"
-  // Row 13-17: 재료 데이터
-  // H30: "BBQ CANADA"
-  // A31:I31 - "COOKING METHOD"
-  // A32-C32: "PROCESS", D32-I32: "MANUAL"
-  // Row 33+: 조리 단계들 (▶ 접두사)
+  // ========================================
+  // 마커 기반 동적 범위 파싱 (Anchor-based Dynamic Range Parsing)
+  // ========================================
+  // 고정 마커(Anchors):
+  // - NAME: "Name" 텍스트 → 기준점 (rowOffset, colOffset 계산)
+  // - INGREDIENT_HEADER: "NO" + "Weight" + "Unit" 텍스트가 있는 행
+  // - BBQ_CANADA: "BBQ CANADA" 텍스트 (페이지 구분자)
+  // - COOKING_METHOD: "COOKING METHOD" 텍스트
+  // - PROCESS_MANUAL: "PROCESS" + "MANUAL" 텍스트가 있는 행
+  //
+  // 동적 범위:
+  // - 식재료: INGREDIENT_HEADER+1 ~ 첫번째 BBQ_CANADA-1
+  // - 조리법 페이지1: 첫번째 PROCESS_MANUAL+1 ~ 두번째 BBQ_CANADA-1
+  // - 조리법 페이지2: 두번째 PROCESS_MANUAL+1 ~ 세번째 BBQ_CANADA-1 (있으면)
+  // ========================================
   const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string): any | null => {
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
     if (data.length < 10) return null;
@@ -1040,148 +1042,126 @@ export default function TemplatesPage() {
       return null;
     }
     
-    // === "Name" 셀 위치를 찾아서 오프셋 계산 ===
-    // 기본 위치: A2 (row=1, col=0)
-    let rowOffset = 0;  // 행 오프셋
-    let colOffset = 0;  // 열 오프셋
-    let nameFoundRow = -1;
-    let nameFoundCol = -1;
+    // === Step 1: 모든 마커 위치 찾기 ===
+    interface Marker { row: number; type: string; col?: number; }
+    const markers: Marker[] = [];
     
-    // "Name" 텍스트가 있는 셀 찾기 (상위 10행, 10열 내에서)
-    for (let r = 0; r < Math.min(data.length, 10); r++) {
+    for (let r = 0; r < data.length; r++) {
       const row = data[r] || [];
-      for (let c = 0; c < Math.min(row.length, 10); c++) {
-        const cellValue = String(row[c] ?? '').trim().toLowerCase();
-        if (cellValue === 'name') {
-          nameFoundRow = r;
-          nameFoundCol = c;
-          break;
-        }
-      }
-      if (nameFoundRow >= 0) break;
-    }
-    
-    // 오프셋 계산: Name의 기본 위치는 A2 (row=1, col=0)
-    if (nameFoundRow >= 0 && nameFoundCol >= 0) {
-      rowOffset = nameFoundRow - 1;  // 기본 row=1 대비 차이
-      colOffset = nameFoundCol - 0;  // 기본 col=0 대비 차이
-      console.log(`📍 Name found at row ${nameFoundRow + 1}, col ${nameFoundCol} → offset: row+${rowOffset}, col+${colOffset}`);
-    }
-    
-    // Helper: get cell value with offset applied
-    const getCell = (baseRow: number, baseCol: number): string => {
-      const r = baseRow + rowOffset;
-      const c = baseCol + colOffset;
-      if (r < 0 || r >= data.length) return '';
-      const row = data[r] || [];
-      if (c < 0 || c >= row.length) return '';
-      return String(row[c] ?? '').trim();
-    };
-    
-    // Helper: find row with keyword (with offset)
-    const findRow = (keyword: string, baseStartRow: number, baseEndRow: number): number => {
-      const startRow = baseStartRow + rowOffset;
-      const endRow = baseEndRow + rowOffset;
-      for (let r = startRow; r < Math.min(data.length, endRow); r++) {
-        const row = data[r] || [];
-        for (const cell of row) {
-          if (String(cell ?? '').toLowerCase().includes(keyword.toLowerCase())) {
-            return r; // 실제 행 번호 반환 (오프셋 이미 적용됨)
+      const rowText = row.map(c => String(c ?? '').toLowerCase()).join(' ');
+      const rowTextOriginal = row.map(c => String(c ?? '')).join(' ');
+      
+      // NAME 마커 (첫번째만)
+      if (!markers.some(m => m.type === 'NAME')) {
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] ?? '').trim().toLowerCase() === 'name') {
+            markers.push({ row: r, type: 'NAME', col: c });
+            break;
           }
         }
       }
-      return -1;
-    };
+      
+      // INGREDIENT_HEADER: NO + Weight + Unit 가 있는 행
+      if (rowText.includes('no') && rowText.includes('weight') && rowText.includes('unit')) {
+        markers.push({ row: r, type: 'INGREDIENT_HEADER' });
+      }
+      
+      // BBQ_CANADA 마커 (여러 개 가능)
+      if (rowTextOriginal.includes('BBQ CANADA')) {
+        markers.push({ row: r, type: 'BBQ_CANADA' });
+      }
+      
+      // COOKING_METHOD 마커
+      if (rowTextOriginal.includes('COOKING METHOD')) {
+        markers.push({ row: r, type: 'COOKING_METHOD' });
+      }
+      
+      // PROCESS_MANUAL 마커: PROCESS + MANUAL 가 있는 행
+      if (rowText.includes('process') && rowText.includes('manual')) {
+        markers.push({ row: r, type: 'PROCESS_MANUAL' });
+      }
+    }
     
-    // Helper: get raw cell (without offset, for after findRow)
-    const getRawCell = (r: number, baseCol: number): any => {
-      const c = baseCol + colOffset;
-      if (r < 0 || r >= data.length) return '';
-      const row = data[r] || [];
-      if (c < 0 || c >= row.length) return '';
-      return row[c];
-    };
+    // === Step 2: 오프셋 계산 (NAME 기준) ===
+    const nameMarker = markers.find(m => m.type === 'NAME');
+    let rowOffset = 0;
+    let colOffset = 0;
     
+    if (nameMarker && nameMarker.col !== undefined) {
+      // 기본 위치: row=1, col=0 (A2)
+      rowOffset = nameMarker.row - 1;
+      colOffset = nameMarker.col - 0;
+    }
+    
+    // === Step 3: 마커별 행 번호 추출 ===
+    const ingredientHeaderRow = markers.find(m => m.type === 'INGREDIENT_HEADER')?.row ?? -1;
+    const bbqCanadaRows = markers.filter(m => m.type === 'BBQ_CANADA').map(m => m.row);
+    const processManualRows = markers.filter(m => m.type === 'PROCESS_MANUAL').map(m => m.row);
+    
+    // 범위 계산
+    const firstBbqCanada = bbqCanadaRows[0] ?? data.length;
+    const secondBbqCanada = bbqCanadaRows[1] ?? data.length;
+    const thirdBbqCanada = bbqCanadaRows[2] ?? data.length;
+    const firstProcessManual = processManualRows[0] ?? -1;
+    const secondProcessManual = processManualRows[1] ?? -1;
+    
+    console.log(`📋 Sheet "${sheetName}": offset(row+${rowOffset}, col+${colOffset}), ` +
+                `ingredients=${ingredientHeaderRow + 1}~${firstBbqCanada}, ` +
+                `cooking=${firstProcessManual + 1}~${secondBbqCanada}`);
+    
+    // === Step 4: 기본 정보 파싱 ===
     let name = '';
     let koreanName = '';
     let sellingPrice: number | undefined;
     const ingredients: any[] = [];
     const cookingMethod: { process: string; manual: string; translatedManual: string }[] = [];
     
-    // 1. Parse Name (기준: Row 2, Col A="Name", Col B=메뉴명)
-    // getCell(1, 0) = "Name" 위치, getCell(1, 1) = 메뉴명 위치
-    if (getCell(1, 0).toLowerCase() === 'name') {
-      name = getCell(1, 1);
+    // Name 파싱
+    if (nameMarker) {
+      const nameRow = data[nameMarker.row] || [];
+      const nameCol = (nameMarker.col ?? 0) + 1; // Name 다음 칸
+      name = String(nameRow[nameCol] ?? '').trim();
     }
     if (!name) name = sheetName.replace(/^\d+\./, '').trim();
-    koreanName = name; // 한글명은 엑셀에 없으므로 name 사용
+    koreanName = name;
     
-    // === Helper: 특정 키워드가 있는 행 찾기 (실제 row index 반환) ===
-    const findRowAbsolute = (keyword: string, startRow: number, endRow: number): number => {
-      for (let r = startRow; r < Math.min(data.length, endRow); r++) {
-        const row = data[r] || [];
-        for (const cell of row) {
-          if (String(cell ?? '').toLowerCase().includes(keyword.toLowerCase())) {
-            return r;
-          }
-        }
-      }
-      return -1;
-    };
-    
-    // 2. Parse Item List (기준: H3 = col 7, row 3) - 현재 빈 값이므로 skip
-    
-    // 3. Parse Ingredients
-    // 규칙: "NO" 헤더 행부터 첫 번째 "BBQ CANADA" 사이의 모든 행
-    const ingredientHeaderRow = findRow('no', 10, 20);
-    if (ingredientHeaderRow >= 0) {
-      // 끝점 찾기: 첫 번째 "BBQ CANADA" 또는 "COOKING METHOD"
-      const ingredientEndRow = findRowAbsolute('bbq canada', ingredientHeaderRow + 1, ingredientHeaderRow + 50);
-      const cookingMethodRow = findRowAbsolute('cooking method', ingredientHeaderRow + 1, ingredientHeaderRow + 50);
+    // === Step 5: 식재료 파싱 (INGREDIENT_HEADER+1 ~ 첫번째 BBQ_CANADA-1) ===
+    if (ingredientHeaderRow >= 0 && firstBbqCanada > ingredientHeaderRow) {
+      const startRow = ingredientHeaderRow + 1;
+      const endRow = firstBbqCanada - 1;
       
-      // 더 가까운 끝점 사용
-      let endRow = data.length;
-      if (ingredientEndRow > 0) endRow = Math.min(endRow, ingredientEndRow);
-      if (cookingMethodRow > 0) endRow = Math.min(endRow, cookingMethodRow);
-      
-      console.log(`📦 Ingredients range: row ${ingredientHeaderRow + 1} to ${endRow} (${endRow - ingredientHeaderRow - 1} rows)`);
-      
-      // Column 기준 (colOffset 적용):
-      // B=1 (NO), C-D=2-3 (Ingredients), E=4 (Weight), F=5 (Unit), G=6 (Purchase), H-I=7-8 (Others)
-      for (let r = ingredientHeaderRow + 1; r < endRow; r++) {
+      for (let r = startRow; r <= endRow; r++) {
         const row = data[r] || [];
         
-        // Get NO (기준 column B = 1 + colOffset)
+        // NO 열 (기준: col 1 + colOffset)
         const noCol = 1 + colOffset;
         const no = row[noCol];
         if (no === undefined || no === null || no === '') continue;
         
-        // Get ingredient name (기준 column C = 2 + colOffset)
+        // Ingredients 열 (기준: col 2 + colOffset)
         const nameCol = 2 + colOffset;
         let ingredientName = String(row[nameCol] ?? '').trim();
         if (!ingredientName && row[nameCol + 1]) ingredientName = String(row[nameCol + 1]).trim();
         if (!ingredientName) continue;
-        
-        // Skip if just header text
         if (ingredientName.toLowerCase() === 'ingredients') continue;
         
-        // Get weight (기준 column E = 4 + colOffset)
+        // Weight 열 (기준: col 4 + colOffset)
         const weightCol = 4 + colOffset;
         const weightVal = row[weightCol];
         let weight = typeof weightVal === 'number' ? weightVal : parseFloat(String(weightVal ?? '').replace(/[^0-9.]/g, ''));
         if (isNaN(weight)) weight = 0;
         
-        // Get unit (기준 column F = 5 + colOffset)
+        // Unit 열 (기준: col 5 + colOffset)
         const unitCol = 5 + colOffset;
         let unit = String(row[unitCol] ?? 'g').trim();
         if (!unit || unit.toLowerCase() === 'null') unit = 'g';
         
-        // Get purchase (기준 column G = 6 + colOffset)
+        // Purchase 열 (기준: col 6 + colOffset)
         const purchaseCol = 6 + colOffset;
         let purchase = String(row[purchaseCol] ?? 'Local').trim();
         if (!purchase) purchase = 'Local';
         
-        // Get others (기준 column H = 7 + colOffset)
+        // Others 열 (기준: col 7 + colOffset)
         const othersCol = 7 + colOffset;
         const others = String(row[othersCol] ?? '').trim();
         
@@ -1198,37 +1178,28 @@ export default function TemplatesPage() {
       }
     }
     
-    // 4. Parse COOKING METHOD sections
-    // 규칙: "MANUAL" 헤더 행부터 다음 "BBQ CANADA" 사이의 모든 행
-    // 엑셀에서 COOKING METHOD가 여러 페이지에 나타날 수 있음
-    let cookingSearchStart = 0;
-    while (cookingSearchStart < data.length) {
-      const cookingRow = findRowAbsolute('cooking method', cookingSearchStart, data.length);
-      if (cookingRow < 0) break;
+    // === Step 6: 조리법 파싱 (PROCESS_MANUAL+1 ~ 다음 BBQ_CANADA-1) ===
+    // 여러 페이지가 있을 수 있음 (페이지1: row 33~59, 페이지2: row 63~89 등)
+    const processCol = 0 + colOffset;  // PROCESS 열 (A열 기준)
+    const manualCol = 3 + colOffset;   // MANUAL 열 (D열 기준)
+    
+    // 각 PROCESS_MANUAL 마커에 대해 다음 BBQ_CANADA까지 파싱
+    for (let i = 0; i < processManualRows.length; i++) {
+      const startRow = processManualRows[i] + 1;
+      const endRow = (i === 0 ? secondBbqCanada : thirdBbqCanada) - 1;
       
-      // Next row should be PROCESS / MANUAL header
-      const headerRow = cookingRow + 1;
-      // 기준: A column = 0 + colOffset (PROCESS), D column = 3 + colOffset (MANUAL)
-      const processCol = 0 + colOffset;
-      const manualCol = 3 + colOffset;
+      if (startRow >= endRow) continue;
       
-      // 끝점 찾기: 다음 "BBQ CANADA" 행
-      const cookingEndRow = findRowAbsolute('bbq canada', headerRow + 1, data.length);
-      const sectionEnd = cookingEndRow > 0 ? cookingEndRow : data.length;
-      
-      console.log(`🍳 Cooking method range: row ${headerRow + 1} to ${sectionEnd} (${sectionEnd - headerRow - 1} rows)`);
-      
-      // Parse cooking steps
       let currentProcess = '';
       let currentManualLines: string[] = [];
       
-      for (let r = headerRow + 1; r < sectionEnd; r++) {
+      for (let r = startRow; r <= endRow; r++) {
         const row = data[r] || [];
         
-        // Get process name (기준 column A = 0 + colOffset)
+        // Get process name (PROCESS 열)
         const processName = String(row[processCol] ?? '').trim();
         
-        // Get manual text (기준 column D = 3 + colOffset)
+        // Get manual text (MANUAL 열)
         let manualText = String(row[manualCol] ?? '').trim();
         
         // If new process name appears, save previous and start new
@@ -1253,7 +1224,7 @@ export default function TemplatesPage() {
         }
       }
       
-      // Save last process
+      // Save last process of this page
       if (currentProcess && currentManualLines.length > 0) {
         cookingMethod.push({
           process: currentProcess,
@@ -1261,17 +1232,14 @@ export default function TemplatesPage() {
           translatedManual: ''
         });
       }
-      
-      // Move to next potential COOKING METHOD section (after this BBQ CANADA)
-      cookingSearchStart = sectionEnd + 1;
     }
     
-    // Skip if no valid content
+    // === Step 7: 결과 반환 ===
     if (!name && ingredients.length === 0 && cookingMethod.length === 0) {
       return null;
     }
     
-    console.log(`📋 Parsed sheet "${sheetName}": name="${name}", ${ingredients.length} ingredients, ${cookingMethod.length} cooking processes (offset: row+${rowOffset}, col+${colOffset})`);
+    console.log(`✅ Parsed "${sheetName}": ${ingredients.length} ingredients, ${cookingMethod.length} cooking steps`);
     
     return {
       name,
@@ -1280,15 +1248,10 @@ export default function TemplatesPage() {
       ingredients,
       cookingMethod,
       hasLinkingIssue: false,
-      // 원본 시트 정보 저장 (미리보기용 및 오프셋 정보)
       _sheetInfo: {
-        title: getCell(0, 0) || 'Manual(Kitchen)',
-        pictureLabel: 'Picture',
-        itemListLabel: getCell(2, 7) || 'Item List',
-        ingredientCompositionLabel: 'Ingredients Composition',
-        cookingMethodLabel: 'COOKING METHOD',
         rowOffset,
-        colOffset
+        colOffset,
+        markers: markers.map(m => ({ type: m.type, row: m.row + 1 }))
       }
     };
   };
