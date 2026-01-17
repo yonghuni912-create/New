@@ -1266,7 +1266,8 @@ export default function TemplatesPage() {
     }
     
     // === Step 6: 조리법 파싱 (PROCESS_MANUAL+1 ~ 다음 BBQ_CANADA-1) ===
-    // 여러 페이지가 있을 수 있음 (페이지1: row 33~59, 페이지2: row 63~89 등)
+    // 빈 행을 기준으로 프로세스를 구분함
+    // 빈 행이 오면 그 다음 행부터 새로운 프로세스 시작
     const processCol = 0 + colOffset;  // PROCESS 열 (A열 기준)
     const manualCol = 3 + colOffset;   // MANUAL 열 (D열 기준)
     
@@ -1277,44 +1278,54 @@ export default function TemplatesPage() {
       
       if (startRow >= endRow) continue;
       
-      let currentProcess = '';
+      let processIndex = cookingMethod.length + 1; // 프로세스 번호 (연속)
       let currentManualLines: string[] = [];
+      let lastRowWasEmpty = true; // 시작 시 새 프로세스로 간주
       
       for (let r = startRow; r <= endRow; r++) {
         const row = data[r] || [];
         
-        // Get process name (PROCESS 열)
+        // Get process name (PROCESS 열) - A열에 값이 있으면 그걸 사용
         const processName = String(row[processCol] ?? '').trim();
         
         // Get manual text (MANUAL 열)
         let manualText = String(row[manualCol] ?? '').trim();
         
-        // If new process name appears, save previous and start new
-        if (processName && !processName.toLowerCase().includes('process')) {
-          if (currentProcess && currentManualLines.length > 0) {
+        // 현재 행이 빈 행인지 확인 (A열과 D열 모두 비어있으면 빈 행)
+        const isEmptyRow = !processName && !manualText;
+        
+        if (isEmptyRow) {
+          // 빈 행: 현재까지의 프로세스 저장하고 빈 행 플래그 설정
+          if (currentManualLines.length > 0) {
             cookingMethod.push({
-              process: currentProcess,
+              process: `Process ${processIndex}`,
               manual: currentManualLines.join('\n'),
               translatedManual: ''
             });
+            processIndex++;
+            currentManualLines = [];
           }
-          currentProcess = processName;
-          currentManualLines = [];
-        }
-        
-        // Add manual line (removing ▶ prefix for cleaner display)
-        if (manualText) {
-          const cleanLine = manualText.replace(/^[▶\-•]\s*/, '').trim();
-          if (cleanLine.length > 0) {
-            currentManualLines.push('▶' + cleanLine);
+          lastRowWasEmpty = true;
+        } else {
+          // 데이터가 있는 행
+          // A열에 프로세스명이 명시적으로 있으면 그것을 사용
+          // 빈 행 직후의 첫 데이터 행은 새 프로세스 시작
+          
+          if (manualText) {
+            const cleanLine = manualText.replace(/^[▶\-•]\s*/, '').trim();
+            if (cleanLine.length > 0) {
+              currentManualLines.push('▶' + cleanLine);
+            }
           }
+          
+          lastRowWasEmpty = false;
         }
       }
       
-      // Save last process of this page
-      if (currentProcess && currentManualLines.length > 0) {
+      // 페이지 끝에서 남은 프로세스 저장
+      if (currentManualLines.length > 0) {
         cookingMethod.push({
-          process: currentProcess,
+          process: `Process ${processIndex}`,
           manual: currentManualLines.join('\n'),
           translatedManual: ''
         });
