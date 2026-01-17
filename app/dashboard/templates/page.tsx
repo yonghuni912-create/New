@@ -1011,11 +1011,23 @@ export default function TemplatesPage() {
     }
   };
 
-  // Client-side Excel parsing function - BBQ Chicken Format
+  // Client-side Excel parsing function - BBQ Chicken 매뉴얼 형식
+  // "Name" 셀 위치를 기준으로 동적 오프셋 계산
+  // 기본 구조 (Name이 A2에 있을 때):
+  // A1:I1 - "Manual(Kitchen)" 제목
+  // A2: "Name", B2: 메뉴명
+  // A3:A11 - "Picture" (병합, 이미지 영역)
+  // H3:I3 - "Item List"
+  // A12:A29 - "Ingredients Composition" (세로 병합)
+  // B12: "NO", C12-D12: "Ingredients", E12: "Weight", F12: "Unit", G12: "Purchase", H12-I12: "Others"
+  // Row 13-17: 재료 데이터
+  // H30: "BBQ CANADA"
+  // A31:I31 - "COOKING METHOD"
+  // A32-C32: "PROCESS", D32-I32: "MANUAL"
+  // Row 33+: 조리 단계들 (▶ 접두사)
   const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string): any | null => {
-    // Convert sheet to JSON array of arrays for easier processing
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-    if (data.length < 5) return null;
+    if (data.length < 10) return null;
     
     // Skip non-menu sheets
     const sheetLower = sheetName.toLowerCase();
@@ -1028,321 +1040,208 @@ export default function TemplatesPage() {
       return null;
     }
     
-    // Helper function to get cell value
-    const getCellValue = (row: number, col: number): string => {
-      if (row < 0 || row >= data.length) return '';
-      const rowData = data[row] || [];
-      if (col < 0 || col >= rowData.length) return '';
-      return String(rowData[col] ?? '').trim();
+    // === "Name" 셀 위치를 찾아서 오프셋 계산 ===
+    // 기본 위치: A2 (row=1, col=0)
+    let rowOffset = 0;  // 행 오프셋
+    let colOffset = 0;  // 열 오프셋
+    let nameFoundRow = -1;
+    let nameFoundCol = -1;
+    
+    // "Name" 텍스트가 있는 셀 찾기 (상위 10행, 10열 내에서)
+    for (let r = 0; r < Math.min(data.length, 10); r++) {
+      const row = data[r] || [];
+      for (let c = 0; c < Math.min(row.length, 10); c++) {
+        const cellValue = String(row[c] ?? '').trim().toLowerCase();
+        if (cellValue === 'name') {
+          nameFoundRow = r;
+          nameFoundCol = c;
+          break;
+        }
+      }
+      if (nameFoundRow >= 0) break;
+    }
+    
+    // 오프셋 계산: Name의 기본 위치는 A2 (row=1, col=0)
+    if (nameFoundRow >= 0 && nameFoundCol >= 0) {
+      rowOffset = nameFoundRow - 1;  // 기본 row=1 대비 차이
+      colOffset = nameFoundCol - 0;  // 기본 col=0 대비 차이
+      console.log(`📍 Name found at row ${nameFoundRow + 1}, col ${nameFoundCol} → offset: row+${rowOffset}, col+${colOffset}`);
+    }
+    
+    // Helper: get cell value with offset applied
+    const getCell = (baseRow: number, baseCol: number): string => {
+      const r = baseRow + rowOffset;
+      const c = baseCol + colOffset;
+      if (r < 0 || r >= data.length) return '';
+      const row = data[r] || [];
+      if (c < 0 || c >= row.length) return '';
+      return String(row[c] ?? '').trim();
     };
     
-    // Helper function to find row containing keyword
-    const findRowWithKeyword = (keyword: string, startRow = 0): number => {
-      for (let r = startRow; r < Math.min(data.length, 50); r++) {
+    // Helper: find row with keyword (with offset)
+    const findRow = (keyword: string, baseStartRow: number, baseEndRow: number): number => {
+      const startRow = baseStartRow + rowOffset;
+      const endRow = baseEndRow + rowOffset;
+      for (let r = startRow; r < Math.min(data.length, endRow); r++) {
         const row = data[r] || [];
-        for (let c = 0; c < row.length; c++) {
-          if (String(row[c] ?? '').toLowerCase().includes(keyword.toLowerCase())) {
-            return r;
+        for (const cell of row) {
+          if (String(cell ?? '').toLowerCase().includes(keyword.toLowerCase())) {
+            return r; // 실제 행 번호 반환 (오프셋 이미 적용됨)
           }
         }
       }
       return -1;
     };
     
+    // Helper: get raw cell (without offset, for after findRow)
+    const getRawCell = (r: number, baseCol: number): any => {
+      const c = baseCol + colOffset;
+      if (r < 0 || r >= data.length) return '';
+      const row = data[r] || [];
+      if (c < 0 || c >= row.length) return '';
+      return row[c];
+    };
+    
     let name = '';
     let koreanName = '';
     let sellingPrice: number | undefined;
-    let shelfLife: string | undefined;
     const ingredients: any[] = [];
-    const cookingMethod: any[] = [];
+    const cookingMethod: { process: string; manual: string; translatedManual: string }[] = [];
     
-    // 1. Find "Name" in row 1 or nearby - value is in next column
-    const nameRow = findRowWithKeyword('Name');
-    if (nameRow >= 0) {
-      const row = data[nameRow] || [];
-      for (let c = 0; c < row.length; c++) {
-        if (String(row[c] ?? '').toLowerCase() === 'name') {
-          const nameValue = String(row[c + 1] ?? '').trim();
-          if (nameValue) name = nameValue;
-          break;
-        }
-      }
+    // 1. Parse Name (기준: Row 2, Col A="Name", Col B=메뉴명)
+    // getCell(1, 0) = "Name" 위치, getCell(1, 1) = 메뉴명 위치
+    if (getCell(1, 0).toLowerCase() === 'name') {
+      name = getCell(1, 1);
     }
-    
-    // Fallback to sheet name if no name found
     if (!name) name = sheetName.replace(/^\d+\./, '').trim();
+    koreanName = name; // 한글명은 엑셀에 없으므로 name 사용
     
-    // 2. Find Korean name (한글명 or 한글)
-    const koreanRow = findRowWithKeyword('한글');
-    if (koreanRow >= 0) {
-      const row = data[koreanRow] || [];
-      for (let c = 0; c < row.length; c++) {
-        if (String(row[c] ?? '').includes('한글')) {
-          const kValue = String(row[c + 1] ?? '').trim();
-          if (kValue) koreanName = kValue;
-          break;
-        }
-      }
-    }
-    if (!koreanName) koreanName = name;
+    // 2. Parse Item List (기준: H3 = col 7, row 3) - 현재 빈 값이므로 skip
     
-    // 3. Find price (판매가 or price)
-    const priceRow = findRowWithKeyword('price');
-    if (priceRow < 0) {
-      const priceRowKr = findRowWithKeyword('판매가');
-      if (priceRowKr >= 0) {
-        const row = data[priceRowKr] || [];
-        for (let c = 0; c < row.length; c++) {
-          if (String(row[c] ?? '').includes('판매가')) {
-            const priceVal = parseFloat(String(row[c + 1] ?? '').replace(/[^0-9.]/g, ''));
-            if (!isNaN(priceVal)) sellingPrice = priceVal;
-            break;
-          }
-        }
-      }
-    }
-    
-    // 4. Find and parse Ingredients section
-    // Look for row with "Ingredients Composition" or header row with NO/Ingredients/Weight
-    const ingredientHeaderRow = findRowWithKeyword('Ingredients Composition');
-    let headerRow = -1;
-    let colNo = -1, colName = -1, colWeight = -1, colUnit = -1, colPurchase = -1, colOthers = -1;
-    
-    // Find the actual header row (NO, Ingredients, Weight, Unit)
-    const searchStart = ingredientHeaderRow >= 0 ? ingredientHeaderRow : 0;
-    for (let r = searchStart; r < Math.min(searchStart + 5, data.length); r++) {
-      const row = data[r] || [];
-      const rowText = row.map(c => String(c ?? '').toLowerCase()).join(' ');
-      
-      // Look for row that has NO and Weight or Unit
-      if ((rowText.includes('no') || rowText.includes('no.')) && 
-          (rowText.includes('weight') || rowText.includes('unit') || rowText.includes('ingredients'))) {
-        headerRow = r;
-        
-        // Map column positions from header
-        for (let c = 0; c < row.length; c++) {
-          const cellText = String(row[c] ?? '').toLowerCase().trim();
-          if (cellText === 'no' || cellText === 'no.') colNo = c;
-          else if (cellText === 'ingredients' || cellText === 'ingredient') colName = c;
-          else if (cellText === 'weight' || cellText === 'qty') colWeight = c;
-          else if (cellText === 'unit') colUnit = c;
-          else if (cellText === 'purchase') colPurchase = c;
-          else if (cellText === 'others') colOthers = c;
-        }
-        break;
-      }
-    }
-    
-    // Parse ingredient rows
-    if (headerRow >= 0) {
-      for (let r = headerRow + 1; r < Math.min(data.length, headerRow + 50); r++) {
+    // 3. Parse Ingredients (기준: Row 12부터)
+    // Row 12 (index 11): B12="NO", C12-D12="Ingredients", E12="Weight", F12="Unit", G12="Purchase", H12-I12="Others"
+    const ingredientHeaderRow = findRow('no', 10, 15);
+    if (ingredientHeaderRow >= 0) {
+      // Column 기준 (colOffset 적용):
+      // B=1 (NO), C-D=2-3 (Ingredients), E=4 (Weight), F=5 (Unit), G=6 (Purchase), H-I=7-8 (Others)
+      for (let r = ingredientHeaderRow + 1; r < Math.min(ingredientHeaderRow + 20, data.length); r++) {
         const row = data[r] || [];
         
-        // Stop at cooking method section
-        const firstCell = String(row[0] ?? '').toLowerCase();
-        if (firstCell.includes('cooking') || firstCell.includes('method') || 
-            firstCell.includes('process') || firstCell.includes('조리')) {
-          break;
-        }
+        // Check for section end (BBQ CANADA, COOKING METHOD)
+        const anyCell = row.map(c => String(c ?? '').toLowerCase()).join(' ');
+        if (anyCell.includes('bbq canada') || anyCell.includes('cooking method')) break;
         
-        // Get ingredient name - try detected column, then fallback to column 2
-        let ingredientName = '';
-        if (colName >= 0 && row[colName]) {
-          ingredientName = String(row[colName]).trim();
-        } else if (row[2]) {
-          ingredientName = String(row[2]).trim();
-        }
+        // Get NO (기준 column B = 1 + colOffset)
+        const noCol = 1 + colOffset;
+        const no = row[noCol];
+        if (no === undefined || no === null || no === '') continue;
         
-        // Skip empty rows, totals, or notes
-        if (!ingredientName || 
-            ingredientName.toLowerCase().includes('total') || 
-            ingredientName.toLowerCase().includes('합계') ||
-            ingredientName.startsWith('*') ||
-            ingredientName.toLowerCase() === 'ingredients') {
-          continue;
-        }
+        // Get ingredient name (기준 column C = 2 + colOffset)
+        const nameCol = 2 + colOffset;
+        let ingredientName = String(row[nameCol] ?? '').trim();
+        if (!ingredientName && row[nameCol + 1]) ingredientName = String(row[nameCol + 1]).trim();
+        if (!ingredientName) continue;
         
-        // Parse weight - find first numeric value after name
-        let weight = 0;
-        let unit = 'g';
-        let purchase = 'Local';
-        let others = '';
+        // Skip if just header text
+        if (ingredientName.toLowerCase() === 'ingredients') continue;
         
-        // Strategy: scan row for numeric weight and text unit
-        // Weight should be a number, Unit should be g/ml/ea/pcs/etc
-        for (let c = colName >= 0 ? colName + 1 : 3; c < row.length; c++) {
-          const cellValue = row[c];
-          if (cellValue === null || cellValue === undefined) continue;
-          
-          // Check if it's a number (weight)
-          if (typeof cellValue === 'number') {
-            if (weight === 0) weight = cellValue;
-            continue;
-          }
-          
-          const cellText = String(cellValue).trim().toLowerCase();
-          if (!cellText) continue;
-          
-          // Check if it's a unit
-          if (['g', 'ml', 'ea', 'pcs', 'piece', 'pieces', 'oz', 'kg', 'l', 'tbsp', 'tsp', 'cup'].includes(cellText)) {
-            unit = cellText;
-          }
-          // Check if it looks like a number string
-          else if (/^[\d.]+$/.test(cellText) && weight === 0) {
-            weight = parseFloat(cellText);
-          }
-          // Check for purchase origin
-          else if (['local', 'korea', 'import'].includes(cellText)) {
-            purchase = cellText.charAt(0).toUpperCase() + cellText.slice(1);
-          }
-          // Otherwise it might be notes/others
-          else if (cellText.length > 0 && cellText !== 'null') {
-            if (!others) others = String(cellValue).trim();
-          }
-        }
+        // Get weight (기준 column E = 4 + colOffset)
+        const weightCol = 4 + colOffset;
+        const weightVal = row[weightCol];
+        let weight = typeof weightVal === 'number' ? weightVal : parseFloat(String(weightVal ?? '').replace(/[^0-9.]/g, ''));
+        if (isNaN(weight)) weight = 0;
         
-        // Also try specific columns if detected
-        if (colWeight >= 0 && row[colWeight] !== undefined && row[colWeight] !== null) {
-          const wVal = parseFloat(String(row[colWeight]).replace(/[^0-9.]/g, ''));
-          if (!isNaN(wVal) && wVal > 0) weight = wVal;
-        }
-        if (colUnit >= 0 && row[colUnit]) {
-          const uVal = String(row[colUnit]).trim();
-          if (uVal && !['null', 'undefined'].includes(uVal.toLowerCase())) unit = uVal;
-        }
-        if (colPurchase >= 0 && row[colPurchase]) {
-          purchase = String(row[colPurchase]).trim();
-        }
-        if (colOthers >= 0 && row[colOthers]) {
-          others = String(row[colOthers]).trim();
-        }
+        // Get unit (기준 column F = 5 + colOffset)
+        const unitCol = 5 + colOffset;
+        let unit = String(row[unitCol] ?? 'g').trim();
+        if (!unit || unit.toLowerCase() === 'null') unit = 'g';
+        
+        // Get purchase (기준 column G = 6 + colOffset)
+        const purchaseCol = 6 + colOffset;
+        let purchase = String(row[purchaseCol] ?? 'Local').trim();
+        if (!purchase) purchase = 'Local';
+        
+        // Get others (기준 column H = 7 + colOffset)
+        const othersCol = 7 + colOffset;
+        const others = String(row[othersCol] ?? '').trim();
         
         ingredients.push({
+          no: typeof no === 'number' ? no : parseInt(String(no)) || ingredients.length + 1,
           name: ingredientName,
           koreanName: ingredientName,
           quantity: weight,
-          unit: unit.toLowerCase() === 'null' ? 'g' : unit,
-          purchase: purchase || 'Local',
-          notes: others || ''
+          weight: weight,
+          unit,
+          purchase,
+          others
         });
       }
     }
     
-    // 5. Find and parse COOKING METHOD section
-    const cookingRow = findRowWithKeyword('COOKING METHOD');
-    if (cookingRow >= 0) {
-      let processCol = 0, manualCol = -1;
-      let headerFound = false;
+    // 4. Parse COOKING METHOD sections
+    // 엑셀에서 COOKING METHOD가 여러 페이지에 나타날 수 있음 (Row 31, Row 61 등)
+    // 기준 시작 행 25 + rowOffset
+    let cookingSearchStart = 25 + rowOffset;
+    while (cookingSearchStart < data.length) {
+      const cookingRow = findRow('cooking method', cookingSearchStart - rowOffset, cookingSearchStart - rowOffset + 40);
+      if (cookingRow < 0) break;
       
-      // Find header row for cooking method (PROCESS / MANUAL)
-      for (let r = cookingRow; r < Math.min(cookingRow + 3, data.length); r++) {
+      // Next row should be PROCESS / MANUAL header
+      const headerRow = cookingRow + 1;
+      // 기준: A column = 0 + colOffset (PROCESS), D column = 3 + colOffset (MANUAL)
+      const processCol = 0 + colOffset;
+      const manualCol = 3 + colOffset;
+      
+      // Parse cooking steps
+      let currentProcess = '';
+      let currentManualLines: string[] = [];
+      
+      for (let r = headerRow + 1; r < Math.min(cookingRow + 35, data.length); r++) {
         const row = data[r] || [];
-        for (let c = 0; c < row.length; c++) {
-          const cellText = String(row[c] ?? '').toLowerCase();
-          if (cellText === 'process') processCol = c;
-          if (cellText === 'manual') manualCol = c;
-        }
-        if (manualCol >= 0) {
-          headerFound = true;
-          let stepNumber = 1;
-          
-          // Parse cooking steps starting from next row
-          for (let sr = r + 1; sr < Math.min(data.length, r + 50); sr++) {
-            const stepRow = data[sr] || [];
-            const firstCell = String(stepRow[0] ?? '').toLowerCase();
-            
-            // Stop at tips/notes/signature section
-            if (firstCell.includes('tip') || firstCell.includes('note') || 
-                firstCell.includes('서명') || firstCell.includes('signature') ||
-                firstCell.includes('bbq canada') || firstCell.includes('bbq ')) {
-              break;
-            }
-            
-            // Get manual content - could be in manualCol or nearby
-            let manual = '';
-            for (let c = manualCol; c < Math.min(manualCol + 3, stepRow.length); c++) {
-              const val = String(stepRow[c] ?? '').trim();
-              if (val && val.length > 3) {
-                manual = val;
-                break;
-              }
-            }
-            
-            // Get process name from processCol (Ingredients Preparation, Cooking, Frying, etc.)
-            const processName = String(stepRow[processCol] ?? '').trim();
-            
-            // Skip empty rows
-            if (!manual || manual.length < 3) continue;
-            
-            // Check if this row has a process name (new process section)
-            const hasProcessName = processName && processName.length > 2 && 
-              !processName.toLowerCase().includes('process') &&
-              !processName.toLowerCase().includes('manual');
-            
-            // If manual starts with ▶ or -, it's a step instruction
-            const isStepInstruction = manual.startsWith('▶') || manual.startsWith('-') || manual.startsWith('•');
-            
-            if (hasProcessName) {
-              // New process section with a named process
-              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
-              if (cleanManual.length > 3) {
-                cookingMethod.push({
-                  process: processName, // Use actual process name like "Ingredients Preparation", "Cooking", etc.
-                  manual: cleanManual,
-                  translatedManual: ''
-                });
-              }
-            } else if (isStepInstruction && cookingMethod.length > 0) {
-              // Continuation of previous process - append to last entry
-              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
-              if (cleanManual.length > 3) {
-                const lastStep = cookingMethod[cookingMethod.length - 1];
-                lastStep.manual = lastStep.manual + '\n▶' + cleanManual;
-              }
-            } else if (isStepInstruction) {
-              // Step instruction but no previous process - create with default name
-              const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
-              if (cleanManual.length > 3) {
-                cookingMethod.push({
-                  process: `Step ${stepNumber}`,
-                  manual: cleanManual,
-                  translatedManual: ''
-                });
-                stepNumber++;
-              }
-            }
-          }
-          break;
-        }
-      }
-      
-      // Fallback: If no PROCESS/MANUAL header found, just look for steps after COOKING METHOD
-      if (!headerFound) {
-        let stepNumber = 1;
-        for (let sr = cookingRow + 1; sr < Math.min(data.length, cookingRow + 50); sr++) {
-          const stepRow = data[sr] || [];
-          
-          // Find any text content in the row
-          let manual = '';
-          for (let c = 0; c < stepRow.length; c++) {
-            const val = String(stepRow[c] ?? '').trim();
-            if (val && val.length > 10 && (val.startsWith('▶') || val.startsWith('-'))) {
-              manual = val;
-              break;
-            }
-          }
-          
-          if (manual) {
-            const cleanManual = manual.replace(/^[▶\-•]\s*/, '').trim();
+        
+        // Check for section end (BBQ CANADA, next COOKING METHOD)
+        const anyCell = row.map(c => String(c ?? '').toLowerCase()).join(' ');
+        if (anyCell.includes('bbq canada')) break;
+        
+        // Get process name (기준 column A = 0 + colOffset)
+        const processName = String(row[processCol] ?? '').trim();
+        
+        // Get manual text (기준 column D = 3 + colOffset)
+        let manualText = String(row[manualCol] ?? '').trim();
+        
+        // If new process name appears, save previous and start new
+        if (processName && !processName.toLowerCase().includes('process')) {
+          if (currentProcess && currentManualLines.length > 0) {
             cookingMethod.push({
-              process: `Step ${stepNumber}`,
-              manual: cleanManual,
+              process: currentProcess,
+              manual: currentManualLines.join('\n'),
               translatedManual: ''
             });
-            stepNumber++;
+          }
+          currentProcess = processName;
+          currentManualLines = [];
+        }
+        
+        // Add manual line (removing ▶ prefix for cleaner display)
+        if (manualText) {
+          const cleanLine = manualText.replace(/^[▶\-•]\s*/, '').trim();
+          if (cleanLine.length > 0) {
+            currentManualLines.push('▶' + cleanLine);
           }
         }
       }
+      
+      // Save last process
+      if (currentProcess && currentManualLines.length > 0) {
+        cookingMethod.push({
+          process: currentProcess,
+          manual: currentManualLines.join('\n'),
+          translatedManual: ''
+        });
+      }
+      
+      // Move to next potential COOKING METHOD section
+      cookingSearchStart = cookingRow + 30;
     }
     
     // Skip if no valid content
@@ -1350,16 +1249,25 @@ export default function TemplatesPage() {
       return null;
     }
     
-    console.log(`📋 Parsed sheet "${sheetName}": name="${name}", ${ingredients.length} ingredients, ${cookingMethod.length} steps`);
+    console.log(`📋 Parsed sheet "${sheetName}": name="${name}", ${ingredients.length} ingredients, ${cookingMethod.length} cooking processes (offset: row+${rowOffset}, col+${colOffset})`);
     
     return {
-      name: name || sheetName,
-      koreanName: koreanName || name || sheetName,
+      name,
+      koreanName,
       sellingPrice,
-      shelfLife,
       ingredients,
       cookingMethod,
-      hasLinkingIssue: false
+      hasLinkingIssue: false,
+      // 원본 시트 정보 저장 (미리보기용 및 오프셋 정보)
+      _sheetInfo: {
+        title: getCell(0, 0) || 'Manual(Kitchen)',
+        pictureLabel: 'Picture',
+        itemListLabel: getCell(2, 7) || 'Item List',
+        ingredientCompositionLabel: 'Ingredients Composition',
+        cookingMethodLabel: 'COOKING METHOD',
+        rowOffset,
+        colOffset
+      }
     };
   };
 
@@ -2944,56 +2852,81 @@ export default function TemplatesPage() {
                               )}
                             </div>
 
-                            {/* Manual Content */}
-                            <div className="p-4 grid grid-cols-2 gap-6">
-                              {/* Left: Basic Info & Ingredients */}
-                              <div className="space-y-4">
-                                {/* Basic Info */}
-                                <div>
-                                  <h4 className="font-semibold text-sm text-gray-600 mb-2">기본 정보</h4>
-                                  <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <div className="bg-gray-50 p-2 rounded">
-                                      <span className="text-gray-500">메뉴명:</span>
-                                      <span className="ml-2 font-medium">{currentManual.name || '-'}</span>
+                            {/* Manual Content - 엑셀과 동일한 레이아웃 */}
+                            <div className="p-2 text-xs">
+                              {/* === PAGE 1: 기본정보 + 식재료 === */}
+                              <div className="border border-gray-400 bg-white">
+                                {/* Row 1: Manual(Kitchen) Title */}
+                                <div className="bg-orange-500 text-white text-center py-2 font-bold text-sm border-b border-gray-400">
+                                  Manual(Kitchen)
+                                </div>
+                                
+                                {/* Row 2: Name */}
+                                <div className="flex border-b border-gray-300">
+                                  <div className="w-20 bg-gray-100 px-2 py-1 font-semibold border-r border-gray-300">Name</div>
+                                  <div className="flex-1 px-2 py-1">{currentManual.name || '-'}</div>
+                                </div>
+                                
+                                {/* Row 3-11: Picture & Item List */}
+                                <div className="flex border-b border-gray-300">
+                                  {/* Picture Section (A3:G11 area) */}
+                                  <div className="w-3/4 border-r border-gray-300">
+                                    <div className="flex">
+                                      <div className="w-20 bg-gray-100 px-2 py-1 font-semibold border-r border-gray-300 flex items-center justify-center" 
+                                           style={{ minHeight: '120px', writingMode: 'vertical-rl', textOrientation: 'mixed' }}>
+                                        Picture
+                                      </div>
+                                      <div className="flex-1 flex items-center justify-center bg-gray-50 text-gray-400 text-center p-4" style={{ minHeight: '120px' }}>
+                                        <div>
+                                          <Image className="w-8 h-8 mx-auto mb-1 opacity-30" />
+                                          <span>이미지 영역</span>
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="bg-gray-50 p-2 rounded">
-                                      <span className="text-gray-500">판매가:</span>
-                                      <span className="ml-2 font-medium">{currentManual.sellingPrice || '-'}</span>
-                                    </div>
-                                    <div className="bg-gray-50 p-2 rounded">
-                                      <span className="text-gray-500">유통기한:</span>
-                                      <span className="ml-2 font-medium">{currentManual.shelfLife || '-'}</span>
+                                  </div>
+                                  {/* Item List Section (H3:I11 area) */}
+                                  <div className="w-1/4">
+                                    <div className="bg-gray-100 px-2 py-1 font-semibold text-center border-b border-gray-300">Item List</div>
+                                    <div className="px-2 py-1 text-gray-400 text-center" style={{ minHeight: '100px' }}>
+                                      (비어 있음)
                                     </div>
                                   </div>
                                 </div>
-
-                                {/* Ingredients */}
-                                <div>
-                                  <h4 className="font-semibold text-sm text-gray-600 mb-2">
-                                    식재료 ({currentManual.ingredients?.length || 0}개)
-                                  </h4>
-                                  <div className="border rounded max-h-48 overflow-y-auto">
-                                    <table className="w-full text-xs">
-                                      <thead className="bg-gray-50 sticky top-0">
-                                        <tr>
-                                          <th className="px-2 py-1 text-left">재료명</th>
-                                          <th className="px-2 py-1 text-right">용량</th>
-                                          <th className="px-2 py-1 text-center">단위</th>
-                                          <th className="px-2 py-1 text-left">구매</th>
+                                
+                                {/* Row 12-29: Ingredients Composition */}
+                                <div className="flex">
+                                  {/* Left Label: Ingredients Composition (세로 병합) */}
+                                  <div className="w-20 bg-orange-100 font-semibold flex items-center justify-center border-r border-gray-300"
+                                       style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', minHeight: '200px' }}>
+                                    Ingredients Composition
+                                  </div>
+                                  {/* Ingredients Table */}
+                                  <div className="flex-1">
+                                    <table className="w-full">
+                                      <thead className="bg-gray-100">
+                                        <tr className="border-b border-gray-300">
+                                          <th className="px-2 py-1 text-center border-r border-gray-200 w-10">NO</th>
+                                          <th className="px-2 py-1 text-left border-r border-gray-200" colSpan={2}>Ingredients</th>
+                                          <th className="px-2 py-1 text-right border-r border-gray-200 w-16">Weight</th>
+                                          <th className="px-2 py-1 text-center border-r border-gray-200 w-12">Unit</th>
+                                          <th className="px-2 py-1 text-center border-r border-gray-200 w-16">Purchase</th>
+                                          <th className="px-2 py-1 text-left w-20">Others</th>
                                         </tr>
                                       </thead>
-                                      <tbody className="divide-y">
+                                      <tbody className="divide-y divide-gray-200">
                                         {currentManual.ingredients?.map((ing: any, idx: number) => (
                                           <tr key={idx}>
-                                            <td className="px-2 py-1">{ing.name || ing.koreanName}</td>
-                                            <td className="px-2 py-1 text-right">{ing.quantity || '-'}</td>
-                                            <td className="px-2 py-1 text-center">{ing.unit || '-'}</td>
-                                            <td className="px-2 py-1">{ing.purchase || '-'}</td>
+                                            <td className="px-2 py-1 text-center border-r border-gray-200">{ing.no || idx + 1}</td>
+                                            <td className="px-2 py-1 border-r border-gray-200" colSpan={2}>{ing.name}</td>
+                                            <td className="px-2 py-1 text-right border-r border-gray-200">{ing.quantity || ing.weight || '-'}</td>
+                                            <td className="px-2 py-1 text-center border-r border-gray-200">{ing.unit || 'g'}</td>
+                                            <td className="px-2 py-1 text-center border-r border-gray-200">{ing.purchase || 'Local'}</td>
+                                            <td className="px-2 py-1 text-left">{ing.others || ''}</td>
                                           </tr>
                                         ))}
                                         {(!currentManual.ingredients || currentManual.ingredients.length === 0) && (
                                           <tr>
-                                            <td colSpan={4} className="px-2 py-4 text-center text-gray-400">
+                                            <td colSpan={7} className="px-2 py-4 text-center text-gray-400">
                                               식재료 정보 없음
                                             </td>
                                           </tr>
@@ -3002,39 +2935,66 @@ export default function TemplatesPage() {
                                     </table>
                                   </div>
                                 </div>
+                                
+                                {/* Row 30: BBQ CANADA Footer */}
+                                <div className="text-right px-4 py-1 text-gray-600 font-semibold border-t border-gray-300">
+                                  BBQ CANADA
+                                </div>
                               </div>
-
-                              {/* Right: Cooking Method */}
-                              <div>
-                                <h4 className="font-semibold text-sm text-gray-600 mb-2">
-                                  조리 방법 ({currentManual.cookingMethod?.length || 0}단계)
-                                </h4>
-                                <div className="border rounded max-h-64 overflow-y-auto">
+                              
+                              {/* === PAGE 2: COOKING METHOD === */}
+                              <div className="border border-gray-400 bg-white mt-3">
+                                {/* COOKING METHOD Header */}
+                                <div className="bg-orange-500 text-white text-center py-2 font-bold text-sm">
+                                  COOKING METHOD
+                                </div>
+                                
+                                {/* PROCESS / MANUAL Header */}
+                                <div className="flex border-b border-gray-300">
+                                  <div className="w-32 bg-gray-100 px-2 py-1 font-semibold text-center border-r border-gray-300">PROCESS</div>
+                                  <div className="flex-1 bg-gray-100 px-2 py-1 font-semibold text-center">MANUAL</div>
+                                </div>
+                                
+                                {/* Cooking Steps */}
+                                <div className="max-h-64 overflow-y-auto">
                                   {currentManual.cookingMethod?.map((step: any, idx: number) => (
-                                    <div key={idx} className="px-3 py-2 border-b last:border-b-0 text-sm">
-                                      <div className="font-medium text-orange-600">{step.process}</div>
-                                      <div className="text-gray-700 mt-1">{step.manual}</div>
+                                    <div key={idx} className="flex border-b border-gray-200 last:border-b-0">
+                                      <div className="w-32 px-2 py-2 border-r border-gray-200 bg-gray-50 font-medium text-orange-700">
+                                        {step.process}
+                                      </div>
+                                      <div className="flex-1 px-2 py-2 whitespace-pre-wrap">
+                                        {step.manual?.split('\n').map((line: string, lineIdx: number) => (
+                                          <div key={lineIdx} className="mb-1 last:mb-0">
+                                            {line}
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
                                   ))}
                                   {(!currentManual.cookingMethod || currentManual.cookingMethod.length === 0) && (
-                                    <div className="px-3 py-4 text-center text-gray-400 text-sm">
+                                    <div className="px-3 py-4 text-center text-gray-400">
                                       조리 방법 정보 없음
                                     </div>
                                   )}
                                 </div>
-
-                                {/* Issues */}
-                                {currentManual.issueDetails?.length > 0 && (
-                                  <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded text-sm">
-                                    <div className="font-medium text-orange-700 mb-1">확인 필요 사항:</div>
-                                    <ul className="list-disc list-inside text-orange-600 text-xs">
-                                      {currentManual.issueDetails.map((issue: string, idx: number) => (
-                                        <li key={idx}>{issue}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
+                                
+                                {/* BBQ CANADA Footer */}
+                                <div className="text-right px-4 py-1 text-gray-600 font-semibold border-t border-gray-300">
+                                  BBQ CANADA
+                                </div>
                               </div>
+                              
+                              {/* Issues */}
+                              {currentManual.issueDetails?.length > 0 && (
+                                <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded">
+                                  <div className="font-medium text-orange-700 mb-1">확인 필요 사항:</div>
+                                  <ul className="list-disc list-inside text-orange-600">
+                                    {currentManual.issueDetails.map((issue: string, idx: number) => (
+                                      <li key={idx}>{issue}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                             </div>
 
                             {/* Confirm Button */}
