@@ -1015,18 +1015,26 @@ export default function TemplatesPage() {
   // ========================================
   // 마커 기반 동적 범위 파싱 (Anchor-based Dynamic Range Parsing)
   // ========================================
-  // 고정 마커(Anchors):
-  // - NAME: "Name" 텍스트 → 기준점 (rowOffset, colOffset 계산)
-  // - INGREDIENT_HEADER: "NO" + "Weight" + "Unit" 텍스트가 있는 행
-  // - BBQ_CANADA: "BBQ CANADA" 텍스트 (페이지 구분자)
-  // - COOKING_METHOD: "COOKING METHOD" 텍스트
-  // - PROCESS_MANUAL: "PROCESS" + "MANUAL" 텍스트가 있는 행
+  // 
+  // 📋 전체 파싱 규칙:
+  // ┌─────────────────────────────────────────────────────────────────┐
+  // │ 요소                │ 마커                 │ 값 위치              │
+  // ├─────────────────────────────────────────────────────────────────┤
+  // │ 1. 제목              │ NAME 행 - 1         │ 해당 행 첫 번째 셀    │
+  // │ 2. Name/메뉴명       │ "Name" 셀           │ Name 오른쪽 셀       │
+  // │ 3. Picture 라벨      │ "Picture" 셀        │ NAME 행 + 1          │
+  // │ 4. Picture 영역      │ Picture ~ INGR_HDR  │ B~G열 영역           │
+  // │ 5. Item List 라벨    │ "Item List" 셀      │ Picture 같은 행, H열 │
+  // │ 6. Item List 데이터  │ ItemList ~ INGR_HDR │ H~I열               │
+  // │ 7. Ingredients 라벨  │ "Ingredients Comp.."│ INGREDIENT_HEADER 행 │
+  // │ 8. 식재료 헤더       │ NO+Weight+Unit 행   │ B~H열 헤더           │
+  // │ 9. 식재료 데이터     │ INGR_HDR+1 ~ 1st BBQ│ 헤더와 같은 열       │
+  // │ 10. BBQ CANADA      │ "BBQ CANADA" 텍스트  │ 페이지 구분자        │
+  // │ 11. COOKING METHOD  │ BBQ_CANADA 다음 행   │ 조리법 제목          │
+  // │ 12. PROCESS/MANUAL  │ PROCESS+MANUAL 행   │ A=PROCESS, D=MANUAL │
+  // │ 13. 조리 단계        │ PROC_MAN+1 ~ 다음BBQ│ A=공정명, D=설명     │
+  // └─────────────────────────────────────────────────────────────────┘
   //
-  // 동적 범위:
-  // - 식재료: INGREDIENT_HEADER+1 ~ 첫번째 BBQ_CANADA-1
-  // - 조리법 페이지1: 첫번째 PROCESS_MANUAL+1 ~ 두번째 BBQ_CANADA-1
-  // - 조리법 페이지2: 두번째 PROCESS_MANUAL+1 ~ 세번째 BBQ_CANADA-1 (있으면)
-  // ========================================
   const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string): any | null => {
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
     if (data.length < 10) return null;
@@ -1051,7 +1059,7 @@ export default function TemplatesPage() {
       const rowText = row.map(c => String(c ?? '').toLowerCase()).join(' ');
       const rowTextOriginal = row.map(c => String(c ?? '')).join(' ');
       
-      // NAME 마커 (첫번째만)
+      // NAME 마커: "Name" 텍스트 (첫번째만)
       if (!markers.some(m => m.type === 'NAME')) {
         for (let c = 0; c < row.length; c++) {
           if (String(row[c] ?? '').trim().toLowerCase() === 'name') {
@@ -1061,69 +1069,148 @@ export default function TemplatesPage() {
         }
       }
       
-      // INGREDIENT_HEADER: NO + Weight + Unit 가 있는 행
-      if (rowText.includes('no') && rowText.includes('weight') && rowText.includes('unit')) {
-        markers.push({ row: r, type: 'INGREDIENT_HEADER' });
+      // PICTURE 마커: "Picture" 텍스트 (첫번째만)
+      if (!markers.some(m => m.type === 'PICTURE')) {
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] ?? '').trim().toLowerCase() === 'picture') {
+            markers.push({ row: r, type: 'PICTURE', col: c });
+            break;
+          }
+        }
       }
       
-      // BBQ_CANADA 마커 (여러 개 가능)
+      // ITEM_LIST 마커: "Item List" 텍스트 (첫번째만)
+      if (!markers.some(m => m.type === 'ITEM_LIST')) {
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] ?? '').trim().toLowerCase() === 'item list') {
+            markers.push({ row: r, type: 'ITEM_LIST', col: c });
+            break;
+          }
+        }
+      }
+      
+      // INGREDIENTS_COMPOSITION 마커: "Ingredients Composition" 텍스트
+      if (!markers.some(m => m.type === 'INGREDIENTS_COMPOSITION')) {
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] ?? '').toLowerCase().includes('ingredients composition')) {
+            markers.push({ row: r, type: 'INGREDIENTS_COMPOSITION', col: c });
+            break;
+          }
+        }
+      }
+      
+      // INGREDIENT_HEADER: NO + Weight + Unit 가 있는 행
+      if (rowText.includes('no') && rowText.includes('weight') && rowText.includes('unit')) {
+        if (!markers.some(m => m.type === 'INGREDIENT_HEADER')) {
+          markers.push({ row: r, type: 'INGREDIENT_HEADER' });
+        }
+      }
+      
+      // BBQ_CANADA 마커 (여러 개 가능) - 페이지 구분자
       if (rowTextOriginal.includes('BBQ CANADA')) {
         markers.push({ row: r, type: 'BBQ_CANADA' });
       }
       
-      // COOKING_METHOD 마커
+      // COOKING_METHOD 마커 (여러 개 가능)
       if (rowTextOriginal.includes('COOKING METHOD')) {
         markers.push({ row: r, type: 'COOKING_METHOD' });
       }
       
-      // PROCESS_MANUAL 마커: PROCESS + MANUAL 가 있는 행
+      // PROCESS_MANUAL 마커: PROCESS + MANUAL 가 있는 행 (여러 개 가능)
       if (rowText.includes('process') && rowText.includes('manual')) {
         markers.push({ row: r, type: 'PROCESS_MANUAL' });
       }
     }
     
     // === Step 2: 오프셋 계산 (NAME 기준) ===
+    // 기본 위치: NAME은 A2 (row=1, col=0)
     const nameMarker = markers.find(m => m.type === 'NAME');
     let rowOffset = 0;
     let colOffset = 0;
     
     if (nameMarker && nameMarker.col !== undefined) {
-      // 기본 위치: row=1, col=0 (A2)
-      rowOffset = nameMarker.row - 1;
-      colOffset = nameMarker.col - 0;
+      rowOffset = nameMarker.row - 1;  // 기본 row=1 대비 차이
+      colOffset = nameMarker.col - 0;  // 기본 col=0 대비 차이
     }
     
-    // === Step 3: 마커별 행 번호 추출 ===
+    // === Step 3: 마커별 행/열 번호 추출 ===
+    const pictureMarker = markers.find(m => m.type === 'PICTURE');
+    const itemListMarker = markers.find(m => m.type === 'ITEM_LIST');
+    const ingredientCompMarker = markers.find(m => m.type === 'INGREDIENTS_COMPOSITION');
     const ingredientHeaderRow = markers.find(m => m.type === 'INGREDIENT_HEADER')?.row ?? -1;
     const bbqCanadaRows = markers.filter(m => m.type === 'BBQ_CANADA').map(m => m.row);
+    const cookingMethodRows = markers.filter(m => m.type === 'COOKING_METHOD').map(m => m.row);
     const processManualRows = markers.filter(m => m.type === 'PROCESS_MANUAL').map(m => m.row);
     
     // 범위 계산
     const firstBbqCanada = bbqCanadaRows[0] ?? data.length;
     const secondBbqCanada = bbqCanadaRows[1] ?? data.length;
     const thirdBbqCanada = bbqCanadaRows[2] ?? data.length;
-    const firstProcessManual = processManualRows[0] ?? -1;
-    const secondProcessManual = processManualRows[1] ?? -1;
-    
-    console.log(`📋 Sheet "${sheetName}": offset(row+${rowOffset}, col+${colOffset}), ` +
-                `ingredients=${ingredientHeaderRow + 1}~${firstBbqCanada}, ` +
-                `cooking=${firstProcessManual + 1}~${secondBbqCanada}`);
     
     // === Step 4: 기본 정보 파싱 ===
-    let name = '';
+    let title = '';           // Manual(Kitchen)
+    let name = '';            // 메뉴명
     let koreanName = '';
     let sellingPrice: number | undefined;
+    let pictureInfo: any = null;
+    let itemListInfo: any = null;
     const ingredients: any[] = [];
     const cookingMethod: { process: string; manual: string; translatedManual: string }[] = [];
     
-    // Name 파싱
+    // 4-1. Title 파싱: NAME 행 - 1
+    if (nameMarker) {
+      const titleRow = nameMarker.row - 1;
+      if (titleRow >= 0) {
+        const row = data[titleRow] || [];
+        for (const cell of row) {
+          if (cell !== undefined && cell !== null && String(cell).trim() !== '') {
+            title = String(cell).trim();
+            break;
+          }
+        }
+      }
+    }
+    
+    // 4-2. Name 파싱: NAME 마커 오른쪽 셀
     if (nameMarker) {
       const nameRow = data[nameMarker.row] || [];
-      const nameCol = (nameMarker.col ?? 0) + 1; // Name 다음 칸
-      name = String(nameRow[nameCol] ?? '').trim();
+      const nameValueCol = (nameMarker.col ?? 0) + 1;
+      name = String(nameRow[nameValueCol] ?? '').trim();
     }
     if (!name) name = sheetName.replace(/^\d+\./, '').trim();
     koreanName = name;
+    
+    // 4-3. Picture 정보: PICTURE 마커 행 ~ INGREDIENT_HEADER 행 - 1
+    if (pictureMarker && ingredientHeaderRow > pictureMarker.row) {
+      pictureInfo = {
+        labelRow: pictureMarker.row,
+        labelCol: pictureMarker.col,
+        startRow: pictureMarker.row,
+        endRow: ingredientHeaderRow - 1,
+        // 이미지 영역: B~G열 (col 1~6 + colOffset)
+        imageStartCol: 1 + colOffset,
+        imageEndCol: 6 + colOffset
+      };
+    }
+    
+    // 4-4. Item List 정보: ITEM_LIST 마커 행 ~ INGREDIENT_HEADER 행 - 1
+    if (itemListMarker && ingredientHeaderRow > itemListMarker.row) {
+      itemListInfo = {
+        labelRow: itemListMarker.row,
+        labelCol: itemListMarker.col,
+        startRow: itemListMarker.row + 1,
+        endRow: ingredientHeaderRow - 1,
+        // Item List 영역: H~I열 (col 7~8 + colOffset)
+        dataStartCol: 7 + colOffset,
+        dataEndCol: 8 + colOffset
+      };
+    }
+    
+    console.log(`📋 Sheet "${sheetName}": offset(row+${rowOffset}, col+${colOffset}), ` +
+                `title="${title}", name="${name}", ` +
+                `picture=${pictureMarker?.row ?? 'N/A'}~${ingredientHeaderRow - 1}, ` +
+                `ingredients=${ingredientHeaderRow + 1}~${firstBbqCanada}, ` +
+                `cooking=${processManualRows[0] ?? 'N/A'}~${secondBbqCanada}`);
     
     // === Step 5: 식재료 파싱 (INGREDIENT_HEADER+1 ~ 첫번째 BBQ_CANADA-1) ===
     if (ingredientHeaderRow >= 0 && firstBbqCanada > ingredientHeaderRow) {
@@ -1248,10 +1335,19 @@ export default function TemplatesPage() {
       ingredients,
       cookingMethod,
       hasLinkingIssue: false,
+      // 전체 시트 정보 (미리보기 및 디버깅용)
       _sheetInfo: {
+        title,                    // Manual(Kitchen)
         rowOffset,
         colOffset,
-        markers: markers.map(m => ({ type: m.type, row: m.row + 1 }))
+        pictureInfo,              // Picture 영역 정보
+        itemListInfo,             // Item List 영역 정보
+        ingredientHeaderRow: ingredientHeaderRow + 1,
+        firstBbqCanadaRow: firstBbqCanada + 1,
+        cookingMethodRows: cookingMethodRows.map(r => r + 1),
+        processManualRows: processManualRows.map(r => r + 1),
+        bbqCanadaRows: bbqCanadaRows.map(r => r + 1),
+        markers: markers.map(m => ({ type: m.type, row: m.row + 1, col: m.col }))
       }
     };
   };
