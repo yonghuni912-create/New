@@ -14,7 +14,7 @@ interface ManualIngredientData {
   ingredientId?: string | null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Using 'any' for Prisma client to handle Turso adapter edge cases
 const db = prisma as any;
 
 // Default cooking processes

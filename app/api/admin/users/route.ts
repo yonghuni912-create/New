@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { createClient } from '@libsql/client';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { hasPermission, getAssignableRoles, isMasterAdmin } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ export async function GET() {
     }
 
     const role = (session.user as any)?.role;
-    if (role !== 'ADMIN') {
+    if (!hasPermission(role, 'canManageUsers')) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
@@ -37,9 +38,14 @@ export async function GET() {
       args: [],
     });
 
+    // Get assignable roles for current user
+    const assignableRoles = getAssignableRoles(role);
+
     return NextResponse.json({
       users: result.rows,
       count: result.rows.length,
+      assignableRoles,
+      isMasterAdmin: isMasterAdmin(role),
     });
   } catch (error) {
     console.error('Get users error:', error);
@@ -56,7 +62,7 @@ export async function POST(request: Request) {
     }
 
     const role = (session.user as any)?.role;
-    if (role !== 'ADMIN') {
+    if (!hasPermission(role, 'canManageUsers')) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 

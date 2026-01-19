@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 import ExcelJS from 'exceljs';
+import path from 'path';
+import fs from 'fs';
 
 function getDb() {
   return createClient({
@@ -9,49 +11,50 @@ function getDb() {
   });
 }
 
-// Template Configuration based on user specifications
+// Template Configuration - 목표 템플릿 기준 (Target Template Style)
 const TEMPLATE_CONFIG = {
-  // Column widths in pixels (B-J columns, index 1-9)
+  // Column widths (based on target template analysis)
   columnWidths: {
-    B: 106,   // Manual(Kitchen), Name labels
-    C: 42,    // No. (ingredient number)
-    D: 47,    // Separator/margin
-    E: 213,   // Main content (ingredient name, cooking method)
-    F: 49,    // Weight
-    G: 42,    // Unit
-    H: 78,    // Purchase
-    I: 45,    // Others
-    J: 146,   // Picture, Item List
+    A: 3,       // Margin
+    B: 14.14,   // Manual(Kitchen), Name labels
+    C: 5.57,    // No. (ingredient number)
+    D: 6.29,    // Ingredient name merge start
+    E: 28.43,   // Ingredient name / Manual content
+    F: 6.57,    // Weight
+    G: 5.57,    // Unit
+    H: 10.43,   // Purchase
+    I: 6,       // Others start
+    J: 19.43,   // Others end / Item List
   },
-  // Row heights in pixels
+  // Row heights
   rowHeights: {
-    title: 38,        // Row 1, 2
-    sectionHeader: 33, // Row 33, 66 (COOKING METHOD)
-    content: 28,       // Standard content rows
-    footer: 22,        // BBQ CANADA logo rows (32, 65, 98)
+    title: 28.5,         // Row 1, 2
+    picture: 22.5,       // Rows 3-11
+    ingredientHeader: 18,// Row 12
+    ingredient: 21,      // Rows 13-28
+    bbqCanada: 15,       // BBQ CANADA row
+    cookingHeader: 28,   // COOKING METHOD header
+    cookingSubHeader: 18,// PROCESS/MANUAL row
   },
-  // Page boundaries
-  pages: {
-    page1: { start: 1, end: 32 },   // Title, Picture, Ingredients
-    page2: { start: 33, end: 65 },  // Cooking Method (first part)
-    page3: { start: 66, end: 98 },  // Cooking Method (continued)
-  },
-  // Cooking method area limits (rows available for content per page)
-  cookingMethodRows: {
-    page2: { start: 35, end: 64 },  // 30 rows for cooking content
-    page3: { start: 68, end: 97 },  // 30 rows for cooking content
-  },
-  // Max characters per cooking method cell (approximate)
-  maxCharsPerPage: 1000,
 };
 
-// Font styles
+// Font styles - 목표 템플릿 기준 (Calibri font, proper colors)
 const FONTS = {
-  title: { name: 'Arial', size: 20, bold: true },
-  menuName: { name: 'Arial', size: 16, bold: true },
-  sectionHeader: { name: 'Arial', size: 14, bold: true },
-  content: { name: 'Arial', size: 11 },
-  small: { name: 'Arial', size: 10 },
+  title: { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF000000' } },
+  menuName: { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } },
+  sectionHeader: { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } },
+  ingredientHeader: { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF000000' } },
+  ingredientLabel: { name: 'Calibri', size: 12, bold: true },
+  content: { name: 'Calibri', size: 12 },
+  small: { name: 'Arial', size: 10, bold: true },
+  pictureLabel: { name: 'Calibri', size: 12, bold: true },
+};
+
+// Colors
+const COLORS = {
+  grayBg: 'FFBFBFBF',    // Gray background for headers (target template)
+  whiteBg: 'FFFFFFFF',    // White background
+  black: 'FF000000',
 };
 
 // Border styles
@@ -60,6 +63,30 @@ const BORDERS = {
   thin: { style: 'thin' as const, color: { argb: 'FF000000' } },
   light: { style: 'thin' as const, color: { argb: 'FFE0E0E0' } },
   double: { style: 'double' as const, color: { argb: 'FF000000' } },
+};
+
+// Helper to create border object
+const border = (style: ExcelJS.BorderStyle) => ({ style, color: { argb: COLORS.black } });
+const mediumBorder = border('medium');
+const thinBorder = border('thin');
+
+// Process icon mapping - for PNG insertion
+const PROCESS_ICONS: Record<string, string> = {
+  'Ingredients Preparation': 'ingredient_preparation.png',
+  'Marination': 'marination.png',
+  '2nd Marination': 'marination.png',
+  'Batter Mix Solution': 'battering.png',
+  'Battering': 'battering.png',
+  'Breading': 'breading.png',
+  'Frying': 'frying.png',
+  'Grill': 'grilling.png',
+  'Cooking': 'cooking.png',
+  'Saute': 'saute.png',
+  'Sauce Mix': 'sauce_mix.png',
+  'Brushing Sauce': 'sauce_mix.png',
+  'Seasoning Toss': 'seasoning_toss.png',
+  'Assembling': 'assembling.png',
+  'Serving': 'serving.png',
 };
 
 // Helper function to apply border to a cell
@@ -145,190 +172,24 @@ export async function GET(
 
     // Create workbook
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(String(manual.name) || 'Manual');
+    const ws = workbook.addWorksheet(String(manual.name) || 'Manual');
 
-    // Set column widths (convert pixels to Excel width units, ~7.5 pixels per unit)
-    const pixelToWidth = (px: number) => px / 7.5;
-    worksheet.getColumn('A').width = 3; // Small margin column
-    worksheet.getColumn('B').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.B);
-    worksheet.getColumn('C').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.C);
-    worksheet.getColumn('D').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.D);
-    worksheet.getColumn('E').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.E);
-    worksheet.getColumn('F').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.F);
-    worksheet.getColumn('G').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.G);
-    worksheet.getColumn('H').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.H);
-    worksheet.getColumn('I').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.I);
-    worksheet.getColumn('J').width = pixelToWidth(TEMPLATE_CONFIG.columnWidths.J);
+    // Set column widths directly from config (already in Excel units)
+    ws.getColumn('A').width = TEMPLATE_CONFIG.columnWidths.A;
+    ws.getColumn('B').width = TEMPLATE_CONFIG.columnWidths.B;
+    ws.getColumn('C').width = TEMPLATE_CONFIG.columnWidths.C;
+    ws.getColumn('D').width = TEMPLATE_CONFIG.columnWidths.D;
+    ws.getColumn('E').width = TEMPLATE_CONFIG.columnWidths.E;
+    ws.getColumn('F').width = TEMPLATE_CONFIG.columnWidths.F;
+    ws.getColumn('G').width = TEMPLATE_CONFIG.columnWidths.G;
+    ws.getColumn('H').width = TEMPLATE_CONFIG.columnWidths.H;
+    ws.getColumn('I').width = TEMPLATE_CONFIG.columnWidths.I;
+    ws.getColumn('J').width = TEMPLATE_CONFIG.columnWidths.J;
 
-    // Helper function to set row height
-    const setRowHeight = (row: number, height: number) => {
-      worksheet.getRow(row).height = height * 0.75; // Convert pixels to points
-    };
-
-    // ===== PAGE 1: Title, Picture, Ingredients =====
-    
-    // Row 1: Title
-    worksheet.mergeCells('B1:J1');
-    const titleCell = worksheet.getCell('B1');
-    titleCell.value = 'Manual(Kitchen)';
-    titleCell.font = FONTS.title;
-    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF6600' } };
-    titleCell.font = { ...FONTS.title, color: { argb: 'FFFFFFFF' } };
-    titleCell.border = {
-      top: BORDERS.thick,
-      left: BORDERS.thick,
-      right: BORDERS.thick,
-      bottom: BORDERS.thin,
-    };
-    setRowHeight(1, TEMPLATE_CONFIG.rowHeights.title);
-
-    // Row 2: Menu Name
-    worksheet.getCell('B2').value = 'Name';
-    worksheet.getCell('B2').font = FONTS.menuName;
-    worksheet.getCell('B2').border = {
-      left: BORDERS.thick,
-      bottom: BORDERS.thin,
-    };
-    worksheet.mergeCells('C2:J2');
-    worksheet.getCell('C2').value = manual.name;
-    worksheet.getCell('C2').font = FONTS.menuName;
-    worksheet.getCell('J2').border = {
-      right: BORDERS.thick,
-      bottom: BORDERS.thin,
-    };
-    setRowHeight(2, TEMPLATE_CONFIG.rowHeights.title);
-
-    // Row 3: Picture label and Item List header
-    worksheet.getCell('B3').value = 'Picture';
-    worksheet.getCell('B3').font = FONTS.sectionHeader;
-    worksheet.getCell('B3').border = { left: BORDERS.thick, top: BORDERS.thin };
-    worksheet.getCell('I3').value = 'Item List';
-    worksheet.getCell('I3').font = FONTS.sectionHeader;
-    worksheet.mergeCells('I3:J3');
-    worksheet.getCell('J3').border = { right: BORDERS.thick, top: BORDERS.thin };
-
-    // Rows 4-11: Picture area (merged cells for image placeholder)
-    worksheet.mergeCells('B4:H11');
-    const pictureCell = worksheet.getCell('B4');
-    pictureCell.value = '[No Image]'; // Turso schema doesn't have imageUrl
-    pictureCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    pictureCell.border = {
-      top: BORDERS.thick,
-      left: BORDERS.thick,
-      bottom: BORDERS.thick,
-      right: BORDERS.thick,
-    };
-    // Apply thick border to picture area edges
-    for (let row = 4; row <= 11; row++) {
-      worksheet.getCell(`B${row}`).border = { 
-        ...worksheet.getCell(`B${row}`).border, 
-        left: BORDERS.thick 
-      };
-      worksheet.getCell(`H${row}`).border = { 
-        ...worksheet.getCell(`H${row}`).border, 
-        right: BORDERS.thin 
-      };
-      worksheet.getCell(`J${row}`).border = { 
-        ...worksheet.getCell(`J${row}`).border, 
-        right: BORDERS.thick 
-      };
-    }
-    worksheet.getCell('B11').border = { left: BORDERS.thick, bottom: BORDERS.thick };
-    worksheet.getCell('H11').border = { right: BORDERS.thin, bottom: BORDERS.thick };
-
-    // Row 12: Ingredients Header
-    worksheet.getCell('B12').value = 'Ingredients Composition';
-    worksheet.getCell('B12').font = FONTS.sectionHeader;
-    worksheet.getCell('B12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
-    worksheet.getCell('B12').border = { left: BORDERS.thick, top: BORDERS.thin, bottom: BORDERS.thin };
-    worksheet.mergeCells('B12:D12');
-    
-    // Header cells with borders
-    const headerCells = [
-      { cell: 'E12', value: 'No.' },
-      { cell: 'F12', value: 'Ingredients' },
-      { cell: 'G12', value: 'Weight' },
-      { cell: 'H12', value: 'Unit' },
-      { cell: 'I12', value: 'Purchase' },
-      { cell: 'J12', value: 'Others' },
-    ];
-    headerCells.forEach(({ cell, value }) => {
-      const c = worksheet.getCell(cell);
-      c.value = value;
-      c.font = { ...FONTS.content, bold: true };
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
-      c.border = { 
-        top: BORDERS.thin, 
-        bottom: BORDERS.thin,
-        left: BORDERS.light,
-        right: cell === 'J12' ? BORDERS.thick : BORDERS.light,
-      };
-      c.alignment = { horizontal: 'center', vertical: 'middle' };
-    });
-
-    // Rows 13-31: Ingredients (up to 19 items)
-    const maxIngredients = 19;
-    for (let i = 0; i < maxIngredients; i++) {
-      const rowNum = 13 + i;
-      const ingredient = manual.ingredients[i];
-      const isLastRow = i === maxIngredients - 1;
-      
-      setRowHeight(rowNum, TEMPLATE_CONFIG.rowHeights.content);
-      
-      // Left border for B column
-      worksheet.getCell(`B${rowNum}`).border = { left: BORDERS.thick };
-      
-      worksheet.getCell(`C${rowNum}`).value = i + 1;
-      worksheet.getCell(`C${rowNum}`).alignment = { horizontal: 'center' };
-      
-      if (ingredient) {
-        worksheet.getCell(`E${rowNum}`).value = ingredient.name || '';
-        worksheet.getCell(`F${rowNum}`).value = ingredient.quantity || '';
-        worksheet.getCell(`G${rowNum}`).value = ingredient.unit || '';
-        worksheet.getCell(`H${rowNum}`).value = 'Local';
-        worksheet.getCell(`I${rowNum}`).value = ingredient.notes || '';
-      }
-      
-      // Apply borders to ingredient columns
-      ['C', 'D', 'E', 'F', 'G', 'H', 'I'].forEach(col => {
-        worksheet.getCell(`${col}${rowNum}`).border = {
-          top: BORDERS.light,
-          bottom: isLastRow ? BORDERS.thick : BORDERS.light,
-          left: BORDERS.light,
-          right: BORDERS.light,
-        };
-      });
-      
-      // Right border for J column (thick)
-      worksheet.getCell(`J${rowNum}`).border = {
-        top: BORDERS.light,
-        bottom: isLastRow ? BORDERS.thick : BORDERS.light,
-        left: BORDERS.light,
-        right: BORDERS.thick,
-      };
-    }
-
-    // Row 32: Footer (BBQ CANADA)
-    worksheet.mergeCells('B32:J32');
-    worksheet.getCell('B32').value = 'BBQ CANADA';
-    worksheet.getCell('B32').font = FONTS.small;
-    worksheet.getCell('B32').alignment = { horizontal: 'center' };
-    worksheet.getCell('B32').border = {
-      top: BORDERS.thick,
-      left: BORDERS.thick,
-      right: BORDERS.thick,
-      bottom: BORDERS.thick,
-    };
-    setRowHeight(32, TEMPLATE_CONFIG.rowHeights.footer);
-
-    // ===== PAGE 2 & 3: Cooking Method with Auto-Pagination =====
-    
-    // Parse cooking method from Turso schema
-    let cookingSteps: { process: string; manual: string; translatedManual?: string }[] = [];
+    // Parse cooking method for PNG insertion
+    let cookingSteps: { process: string; manual: string; translatedManual?: string; pngFilename?: string }[] = [];
     if (manual.cookingMethod) {
       try {
-        // Try to parse as JSON first
         const parsed = typeof manual.cookingMethod === 'string' 
           ? JSON.parse(manual.cookingMethod) 
           : manual.cookingMethod;
@@ -336,132 +197,353 @@ export async function GET(
           cookingSteps = parsed.map((step: any) => ({
             process: String(step.process || ''),
             manual: String(step.manual || step.translatedManual || ''),
-            translatedManual: String(step.translatedManual || step.manual || '')
+            translatedManual: String(step.translatedManual || step.manual || ''),
+            pngFilename: step.pngFilename || PROCESS_ICONS[step.process] || null
           }));
         }
       } catch {
-        // If not JSON, use as plain text
         cookingSteps = [{ process: 'Process', manual: String(manual.cookingMethod) }];
       }
     }
 
-    // Function to create cooking method page
-    const createCookingMethodPage = (
-      pageNum: 2 | 3,
-      content: string,
-      isFirstPage: boolean
-    ) => {
-      const headerRow = pageNum === 2 ? 33 : 66;
-      const processRow = pageNum === 2 ? 34 : 67;
-      const contentStartRow = pageNum === 2 ? 35 : 68;
-      const footerRow = pageNum === 2 ? 65 : 98;
-
-      // Header: COOKING METHOD
-      worksheet.mergeCells(`B${headerRow}:J${headerRow}`);
-      worksheet.getCell(`B${headerRow}`).value = 'COOKING METHOD';
-      worksheet.getCell(`B${headerRow}`).font = FONTS.sectionHeader;
-      worksheet.getCell(`B${headerRow}`).fill = { 
-        type: 'pattern', 
-        pattern: 'solid', 
-        fgColor: { argb: 'FFFF6600' } 
-      };
-      worksheet.getCell(`B${headerRow}`).font = { 
-        ...FONTS.sectionHeader, 
-        color: { argb: 'FFFFFFFF' } 
-      };
-      worksheet.getCell(`B${headerRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getCell(`B${headerRow}`).border = {
-        top: BORDERS.thick,
-        left: BORDERS.thick,
-        right: BORDERS.thick,
-        bottom: BORDERS.thin,
-      };
-      setRowHeight(headerRow, TEMPLATE_CONFIG.rowHeights.sectionHeader);
-
-      // Process/Manual headers
-      worksheet.mergeCells(`B${processRow}:D${processRow}`);
-      worksheet.getCell(`B${processRow}`).value = 'PROCESS';
-      worksheet.getCell(`B${processRow}`).font = { ...FONTS.content, bold: true };
-      worksheet.getCell(`B${processRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
-      worksheet.getCell(`B${processRow}`).border = {
-        top: BORDERS.thin,
-        left: BORDERS.thick,
-        bottom: BORDERS.thin,
-      };
-      worksheet.mergeCells(`E${processRow}:J${processRow}`);
-      worksheet.getCell(`E${processRow}`).value = 'MANUAL';
-      worksheet.getCell(`E${processRow}`).font = { ...FONTS.content, bold: true };
-      worksheet.getCell(`E${processRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
-      worksheet.getCell(`J${processRow}`).border = {
-        top: BORDERS.thin,
-        right: BORDERS.thick,
-        bottom: BORDERS.thin,
-      };
-
-      // Content area - merge cells for large text area
-      worksheet.mergeCells(`E${contentStartRow}:J${footerRow - 1}`);
-      const contentCell = worksheet.getCell(`E${contentStartRow}`);
-      contentCell.value = content;
-      contentCell.font = FONTS.content;
-      contentCell.alignment = { 
-        horizontal: 'left', 
-        vertical: 'top', 
-        wrapText: true 
-      };
-      contentCell.border = {
-        top: BORDERS.thin,
-        left: BORDERS.thin,
-        bottom: BORDERS.thin,
-        right: BORDERS.thick,
-      };
-      
-      // Apply borders to content rows
-      for (let row = contentStartRow; row < footerRow; row++) {
-        worksheet.getCell(`B${row}`).border = { left: BORDERS.thick };
-        worksheet.getCell(`J${row}`).border = { right: BORDERS.thick };
-      }
-
-      // Footer
-      worksheet.mergeCells(`B${footerRow}:J${footerRow}`);
-      worksheet.getCell(`B${footerRow}`).value = 'BBQ CANADA';
-      worksheet.getCell(`B${footerRow}`).font = FONTS.small;
-      worksheet.getCell(`B${footerRow}`).alignment = { horizontal: 'center' };
-      worksheet.getCell(`B${footerRow}`).border = {
-        top: BORDERS.thick,
-        left: BORDERS.thick,
-        right: BORDERS.thick,
-        bottom: BORDERS.thick,
-      };
-      setRowHeight(footerRow, TEMPLATE_CONFIG.rowHeights.footer);
+    // ===== PAGE 1: Title, Picture, Ingredients =====
+    
+    // Row 1: Manual(Kitchen) Title - NO background color per target template
+    ws.mergeCells('B1:J1');
+    ws.getCell('B1').value = 'Manual(Kitchen)';
+    ws.getCell('B1').font = FONTS.title;
+    ws.getCell('B1').alignment = { vertical: 'middle' }; // Left-aligned, vertical middle
+    ws.getCell('B1').border = {
+      top: mediumBorder,
+      left: mediumBorder,
+      right: mediumBorder,
+      bottom: thinBorder,
     };
+    ws.getRow(1).height = TEMPLATE_CONFIG.rowHeights.title;
 
-    // Combine all cooking steps into formatted text
-    let fullCookingContent = '';
-    cookingSteps.forEach((step, index) => {
-      if (step.process && step.manual) {
-        const translatedText = step.translatedManual || step.manual;
-        fullCookingContent += `${step.process}:\n${translatedText}\n\n`;
-      } else if (step.manual) {
-        fullCookingContent += `${step.manual}\n\n`;
+    // Row 2: Name + Menu Name with Gray background
+    ws.getCell('B2').value = 'Name';
+    ws.getCell('B2').font = FONTS.menuName;
+    ws.getCell('B2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('B2').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('B2').border = {
+      top: thinBorder,
+      left: mediumBorder,
+      bottom: thinBorder,
+      right: thinBorder,
+    };
+    
+    ws.mergeCells('C2:J2');
+    ws.getCell('C2').value = manual.name;
+    ws.getCell('C2').font = FONTS.menuName;
+    ws.getCell('C2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('C2').alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getCell('C2').border = { top: thinBorder, bottom: thinBorder };
+    ws.getCell('J2').border = { top: thinBorder, right: mediumBorder, bottom: thinBorder };
+    ws.getRow(2).height = TEMPLATE_CONFIG.rowHeights.title;
+
+    // Rows 3-11: Picture area
+    ws.mergeCells('B3:B11'); // Picture label vertically merged
+    ws.getCell('B3').value = 'Picture';
+    ws.getCell('B3').font = FONTS.pictureLabel;
+    ws.getCell('B3').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('B3').border = { left: mediumBorder };
+
+    ws.mergeCells('C3:H11');
+    ws.getCell('C3').value = '[No Image]';
+    ws.getCell('C3').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('C3').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    ws.mergeCells('I3:J3');
+    ws.getCell('I3').value = 'Item List';
+    ws.getCell('I3').font = { ...FONTS.pictureLabel, color: { argb: COLORS.black } };
+    ws.getCell('I3').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.whiteBg } };
+    ws.getCell('I3').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('I3').border = { top: thinBorder, right: mediumBorder };
+
+    for (let r = 3; r <= 11; r++) {
+      ws.getRow(r).height = TEMPLATE_CONFIG.rowHeights.picture;
+      ws.getCell(`J${r}`).border = { right: mediumBorder };
+    }
+
+    ws.mergeCells('I4:J10');
+    ws.getCell('I4').border = { left: thinBorder, right: mediumBorder };
+    ws.getCell('I11').border = { left: thinBorder };
+    ws.getCell('J11').border = { right: mediumBorder };
+    ws.getCell('B11').border = { left: mediumBorder, bottom: thinBorder };
+    ws.getCell('H11').border = { right: thinBorder, bottom: thinBorder };
+
+    // Row 12: Ingredients Header - B12 merged vertically with B13:B28
+    ws.mergeCells('B12:B28');
+    ws.getCell('B12').value = 'Ingredients \nComposition';
+    ws.getCell('B12').font = FONTS.ingredientLabel;
+    ws.getCell('B12').alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    ws.getCell('B12').border = { left: mediumBorder };
+    
+    // Header row 12
+    ws.getCell('C12').value = 'No.';
+    ws.getCell('C12').font = FONTS.ingredientHeader;
+    ws.getCell('C12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('C12').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('C12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    // D12:E12 merged for "Ingredients"
+    ws.mergeCells('D12:E12');
+    ws.getCell('D12').value = 'Ingredients';
+    ws.getCell('D12').font = FONTS.ingredientHeader;
+    ws.getCell('D12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('D12').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('D12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder };
+    ws.getCell('E12').border = { top: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    ws.getCell('F12').value = 'Weight';
+    ws.getCell('F12').font = FONTS.ingredientHeader;
+    ws.getCell('F12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('F12').alignment = { horizontal: 'center', vertical: 'middle', shrinkToFit: true };
+    ws.getCell('F12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    ws.getCell('G12').value = 'Unit';
+    ws.getCell('G12').font = FONTS.ingredientHeader;
+    ws.getCell('G12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('G12').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('G12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    ws.getCell('H12').value = 'Purchase';
+    ws.getCell('H12').font = FONTS.ingredientHeader;
+    ws.getCell('H12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('H12').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('H12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    // I12:J12 merged for "Others"
+    ws.mergeCells('I12:J12');
+    ws.getCell('I12').value = 'Others';
+    ws.getCell('I12').font = FONTS.ingredientHeader;
+    ws.getCell('I12').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('I12').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('I12').border = { top: thinBorder, left: thinBorder, bottom: thinBorder };
+    ws.getCell('J12').border = { top: thinBorder, bottom: thinBorder, right: mediumBorder };
+    ws.getRow(12).height = TEMPLATE_CONFIG.rowHeights.ingredientHeader;
+
+    // Rows 13-28: Ingredients Data (16 rows)
+    const maxIngredients = 16;
+    for (let i = 0; i < maxIngredients; i++) {
+      const rowNum = 13 + i;
+      const ingredient = manual.ingredients[i];
+      const isLastRow = i === maxIngredients - 1;
+      
+      ws.getRow(rowNum).height = TEMPLATE_CONFIG.rowHeights.ingredient;
+      
+      // No. column
+      ws.getCell(`C${rowNum}`).value = i + 1;
+      ws.getCell(`C${rowNum}`).font = FONTS.content;
+      ws.getCell(`C${rowNum}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.whiteBg } };
+      ws.getCell(`C${rowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`C${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+        right: thinBorder,
+      };
+
+      // Ingredients D:E merged
+      ws.mergeCells(`D${rowNum}:E${rowNum}`);
+      ws.getCell(`D${rowNum}`).value = ingredient?.name || '';
+      ws.getCell(`D${rowNum}`).font = FONTS.content;
+      ws.getCell(`D${rowNum}`).alignment = { horizontal: 'center', vertical: 'middle', shrinkToFit: true };
+      ws.getCell(`D${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+      };
+      ws.getCell(`E${rowNum}`).border = {
+        top: thinBorder,
+        right: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+      };
+
+      // Weight
+      ws.getCell(`F${rowNum}`).value = ingredient?.quantity || '';
+      ws.getCell(`F${rowNum}`).font = FONTS.content;
+      ws.getCell(`F${rowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`F${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+        right: thinBorder,
+      };
+
+      // Unit
+      ws.getCell(`G${rowNum}`).value = ingredient?.unit || '';
+      ws.getCell(`G${rowNum}`).font = FONTS.content;
+      ws.getCell(`G${rowNum}`).alignment = { horizontal: 'center', vertical: 'middle', shrinkToFit: true };
+      ws.getCell(`G${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+        right: thinBorder,
+      };
+
+      // Purchase
+      ws.getCell(`H${rowNum}`).value = ingredient ? 'HQ' : '';
+      ws.getCell(`H${rowNum}`).font = FONTS.content;
+      ws.getCell(`H${rowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`H${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+        right: thinBorder,
+      };
+
+      // Others I:J merged
+      ws.mergeCells(`I${rowNum}:J${rowNum}`);
+      ws.getCell(`I${rowNum}`).value = ingredient?.notes || '';
+      ws.getCell(`I${rowNum}`).font = FONTS.content;
+      ws.getCell(`I${rowNum}`).alignment = { horizontal: 'center' };
+      ws.getCell(`I${rowNum}`).border = {
+        top: thinBorder,
+        left: thinBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+      };
+      ws.getCell(`J${rowNum}`).border = {
+        top: thinBorder,
+        right: mediumBorder,
+        bottom: isLastRow ? mediumBorder : thinBorder,
+      };
+    }
+
+    // B28 bottom border
+    ws.getCell('B28').border = { left: mediumBorder, bottom: mediumBorder };
+
+    // Row 29: BBQ CANADA - Right aligned
+    ws.mergeCells('B29:J29');
+    ws.getCell('B29').value = 'BBQ CANADA';
+    ws.getCell('B29').font = FONTS.small;
+    ws.getCell('B29').alignment = { horizontal: 'right' };
+    ws.getCell('B29').border = { left: mediumBorder, right: mediumBorder };
+    ws.getRow(29).height = TEMPLATE_CONFIG.rowHeights.bbqCanada;
+
+    // ===== PAGE 2: COOKING METHOD =====
+    
+    // Row 30: COOKING METHOD Header with Gray background (not orange)
+    ws.mergeCells('B30:J30');
+    ws.getCell('B30').value = 'COOKING METHOD';
+    ws.getCell('B30').font = FONTS.sectionHeader;
+    ws.getCell('B30').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('B30').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('B30').border = {
+      top: mediumBorder,
+      left: mediumBorder,
+      right: mediumBorder,
+      bottom: mediumBorder,
+    };
+    ws.getRow(30).height = TEMPLATE_CONFIG.rowHeights.cookingHeader;
+
+    // Row 31: PROCESS / MANUAL headers
+    ws.mergeCells('B31:D31');
+    ws.getCell('B31').value = 'PROCESS';
+    ws.getCell('B31').font = FONTS.ingredientHeader;
+    ws.getCell('B31').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('B31').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('B31').border = { top: mediumBorder, left: mediumBorder, bottom: mediumBorder };
+    ws.getCell('D31').border = { top: mediumBorder, right: thinBorder, bottom: mediumBorder };
+
+    ws.mergeCells('E31:J31');
+    ws.getCell('E31').value = 'MANUAL';
+    ws.getCell('E31').font = FONTS.ingredientHeader;
+    ws.getCell('E31').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.grayBg } };
+    ws.getCell('E31').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('E31').border = { top: mediumBorder, left: thinBorder, bottom: mediumBorder };
+    ws.getCell('J31').border = { top: mediumBorder, right: mediumBorder, bottom: mediumBorder };
+    ws.getRow(31).height = TEMPLATE_CONFIG.rowHeights.cookingSubHeader;
+
+    // Rows 32-61: Cooking Method Content (30 rows)
+    ws.mergeCells('B32:D61');
+    ws.getCell('B32').alignment = { horizontal: 'center', vertical: 'top', wrapText: true };
+    ws.getCell('B32').border = { left: mediumBorder };
+    
+    ws.mergeCells('E32:J61');
+    
+    // Build cooking method content
+    let cookingContent = '';
+    const processLabels: string[] = [];
+    
+    cookingSteps.forEach((step) => {
+      if (step.process || step.manual) {
+        const manualText = step.translatedManual || step.manual;
+        if (step.process) {
+          processLabels.push(step.process);
+          cookingContent += `【${step.process}】\n${manualText}\n\n`;
+        } else {
+          cookingContent += `${manualText}\n\n`;
+        }
       }
     });
+    
+    // Set process labels in B32
+    ws.getCell('B32').value = processLabels.join('\n\n');
+    ws.getCell('B32').font = FONTS.content;
+    
+    // Set manual content in E32
+    ws.getCell('E32').value = cookingContent.trim();
+    ws.getCell('E32').font = FONTS.content;
+    ws.getCell('E32').alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+    ws.getCell('E32').border = { left: thinBorder };
+    
+    // Apply borders to cooking content rows
+    for (let r = 32; r <= 61; r++) {
+      ws.getRow(r).height = TEMPLATE_CONFIG.rowHeights.ingredient;
+      ws.getCell(`B${r}`).border = { left: mediumBorder };
+      ws.getCell(`J${r}`).border = { right: mediumBorder };
+    }
+    
+    // Bottom border for row 61
+    ws.getCell('B61').border = { left: mediumBorder, bottom: mediumBorder };
+    ws.getCell('D61').border = { right: thinBorder, bottom: mediumBorder };
+    ws.getCell('E61').border = { left: thinBorder, bottom: mediumBorder };
+    ws.getCell('J61').border = { right: mediumBorder, bottom: mediumBorder };
 
-    // Split content for pagination
-    const maxChars = TEMPLATE_CONFIG.maxCharsPerPage;
-    const page2Content = fullCookingContent.substring(0, maxChars);
-    const page3Content = fullCookingContent.substring(maxChars);
+    // Row 62: BBQ CANADA
+    ws.mergeCells('B62:J62');
+    ws.getCell('B62').value = 'BBQ CANADA';
+    ws.getCell('B62').font = FONTS.small;
+    ws.getCell('B62').alignment = { horizontal: 'right' };
+    ws.getCell('B62').border = { left: mediumBorder, right: mediumBorder };
+    ws.getRow(62).height = TEMPLATE_CONFIG.rowHeights.bbqCanada;
 
-    // Create Page 2
-    createCookingMethodPage(2, page2Content.trim(), true);
-
-    // Create Page 3 if there's overflow content
-    if (page3Content.trim()) {
-      createCookingMethodPage(3, page3Content.trim(), false);
+    // ===== Add Process PNG Images =====
+    try {
+      const iconBasePath = path.join(process.cwd(), 'public', 'process-icons');
+      let imageRowOffset = 32;
+      
+      for (const step of cookingSteps) {
+        if (step.pngFilename) {
+          const iconPath = path.join(iconBasePath, step.pngFilename);
+          if (fs.existsSync(iconPath)) {
+            try {
+              const imageData = fs.readFileSync(iconPath);
+              const base64Image = imageData.toString('base64');
+              const imageId = workbook.addImage({ 
+                base64: base64Image, 
+                extension: 'png' 
+              });
+              ws.addImage(imageId, {
+                tl: { col: 1.5, row: imageRowOffset - 1 + 0.2 },
+                ext: { width: 60, height: 60 },
+              });
+              imageRowOffset += 3;
+            } catch (imgError) {
+              console.warn(`Could not add image ${step.pngFilename}:`, imgError);
+            }
+          }
+        }
+      }
+    } catch (imageError) {
+      console.warn('Image processing error (non-fatal):', imageError);
     }
 
     // Add page breaks for printing
-    worksheet.getRow(32).addPageBreak();
-    worksheet.getRow(65).addPageBreak();
+    ws.getRow(29).addPageBreak();
+    ws.getRow(62).addPageBreak();
 
     // Generate buffer
     const buffer = await workbook.xlsx.writeBuffer();

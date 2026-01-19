@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { revalidatePath } from 'next/cache';
 import AdminAuditSection from '@/components/AdminAuditSection';
 import { createAuditLog } from '@/lib/auditLog';
+import { isMasterAdmin, getAssignableRoles, hasPermission, getRoleBadgeColor, getRoleDisplayName } from '@/lib/rbac';
 
 // 중남미 및 북미 타임존 목록
 const TIMEZONES = [
@@ -59,9 +60,12 @@ export default async function AdminPage() {
 
   const user = session.user as { id: string; role: string };
 
-  if (user.role !== 'ADMIN') {
+  if (!hasPermission(user.role, 'canManageUsers')) {
     redirect('/dashboard');
   }
+
+  const currentUserIsMasterAdmin = isMasterAdmin(user.role);
+  const assignableRoles = getAssignableRoles(user.role);
 
   const [users, countries] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -123,7 +127,19 @@ export default async function AdminPage() {
     const newRole = formData.get('newRole') as string;
     if (!userId || !newRole) return;
 
+    const currentUserRole = (session?.user as { role: string })?.role;
     const oldUser = await prisma.user.findUnique({ where: { id: userId } });
+    
+    // Prevent modifying MASTER_ADMIN unless current user is MASTER_ADMIN
+    if (oldUser?.role === 'MASTER_ADMIN' && !isMasterAdmin(currentUserRole)) {
+      return;
+    }
+    
+    // Check if can assign new role
+    const canAssign = getAssignableRoles(currentUserRole).some(r => r.value === newRole) ||
+                      (isMasterAdmin(currentUserRole) && newRole === 'MASTER_ADMIN');
+    if (!canAssign) return;
+    
     await prisma.user.update({ where: { id: userId }, data: { role: newRole } });
     
     await createAuditLog({
@@ -144,7 +160,15 @@ export default async function AdminPage() {
     const userId = formData.get('userId') as string;
     if (!userId) return;
     
+    const currentUserRole = (session?.user as { role: string })?.role;
     const deletedUser = await prisma.user.findUnique({ where: { id: userId } });
+    
+    // Cannot delete MASTER_ADMIN
+    if (deletedUser?.role === 'MASTER_ADMIN') return;
+    
+    // Only MASTER_ADMIN can delete ADMIN users
+    if (deletedUser?.role === 'ADMIN' && !isMasterAdmin(currentUserRole)) return;
+    
     await prisma.user.delete({ where: { id: userId } });
     
     await createAuditLog({
@@ -349,10 +373,9 @@ export default async function AdminPage() {
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               >
-                <option value="VIEWER">Viewer</option>
-                <option value="CONTRIBUTOR">Contributor</option>
-                <option value="PM">PM</option>
-                <option value="ADMIN">Admin</option>
+                {assignableRoles.map(role => (
+                  <option key={role.value} value={role.value}>{role.label}</option>
+                ))}
               </select>
             </div>
             <div className="flex items-end">
@@ -388,20 +411,29 @@ export default async function AdminPage() {
                     <td className="px-6 py-4 whitespace-nowrap font-medium text-slate-900">{u.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-500">{u.email}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <form action={updateRole} className="inline-flex items-center gap-2">
-                        <input type="hidden" name="userId" value={u.id} />
-                        <select
-                          name="newRole"
-                          defaultValue={u.role}
-                          className="text-sm border border-gray-300 rounded px-2 py-1"
-                        >
-                          <option value="VIEWER">Viewer</option>
-                          <option value="CONTRIBUTOR">Contributor</option>
-                          <option value="PM">PM</option>
-                          <option value="ADMIN">Admin</option>
-                        </select>
-                        <button type="submit" className="text-xs text-orange-600 hover:text-orange-700">Update</button>
-                      </form>
+                      {u.role === 'MASTER_ADMIN' ? (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getRoleBadgeColor(u.role)}`}>
+                          {getRoleDisplayName(u.role)}
+                        </span>
+                      ) : (
+                        <form action={updateRole} className="inline-flex items-center gap-2">
+                          <input type="hidden" name="userId" value={u.id} />
+                          <select
+                            name="newRole"
+                            defaultValue={u.role}
+                            className="text-sm border border-gray-300 rounded px-2 py-1"
+                            disabled={u.role === 'ADMIN' && !currentUserIsMasterAdmin}
+                          >
+                            {currentUserIsMasterAdmin && <option value="MASTER_ADMIN">Master Admin</option>}
+                            {assignableRoles.map(role => (
+                              <option key={role.value} value={role.value}>{role.label}</option>
+                            ))}
+                          </select>
+                          {(u.role !== 'ADMIN' || currentUserIsMasterAdmin) && (
+                            <button type="submit" className="text-xs text-orange-600 hover:text-orange-700">Update</button>
+                          )}
+                        </form>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-500 text-sm">
                       {new Date(u.createdAt).toLocaleDateString()}
@@ -418,10 +450,12 @@ export default async function AdminPage() {
                           />
                           <button type="submit" className="text-xs text-blue-600 hover:text-blue-700">Reset</button>
                         </form>
-                        <form action={deleteUser}>
-                          <input type="hidden" name="userId" value={u.id} />
-                          <button type="submit" className="text-xs text-red-600 hover:text-red-700">Delete</button>
-                        </form>
+                        {u.role !== 'MASTER_ADMIN' && (u.role !== 'ADMIN' || currentUserIsMasterAdmin) && (
+                          <form action={deleteUser}>
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button type="submit" className="text-xs text-red-600 hover:text-red-700">Delete</button>
+                          </form>
+                        )}
                       </div>
                     </td>
                   </tr>

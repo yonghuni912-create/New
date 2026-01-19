@@ -142,8 +142,10 @@ const EMPTY_INGREDIENT: ManualIngredient = {
 
 export default function TemplatesPage() {
   const { data: session } = useSession();
-  // 마스터 계정: admin@bbq.com 또는 kun.lee@bbqchickenca.com
-  const isMaster = session?.user?.email === 'admin@bbq.com' || session?.user?.email === 'kun.lee@bbqchickenca.com';
+  // 마스터 계정: MASTER_ADMIN role 또는 admin@bbq.com 또는 kun.lee@bbqchickenca.com
+  const userRole = (session?.user as any)?.role;
+  const isMasterAdmin = userRole === 'MASTER_ADMIN';
+  const isMaster = isMasterAdmin || session?.user?.email === 'admin@bbq.com' || session?.user?.email === 'kun.lee@bbqchickenca.com';
   const [activeTab, setActiveTab] = useState<'editor' | 'manuals' | 'countryManuals' | 'costTable' | 'trash' | 'archived'>('editor');
   
   // Editor State
@@ -822,42 +824,61 @@ export default function TemplatesPage() {
     }
   };
 
-  // Bulk Permanent Delete (from Trash)
+  // Bulk Permanent Delete (from Trash or Archive - Master Admin only)
   const handleBulkPermanentDelete = async () => {
     if (selectedManualIds.size === 0) return;
+    if (!isMasterAdmin) {
+      alert('영구 삭제는 Master Admin만 가능합니다.');
+      return;
+    }
     if (!confirm(`⚠️ 경고: ${selectedManualIds.size}개 매뉴얼을 완전히 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 데이터가 영구적으로 삭제됩니다.`)) return;
     if (!confirm(`정말로 ${selectedManualIds.size}개 매뉴얼을 완전 삭제하시겠습니까?\n마지막 확인입니다.`)) return;
 
     try {
-      let successCount = 0;
-      let failCount = 0;
+      const res = await fetch('/api/manuals/batch-permanent-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualIds: Array.from(selectedManualIds) })
+      });
       
-      for (const id of Array.from(selectedManualIds)) {
-        try {
-          const res = await fetch(`/api/manuals/${id}?permanent=true`, { method: 'DELETE' });
-          if (res.ok) {
-            successCount++;
-          } else {
-            failCount++;
-            console.error(`Failed to permanently delete manual ${id}`);
-          }
-        } catch (err) {
-          failCount++;
-          console.error(`Error permanently deleting manual ${id}:`, err);
-        }
-      }
-      
-      if (failCount > 0) {
-        alert(`완전 삭제 완료: ${successCount}개 성공, ${failCount}개 실패`);
+      if (res.ok) {
+        const result = await res.json();
+        alert(`완전 삭제 완료: ${result.totalDeleted}개 성공, ${result.totalFailed}개 실패`);
+        setSelectedManualIds(new Set());
+        fetchData();
       } else {
-        alert(`${successCount}개 매뉴얼이 완전히 삭제되었습니다.`);
+        const error = await res.json();
+        alert(`완전 삭제 실패: ${error.error || 'Unknown error'}`);
       }
-      
-      setSelectedManualIds(new Set());
-      fetchData();
     } catch (error) {
       console.error('Bulk permanent delete error:', error);
       alert('일괄 완전 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Single Permanent Delete (Master Admin only)
+  const handlePermanentDelete = async (manual: SavedManual) => {
+    if (!isMasterAdmin) {
+      alert('영구 삭제는 Master Admin만 가능합니다.');
+      return;
+    }
+    
+    const input = prompt(`⚠️ 완전 삭제하시려면 'DELETE'를 대문자로 입력하세요.\n\n매뉴얼: ${manual.name}\n\n이 작업은 되돌릴 수 없습니다!`);
+    if (input !== 'DELETE') return;
+
+    try {
+      const res = await fetch(`/api/manuals/${manual.id}/permanent-delete`, { method: 'DELETE' });
+      
+      if (res.ok) {
+        alert('매뉴얼이 영구적으로 삭제되었습니다.');
+        fetchData();
+      } else {
+        const error = await res.json();
+        alert(`삭제 실패: ${error.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Permanent delete error:', error);
+      alert('영구 삭제 중 오류가 발생했습니다.');
     }
   };
 
@@ -2567,12 +2588,32 @@ export default function TemplatesPage() {
                       >
                         <RefreshCw className="w-4 h-4 mr-2" /> 선택 복구
                       </button>
+                      {isMasterAdmin && (
+                        <button
+                          onClick={handleBulkPermanentDelete}
+                          disabled={selectedManualIds.size === 0}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" /> 선택 완전삭제
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {activeTab === 'archived' && isMasterAdmin && (
+                    <>
+                      <button
+                        onClick={handleBulkRestore}
+                        disabled={selectedManualIds.size === 0}
+                        className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" /> 휴지통으로 복구
+                      </button>
                       <button
                         onClick={handleBulkPermanentDelete}
                         disabled={selectedManualIds.size === 0}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
+                        className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" /> 선택 완전삭제
+                        <Trash2 className="w-4 h-4 mr-2" /> 선택 영구삭제
                       </button>
                     </>
                   )}
@@ -2789,13 +2830,24 @@ export default function TemplatesPage() {
                             </>
                           )}
                           {activeTab === 'archived' && (
-                            <button 
-                              onClick={() => handleMasterRestore(manual)}
-                              className="p-1 text-gray-400 hover:text-purple-500" 
-                              title="Restore to Trash"
-                            >
-                              <History className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button 
+                                onClick={() => handleMasterRestore(manual)}
+                                className="p-1 text-gray-400 hover:text-purple-500" 
+                                title="Restore to Trash"
+                              >
+                                <History className="w-4 h-4" />
+                              </button>
+                              {isMasterAdmin && (
+                                <button 
+                                  onClick={() => handlePermanentDelete(manual)}
+                                  className="p-1 text-red-400 hover:text-red-700 bg-red-50 rounded" 
+                                  title="Permanent Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>

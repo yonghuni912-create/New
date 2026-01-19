@@ -37,12 +37,12 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email: 'admin@bbq.com' },
-    update: {},
+    update: { role: 'MASTER_ADMIN' },
     create: {
       email: 'admin@bbq.com',
       password: adminPassword,
-      name: 'Admin User',
-      role: 'ADMIN',
+      name: 'Master Admin',
+      role: 'MASTER_ADMIN',
     },
   });
 
