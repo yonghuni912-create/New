@@ -1,0 +1,122 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-01-19T10:04:00.000Z",
+  "default_png": "generic_process.png",
+  "fuzzy_threshold": 0.78,
+  "alias_map": {
+    "serve": "serving",
+    "service": "serving",
+    "assembling": "assembling",
+    "assemble": "assembling",
+    "ingrediant preparation": "ingredients preparation",
+    "ingredientpreparation": "ingredients preparation",
+    "batter mix solutionpreparation": "batter mix solution",
+    "batter mix solution preparation": "batter mix solution",
+    "grilling": "grill",
+    "grill": "grill",
+    "sautéing": "saute",
+    "sauté": "saute",
+    "saute": "saute",
+    "sauteing": "saute",
+    "fry": "frying",
+    "deep frying": "frying",
+    "deep-frying": "frying",
+    "breading": "breading",
+    "bread": "breading",
+    "battering": "battering",
+    "batter": "battering",
+    "marination": "marination",
+    "marinate": "marination",
+    "marinade": "marination",
+    "2nd marination": "2nd marination",
+    "second marination": "2nd marination",
+    "brushing sauce": "brushing sauce",
+    "brush sauce": "brushing sauce",
+    "sauce brushing": "brushing sauce",
+    "sauce mix": "sauce mix",
+    "mix sauce": "sauce mix",
+    "sauce preparation": "sauce mix",
+    "seasoning toss": "seasoning toss",
+    "toss seasoning": "seasoning toss",
+    "seasoning": "seasoning toss",
+    "cooking": "cooking",
+    "cook": "cooking"
+  },
+  "assets": {
+    "2nd marination": {
+      "filename": "2nd Marination.png",
+      "canonical_label": "2nd Marination",
+      "aliases": ["second marination", "2nd marinade"]
+    },
+    "assembling": {
+      "filename": "Assembling.png",
+      "canonical_label": "Assembling",
+      "aliases": ["assemble", "assembly"]
+    },
+    "batter mix solution": {
+      "filename": "Batter Mix Solution.png",
+      "canonical_label": "Batter Mix Solution Preparation",
+      "aliases": ["batter mix solution preparation", "batter mix", "batter solution"]
+    },
+    "battering": {
+      "filename": "Battering.png",
+      "canonical_label": "Battering",
+      "aliases": ["batter", "apply batter"]
+    },
+    "breading": {
+      "filename": "Breading.png",
+      "canonical_label": "Breading",
+      "aliases": ["bread", "bread coating"]
+    },
+    "brushing sauce": {
+      "filename": "Brushing Sauce.png",
+      "canonical_label": "Brushing Sauce",
+      "aliases": ["brush sauce", "sauce brushing", "apply sauce"]
+    },
+    "cooking": {
+      "filename": "Cooking.png",
+      "canonical_label": "Cooking",
+      "aliases": ["cook", "heat"]
+    },
+    "frying": {
+      "filename": "Frying.png",
+      "canonical_label": "Frying",
+      "aliases": ["fry", "deep frying", "deep-frying", "deep fry"]
+    },
+    "grill": {
+      "filename": "Grill.png",
+      "canonical_label": "Grilling",
+      "aliases": ["grilling", "grill", "grilled"]
+    },
+    "ingredients preparation": {
+      "filename": "Ingredients Preparation.png",
+      "canonical_label": "Ingredients Preparation",
+      "aliases": ["ingredient preparation", "prep ingredients", "ingredient prep"]
+    },
+    "marination": {
+      "filename": "Marination.png",
+      "canonical_label": "Marination",
+      "aliases": ["marinate", "marinade", "marinating"]
+    },
+    "sauce mix": {
+      "filename": "Sauce Mix.png",
+      "canonical_label": "Sauce Preparation",
+      "aliases": ["mix sauce", "sauce preparation", "prepare sauce"]
+    },
+    "saute": {
+      "filename": "Saute.png",
+      "canonical_label": "Sautéing",
+      "aliases": ["sautéing", "sauté", "sauteing"]
+    },
+    "seasoning toss": {
+      "filename": "Seasoning Toss.png",
+      "canonical_label": "Seasoning",
+      "aliases": ["seasoning", "toss seasoning", "toss with seasoning"]
+    },
+    "serving": {
+      "filename": "Serving.png",
+      "canonical_label": "Serve",
+      "aliases": ["serve", "service", "plating"]
+    }
+  }
+}

@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { DEFAULT_PROCESS_ASSET_INDEX, matchProcessPng, type MatchResult, type ProcessAssetIndex } from '@/lib/processAssets';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -35,6 +36,7 @@ interface CookingStep {
   process: string;
   manual: string;
   translatedManual?: string;
+  pngMatch?: MatchResult;
 }
 
 interface ManualGroup {
@@ -802,6 +804,45 @@ export default function TemplatesPage() {
     } catch (error) {
       console.error('Bulk restore error:', error);
       alert('일괄 복구 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Bulk Permanent Delete (from Trash)
+  const handleBulkPermanentDelete = async () => {
+    if (selectedManualIds.size === 0) return;
+    if (!confirm(`⚠️ 경고: ${selectedManualIds.size}개 매뉴얼을 완전히 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 데이터가 영구적으로 삭제됩니다.`)) return;
+    if (!confirm(`정말로 ${selectedManualIds.size}개 매뉴얼을 완전 삭제하시겠습니까?\n마지막 확인입니다.`)) return;
+
+    try {
+      let successCount = 0;
+      let failCount = 0;
+      
+      for (const id of Array.from(selectedManualIds)) {
+        try {
+          const res = await fetch(`/api/manuals/${id}?permanent=true`, { method: 'DELETE' });
+          if (res.ok) {
+            successCount++;
+          } else {
+            failCount++;
+            console.error(`Failed to permanently delete manual ${id}`);
+          }
+        } catch (err) {
+          failCount++;
+          console.error(`Error permanently deleting manual ${id}:`, err);
+        }
+      }
+      
+      if (failCount > 0) {
+        alert(`완전 삭제 완료: ${successCount}개 성공, ${failCount}개 실패`);
+      } else {
+        alert(`${successCount}개 매뉴얼이 완전히 삭제되었습니다.`);
+      }
+      
+      setSelectedManualIds(new Set());
+      fetchData();
+    } catch (error) {
+      console.error('Bulk permanent delete error:', error);
+      alert('일괄 완전 삭제 중 오류가 발생했습니다.');
     }
   };
 
@@ -1795,7 +1836,16 @@ export default function TemplatesPage() {
             }`}
           >
             <Settings className="w-4 h-4 inline mr-2" />
-            매뉴얼 마스터 ({savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false && (m as any).isMaster !== 0).length})
+            매뉴얼 마스터 ({savedManuals.filter(m => {
+              const isActive = (m as any).isActive;
+              const isArchived = (m as any).isArchived;
+              const isMaster = (m as any).isMaster;
+              // Active: isActive is true/1/undefined AND isArchived is false/0/undefined AND isMaster is true/1/undefined
+              const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
+              const notArchived = !isArchived || isArchived === 0 || isArchived === false;
+              const isReallyMaster = isMaster !== false && isMaster !== 0;
+              return isReallyActive && notArchived && isReallyMaster;
+            }).length})
             {(() => {
               const unlinkedCount = savedManuals.filter(m => 
                 !(m as any).isArchived && 
@@ -2126,24 +2176,74 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="space-y-4">
-              {cookingSteps.map((step, i) => (
+              {cookingSteps.map((step, i) => {
+                // Get PNG match for this step
+                const pngMatch = step.process ? matchProcessPng(step.process, DEFAULT_PROCESS_ASSET_INDEX) : null;
+                
+                return (
                 <div key={i} className="grid grid-cols-12 gap-4 items-start">
-                  {/* Process Dropdown */}
+                  {/* Process Dropdown with PNG Icon */}
                   <div className="col-span-3">
-                    <select
-                      value={step.process}
-                      onChange={(e) => {
-                        const newSteps = [...cookingSteps];
-                        newSteps[i] = { ...newSteps[i], process: e.target.value };
-                        setCookingSteps(newSteps);
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50"
-                    >
-                      <option value="">조리구분 선택</option>
-                      {DEFAULT_COOKING_PROCESSES.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      {/* PNG Icon Preview */}
+                      {pngMatch && pngMatch.matched && (
+                        <div className="relative flex-shrink-0">
+                          <img 
+                            src={`/process-icons/${encodeURIComponent(pngMatch.filename)}`}
+                            alt={pngMatch.canonical_label}
+                            className="w-10 h-10 object-contain border rounded bg-white"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          {pngMatch.needs_verification && (
+                            <span 
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center text-xs"
+                              title={`확인 필요: ${pngMatch.method} 매칭 (${Math.round(pngMatch.score * 100)}%)`}
+                            >
+                              !
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <select
+                        value={step.process}
+                        onChange={(e) => {
+                          const newSteps = [...cookingSteps];
+                          const newMatch = e.target.value ? matchProcessPng(e.target.value, DEFAULT_PROCESS_ASSET_INDEX) : undefined;
+                          newSteps[i] = { ...newSteps[i], process: e.target.value, pngMatch: newMatch };
+                          setCookingSteps(newSteps);
+                        }}
+                        className={`flex-1 px-3 py-2 border rounded-md text-sm bg-gray-50 ${
+                          pngMatch?.needs_verification ? 'border-yellow-400' : 'border-gray-300'
+                        }`}
+                      >
+                        <option value="">조리구분 선택</option>
+                        {DEFAULT_COOKING_PROCESSES.map(p => {
+                          const match = matchProcessPng(p, DEFAULT_PROCESS_ASSET_INDEX);
+                          return (
+                            <option key={p} value={p}>
+                              {match.matched && !match.needs_verification ? '✓ ' : match.needs_verification ? '⚠ ' : ''}{p}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    {/* Match Status Badge */}
+                    {pngMatch && (
+                      <div className={`mt-1 text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
+                        pngMatch.method === 'exact' ? 'bg-green-100 text-green-700' :
+                        pngMatch.method === 'alias' ? 'bg-blue-100 text-blue-700' :
+                        pngMatch.method === 'fuzzy' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>
+                        {pngMatch.method === 'exact' ? '✓ 정확 일치' :
+                         pngMatch.method === 'alias' ? '⇄ 별칭 매칭' :
+                         pngMatch.method === 'fuzzy' ? `≈ 유사 ${Math.round(pngMatch.score * 100)}%` :
+                         '✗ 기본 이미지'}
+                        {pngMatch.needs_verification && <AlertTriangle className="w-3 h-3" />}
+                      </div>
+                    )}
                     {step.process === 'Custom' && (
                       <input
                         type="text"
@@ -2187,7 +2287,8 @@ export default function TemplatesPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         </div>
@@ -2400,13 +2501,22 @@ export default function TemplatesPage() {
                     </>
                   )}
                   {activeTab === 'trash' && (
-                    <button
-                      onClick={handleBulkRestore}
-                      disabled={selectedManualIds.size === 0}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" /> 선택 복구
-                    </button>
+                    <>
+                      <button
+                        onClick={handleBulkRestore}
+                        disabled={selectedManualIds.size === 0}
+                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" /> 선택 복구
+                      </button>
+                      <button
+                        onClick={handleBulkPermanentDelete}
+                        disabled={selectedManualIds.size === 0}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> 선택 완전삭제
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

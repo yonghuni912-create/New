@@ -264,9 +264,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-// DELETE /api/manuals/[id] - Soft delete (move to Trash)
+// DELETE /api/manuals/[id] - Soft delete (move to Trash) or Permanent delete
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const { searchParams } = new URL(request.url);
+  const permanent = searchParams.get('permanent') === 'true';
   
   try {
     const db = getDb();
@@ -281,16 +283,40 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
     }
     
-    // Soft delete - set isActive=false, isArchived=false (move to Trash)
-    // Trash: isActive=0, isArchived=0
-    // Archive: isActive=0, isArchived=1 (only master admin can see)
-    await db.execute({
-      sql: `UPDATE MenuManual SET isActive = 0, isArchived = 0, updatedAt = ? WHERE id = ?`,
-      args: [new Date().toISOString(), id],
-    });
-    
-    console.log('✅ Manual moved to trash:', id);
-    return NextResponse.json({ success: true });
+    if (permanent) {
+      // Permanent delete - delete all related data first
+      // Delete version history
+      await db.execute({
+        sql: `DELETE FROM ManualVersion WHERE manualId = ?`,
+        args: [id],
+      });
+      
+      // Delete ingredients
+      await db.execute({
+        sql: `DELETE FROM ManualIngredient WHERE manualId = ?`,
+        args: [id],
+      });
+      
+      // Delete the manual itself
+      await db.execute({
+        sql: `DELETE FROM MenuManual WHERE id = ?`,
+        args: [id],
+      });
+      
+      console.log('✅ Manual permanently deleted:', id);
+      return NextResponse.json({ success: true, permanent: true });
+    } else {
+      // Soft delete - set isActive=false, isArchived=false (move to Trash)
+      // Trash: isActive=0, isArchived=0
+      // Archive: isActive=0, isArchived=1 (only master admin can see)
+      await db.execute({
+        sql: `UPDATE MenuManual SET isActive = 0, isArchived = 0, updatedAt = ? WHERE id = ?`,
+        args: [new Date().toISOString(), id],
+      });
+      
+      console.log('✅ Manual moved to trash:', id);
+      return NextResponse.json({ success: true });
+    }
   } catch (error: any) {
     console.error('❌ Error deleting manual:', error);
     return NextResponse.json(
