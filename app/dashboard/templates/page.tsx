@@ -97,28 +97,23 @@ interface PriceTemplate {
   isMaster?: boolean;
 }
 
+// PNG 파일명 기반 프로세스 드롭다운 옵션
 const DEFAULT_COOKING_PROCESSES = [
   'Ingredients Preparation',
-  'Thawing',
   'Marination',
-  'Batter Mix Solution Preparation',
+  '2nd Marination',
+  'Batter Mix Solution',
   'Battering',
   'Breading',
   'Frying',
-  'Grilling',
-  'Boiling',
-  'Steaming',
-  'Sautéing',
-  'Baking',
-  'Sauce Preparation',
-  'Seasoning',
-  'Mixing',
-  'Cutting',
-  'Plating',
-  'Assemble',
-  'Garnish',
-  'Serve',
-  'Take Out & Delivery',
+  'Grill',
+  'Cooking',
+  'Saute',
+  'Sauce Mix',
+  'Brushing Sauce',
+  'Seasoning Toss',
+  'Assembling',
+  'Serving',
   'Custom'
 ];
 
@@ -202,6 +197,10 @@ export default function TemplatesPage() {
   
   // Linking filter state
   const [linkingFilter, setLinkingFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
 
   // Version history state
   const [showVersionModal, setShowVersionModal] = useState(false);
@@ -1746,8 +1745,27 @@ export default function TemplatesPage() {
 
   // Get manuals for selected group (legacy, now uses getFilteredManuals)
   const getGroupManuals = () => {
-    return getFilteredManuals();
+    const filtered = getFilteredManuals();
+    // Apply pagination
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filtered.slice(startIndex, endIndex);
   };
+  
+  // Get total count for pagination
+  const getTotalFilteredCount = () => {
+    return getFilteredManuals().length;
+  };
+  
+  // Get total pages
+  const getTotalPages = () => {
+    return Math.ceil(getTotalFilteredCount() / ITEMS_PER_PAGE);
+  };
+  
+  // Reset page when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, linkingFilter, countryFilterTemplateId]);
   
   // Handle column header click for sorting
   const handleSort = (field: typeof sortField) => {
@@ -2416,8 +2434,20 @@ export default function TemplatesPage() {
                 </label>
                 <p className="text-sm text-gray-500">
                   {activeTab === 'countryManuals' 
-                    ? `총 ${savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length}개 국가별 매뉴얼`
-                    : `총 ${savedManuals.filter(m => !(m as any).isArchived && (m as any).isMaster !== false).length}개 마스터 매뉴얼`
+                    ? `총 ${savedManuals.filter(m => {
+                        const isActive = (m as any).isActive;
+                        return (isActive === true || isActive === 1 || isActive === undefined) && 
+                               ((m as any).isMaster === false || (m as any).isMaster === 0);
+                      }).length}개 국가별 매뉴얼`
+                    : `총 ${savedManuals.filter(m => {
+                        const isActive = (m as any).isActive;
+                        const isArchived = (m as any).isArchived;
+                        const isMaster = (m as any).isMaster;
+                        const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
+                        const notArchived = !isArchived || isArchived === 0 || isArchived === false;
+                        const isReallyMaster = isMaster !== false && isMaster !== 0;
+                        return isReallyActive && notArchived && isReallyMaster;
+                      }).length}개 마스터 매뉴얼`
                   }
                 </p>
               </div>
@@ -2528,18 +2558,18 @@ export default function TemplatesPage() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-center w-10">
+                  <th className="px-3 py-2 text-center w-10">
                     <input
                       type="checkbox"
-                      checked={selectedManualIds.size > 0 && selectedManualIds.size === getGroupManuals().length}
+                      checked={selectedManualIds.size > 0 && selectedManualIds.size === getTotalFilteredCount()}
                       onChange={toggleSelectAll}
                       className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
                     />
                   </th>
-                  <th onClick={() => handleSort('name')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
+                  <th onClick={() => handleSort('name')} className="px-3 py-2 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     메뉴명 <SortIcon field="name" />
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">
+                  <th className="px-3 py-2 text-center text-sm font-medium text-gray-700">
                     <div className="flex items-center justify-center gap-1">
                       식재료 링킹
                       <select
@@ -2555,19 +2585,19 @@ export default function TemplatesPage() {
                     </div>
                   </th>
                   {activeTab === 'countryManuals' && (
-                    <th onClick={() => handleSort('country')} className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
+                    <th onClick={() => handleSort('country')} className="px-3 py-2 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                       국가 <SortIcon field="country" />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sellingPrice')} className="px-4 py-3 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
-                    판매가 (Selling Price) <SortIcon field="sellingPrice" />
+                  <th onClick={() => handleSort('sellingPrice')} className="px-3 py-2 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
+                    판매가 <SortIcon field="sellingPrice" />
                   </th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">
-                    생성/수정일
+                  <th className="px-3 py-2 text-center text-sm font-medium text-gray-700">
+                    수정일
                   </th>
                   {activeTab === 'trash' && (
                     <>
-                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">삭제 정보</th>
+                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">삭제 정보</th>
                     </>
                   )}
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Actions</th>
@@ -2577,7 +2607,7 @@ export default function TemplatesPage() {
                 {getGroupManuals().map((manual) => {
                   return (
                     <tr key={manual.id} className={`hover:bg-gray-50 ${selectedManualIds.has(manual.id) ? 'bg-blue-50' : ''}`}>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
                           checked={selectedManualIds.has(manual.id)}
@@ -2585,7 +2615,7 @@ export default function TemplatesPage() {
                           className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           <div>
                             <div className="font-medium">{manual.name}</div>
@@ -2603,7 +2633,7 @@ export default function TemplatesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3 py-2 text-center">
                         {manual.linkingStats ? (
                           <div className="flex items-center justify-center gap-1">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -2624,21 +2654,21 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       {activeTab === 'countryManuals' && (
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                             <Globe className="w-3 h-3 mr-1" />
                             {(manual as any).priceTemplate?.country || '국가 미지정'}
                           </span>
                         </td>
                       )}
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2 text-right">
                         {manual.sellingPrice ? (
                           <span className="font-medium">${manual.sellingPrice.toFixed(2)}</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3 py-2 text-center">
                         <div className="text-xs text-gray-600">
                           <div>{(manual as any).createdAt ? new Date((manual as any).createdAt).toLocaleDateString('ko-KR') : '-'}</div>
                           {(manual as any).updatedAt && (manual as any).updatedAt !== (manual as any).createdAt && (
@@ -2647,14 +2677,14 @@ export default function TemplatesPage() {
                         </div>
                       </td>
                       {activeTab === 'trash' && (
-                        <td className="px-4 py-3 text-sm text-gray-500">
+                        <td className="px-3 py-2 text-sm text-gray-500">
                           <div>{(manual as any).deletedBy || 'Unknown'}</div>
                           <div className="text-xs text-gray-400">
                             {(manual as any).deletedAt ? new Date((manual as any).deletedAt).toLocaleDateString() : '-'}
                           </div>
                         </td>
                       )}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <div className="flex justify-center gap-2">
                           {activeTab !== 'archived' && (
                             <button 
@@ -2742,6 +2772,72 @@ export default function TemplatesPage() {
                 )}
               </tbody>
             </table>
+            
+            {/* Pagination */}
+            {getTotalPages() > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t">
+                <div className="text-sm text-gray-500">
+                  총 {getTotalFilteredCount()}개 중 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, getTotalFilteredCount())}개 표시
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="px-2 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    이전
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, getTotalPages()) }, (_, i) => {
+                      let pageNum;
+                      if (getTotalPages() <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= getTotalPages() - 2) {
+                        pageNum = getTotalPages() - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1 text-sm border rounded ${
+                            currentPage === pageNum
+                              ? 'bg-orange-500 text-white border-orange-500'
+                              : 'hover:bg-gray-100'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(getTotalPages(), p + 1))}
+                    disabled={currentPage === getTotalPages()}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    다음
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(getTotalPages())}
+                    disabled={currentPage === getTotalPages()}
+                    className="px-2 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2811,10 +2907,10 @@ export default function TemplatesPage() {
                       <tr key={manual.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handlePreviewManual(manual)}>
                         <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
                         <td className="px-4 py-3 text-gray-600">{manual.name}</td>
-                        <td className="px-4 py-3 text-center">{ingredientCount}</td>
+                        <td className="px-3 py-2 text-center">{ingredientCount}</td>
                         <td className="px-4 py-3 text-right font-mono">${totalCost.toFixed(2)}</td>
                         <td className="px-4 py-3 text-right font-mono">${sellingPrice.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-3 py-2 text-right">
                           <span className={`${parseFloat(costRate as string) > 35 ? 'text-red-600' : 'text-green-600'}`}>
                             {costRate}%
                           </span>
