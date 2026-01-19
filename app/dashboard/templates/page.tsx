@@ -142,7 +142,8 @@ const EMPTY_INGREDIENT: ManualIngredient = {
 
 export default function TemplatesPage() {
   const { data: session } = useSession();
-  const isMaster = session?.user?.email === 'kun.lee@bbqchickenca.com';
+  // 마스터 계정: admin@bbq.com 또는 kun.lee@bbqchickenca.com
+  const isMaster = session?.user?.email === 'admin@bbq.com' || session?.user?.email === 'kun.lee@bbqchickenca.com';
   const [activeTab, setActiveTab] = useState<'editor' | 'manuals' | 'countryManuals' | 'costTable' | 'trash' | 'archived'>('editor');
   
   // Editor State
@@ -3291,8 +3292,7 @@ export default function TemplatesPage() {
                                 
                                 {/* PROCESS / MANUAL Header */}
                                 <div className="flex border-b border-gray-300">
-                                  <div className="w-16 bg-gray-100 px-1 py-1 font-semibold text-center border-r border-gray-300 text-xs">ICON</div>
-                                  <div className="w-28 bg-gray-100 px-2 py-1 font-semibold text-center border-r border-gray-300">PROCESS</div>
+                                  <div className="w-32 bg-gray-100 px-2 py-1 font-semibold text-center border-r border-gray-300">PROCESS</div>
                                   <div className="flex-1 bg-gray-100 px-2 py-1 font-semibold text-center">MANUAL</div>
                                 </div>
                                 
@@ -3300,37 +3300,29 @@ export default function TemplatesPage() {
                                 <div className="max-h-64 overflow-y-auto">
                                   {currentManual.cookingMethod?.map((step: any, idx: number) => (
                                     <div key={idx} className="flex border-b border-gray-200 last:border-b-0">
-                                      {/* Process PNG Icon */}
-                                      <div className="w-16 px-1 py-1 border-r border-gray-200 bg-gray-50 flex items-center justify-center">
+                                      {/* Process with PNG Icon */}
+                                      <div className="w-32 px-2 py-2 border-r border-gray-200 bg-gray-50 flex flex-col items-center justify-center">
                                         {step.pngFilename ? (
                                           <img 
                                             src={`/process-icons/${encodeURIComponent(step.pngFilename)}`}
                                             alt={step.process}
-                                            className="w-12 h-12 object-contain"
+                                            className="w-16 h-16 object-contain mb-1"
                                             onError={(e) => {
                                               // 이미지 로드 실패 시 대체 이미지
                                               (e.target as HTMLImageElement).src = '/process-icons/generic_process.png';
                                             }}
                                           />
                                         ) : (
-                                          <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">
-                                            ?
+                                          <div className="w-16 h-16 border-2 border-gray-300 rounded flex items-center justify-center text-gray-500 text-xs mb-1">
+                                            {step.process?.slice(0, 8) || '?'}
                                           </div>
                                         )}
-                                      </div>
-                                      {/* Process Name */}
-                                      <div className="w-28 px-2 py-2 border-r border-gray-200 bg-gray-50">
-                                        <div className="font-medium text-orange-700 text-xs">
+                                        <div className="font-medium text-orange-700 text-xs text-center">
                                           {step.process}
                                         </div>
                                         {step.processMatchInfo?.needsVerification && (
-                                          <div className="text-xs text-yellow-600 mt-1" title={`원본: ${step.processMatchInfo.originalText}`}>
-                                            ⚠️ 확인 필요
-                                          </div>
-                                        )}
-                                        {step.processMatchInfo?.matchMethod === 'fuzzy' && (
-                                          <div className="text-xs text-blue-500 mt-1" title={`유사도: ${(step.processMatchInfo.matchScore * 100).toFixed(0)}%`}>
-                                            ~{(step.processMatchInfo.matchScore * 100).toFixed(0)}%
+                                          <div className="text-xs text-yellow-600" title={`원본: ${step.processMatchInfo.originalText}`}>
+                                            ⚠️ 확인
                                           </div>
                                         )}
                                       </div>
