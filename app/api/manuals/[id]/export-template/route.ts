@@ -70,23 +70,23 @@ const border = (style: ExcelJS.BorderStyle) => ({ style, color: { argb: COLORS.b
 const mediumBorder = border('medium');
 const thinBorder = border('thin');
 
-// Process icon mapping - for PNG insertion
+// Process icon mapping - for PNG insertion (matching actual files in 'process png' folder)
 const PROCESS_ICONS: Record<string, string> = {
-  'Ingredients Preparation': 'ingredient_preparation.png',
-  'Marination': 'marination.png',
-  '2nd Marination': 'marination.png',
-  'Batter Mix Solution': 'battering.png',
-  'Battering': 'battering.png',
-  'Breading': 'breading.png',
-  'Frying': 'frying.png',
-  'Grill': 'grilling.png',
-  'Cooking': 'cooking.png',
-  'Saute': 'saute.png',
-  'Sauce Mix': 'sauce_mix.png',
-  'Brushing Sauce': 'sauce_mix.png',
-  'Seasoning Toss': 'seasoning_toss.png',
-  'Assembling': 'assembling.png',
-  'Serving': 'serving.png',
+  'Ingredients Preparation': 'Ingredients Preparation.png',
+  'Marination': 'Marination.png',
+  '2nd Marination': '2nd Marination.png',
+  'Batter Mix Solution': 'Batter Mix Solution.png',
+  'Battering': 'Battering.png',
+  'Breading': 'Breading.png',
+  'Frying': 'Frying.png',
+  'Grill': 'Grill.png',
+  'Cooking': 'Cooking.png',
+  'Saute': 'Saute.png',
+  'Sauce Mix': 'Sauce Mix.png',
+  'Brushing Sauce': 'Brushing Sauce.png',
+  'Seasoning Toss': 'Seasoning Toss.png',
+  'Assembling': 'Assembling.png',
+  'Serving': 'Serving.png',
 };
 
 // Helper function to apply border to a cell
@@ -508,43 +508,80 @@ export async function GET(
     ws.getRow(31).height = TEMPLATE_CONFIG.rowHeights.cookingSubHeader;
 
     // Rows 32-61: Cooking Method Content (30 rows)
-    ws.mergeCells('B32:D61');
-    ws.getCell('B32').alignment = { horizontal: 'center', vertical: 'top', wrapText: true };
-    ws.getCell('B32').border = { left: mediumBorder };
+    // Each cooking step: 3-4 rows with PNG icon in PROCESS column, manual text in MANUAL column
     
-    ws.mergeCells('E32:J61');
+    const ROWS_PER_STEP = 4; // rows per cooking step
+    const COOKING_START_ROW = 32;
+    const COOKING_END_ROW = 61;
+    const MAX_STEPS = Math.floor((COOKING_END_ROW - COOKING_START_ROW + 1) / ROWS_PER_STEP);
     
-    // Build cooking method content
-    let cookingContent = '';
-    const processLabels: string[] = [];
+    // Process PNG icons path - use 'process png' folder in project root
+    const iconBasePath = path.join(process.cwd(), 'process png');
     
-    cookingSteps.forEach((step) => {
-      if (step.process || step.manual) {
-        const manualText = step.translatedManual || step.manual;
-        if (step.process) {
-          processLabels.push(step.process);
-          cookingContent += `【${step.process}】\n${manualText}\n\n`;
-        } else {
-          cookingContent += `${manualText}\n\n`;
-        }
-      }
-    });
-    
-    // Set process labels in B32
-    ws.getCell('B32').value = processLabels.join('\n\n');
-    ws.getCell('B32').font = FONTS.content;
-    
-    // Set manual content in E32
-    ws.getCell('E32').value = cookingContent.trim();
-    ws.getCell('E32').font = FONTS.content;
-    ws.getCell('E32').alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
-    ws.getCell('E32').border = { left: thinBorder };
-    
-    // Apply borders to cooking content rows
-    for (let r = 32; r <= 61; r++) {
+    // Set up cooking method rows
+    for (let r = COOKING_START_ROW; r <= COOKING_END_ROW; r++) {
       ws.getRow(r).height = TEMPLATE_CONFIG.rowHeights.ingredient;
       ws.getCell(`B${r}`).border = { left: mediumBorder };
+      ws.getCell(`D${r}`).border = { right: thinBorder };
       ws.getCell(`J${r}`).border = { right: mediumBorder };
+    }
+    
+    // Insert cooking steps with PNG icons
+    for (let stepIdx = 0; stepIdx < Math.min(cookingSteps.length, MAX_STEPS); stepIdx++) {
+      const step = cookingSteps[stepIdx];
+      const startRow = COOKING_START_ROW + (stepIdx * ROWS_PER_STEP);
+      const endRow = startRow + ROWS_PER_STEP - 1;
+      
+      if (endRow > COOKING_END_ROW) break;
+      
+      // Merge cells for this step's PROCESS area (B:D)
+      ws.mergeCells(`B${startRow}:D${endRow}`);
+      ws.getCell(`B${startRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`B${startRow}`).border = { left: mediumBorder };
+      ws.getCell(`D${endRow}`).border = { right: thinBorder, bottom: thinBorder };
+      
+      // Merge cells for this step's MANUAL area (E:J)
+      ws.mergeCells(`E${startRow}:J${endRow}`);
+      const manualText = step.translatedManual || step.manual || '';
+      ws.getCell(`E${startRow}`).value = manualText;
+      ws.getCell(`E${startRow}`).font = FONTS.content;
+      ws.getCell(`E${startRow}`).alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+      ws.getCell(`E${startRow}`).border = { left: thinBorder };
+      ws.getCell(`J${endRow}`).border = { right: mediumBorder, bottom: thinBorder };
+      
+      // Insert PNG icon for this process
+      const pngFilename = step.pngFilename || PROCESS_ICONS[step.process];
+      if (pngFilename) {
+        const iconPath = path.join(iconBasePath, pngFilename);
+        if (fs.existsSync(iconPath)) {
+          try {
+            const imageData = fs.readFileSync(iconPath);
+            const base64Image = imageData.toString('base64');
+            const imageId = workbook.addImage({ 
+              base64: base64Image, 
+              extension: 'png' 
+            });
+            // Place PNG in the center of PROCESS cell area
+            ws.addImage(imageId, {
+              tl: { col: 1.3, row: startRow - 1 + 0.3 }, // B column (index 1), adjusted for centering
+              ext: { width: 70, height: 70 }, // PNG size
+            });
+          } catch (imgError) {
+            console.warn(`Could not add process image ${pngFilename}:`, imgError);
+            // Fallback: show process name as text
+            ws.getCell(`B${startRow}`).value = step.process;
+            ws.getCell(`B${startRow}`).font = FONTS.content;
+          }
+        } else {
+          // File not found, show process name as text
+          ws.getCell(`B${startRow}`).value = step.process;
+          ws.getCell(`B${startRow}`).font = FONTS.content;
+        }
+      } else {
+        // No PNG mapping, show process name as text
+        ws.getCell(`B${startRow}`).value = step.process;
+        ws.getCell(`B${startRow}`).font = FONTS.content;
+      }
     }
     
     // Bottom border for row 61
@@ -560,37 +597,6 @@ export async function GET(
     ws.getCell('B62').alignment = { horizontal: 'right' };
     ws.getCell('B62').border = { left: mediumBorder, right: mediumBorder };
     ws.getRow(62).height = TEMPLATE_CONFIG.rowHeights.bbqCanada;
-
-    // ===== Add Process PNG Images =====
-    try {
-      const iconBasePath = path.join(process.cwd(), 'public', 'process-icons');
-      let imageRowOffset = 32;
-      
-      for (const step of cookingSteps) {
-        if (step.pngFilename) {
-          const iconPath = path.join(iconBasePath, step.pngFilename);
-          if (fs.existsSync(iconPath)) {
-            try {
-              const imageData = fs.readFileSync(iconPath);
-              const base64Image = imageData.toString('base64');
-              const imageId = workbook.addImage({ 
-                base64: base64Image, 
-                extension: 'png' 
-              });
-              ws.addImage(imageId, {
-                tl: { col: 1.5, row: imageRowOffset - 1 + 0.2 },
-                ext: { width: 60, height: 60 },
-              });
-              imageRowOffset += 3;
-            } catch (imgError) {
-              console.warn(`Could not add image ${step.pngFilename}:`, imgError);
-            }
-          }
-        }
-      }
-    } catch (imageError) {
-      console.warn('Image processing error (non-fatal):', imageError);
-    }
 
     // Add page breaks for printing
     ws.getRow(29).addPageBreak();
