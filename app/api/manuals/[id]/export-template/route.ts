@@ -250,9 +250,60 @@ export async function GET(
     ws.getCell('B3').border = { left: mediumBorder };
 
     ws.mergeCells('C3:H11');
-    ws.getCell('C3').value = '[No Image]';
     ws.getCell('C3').alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getCell('C3').border = { top: thinBorder, left: thinBorder, bottom: thinBorder, right: thinBorder };
+
+    // Add product image if available
+    let productImageAdded = false;
+    if (manual.imageUrl && manual.imageUrl.length > 0) {
+      try {
+        let imageBase64 = '';
+        let imageExtension: 'png' | 'jpeg' | 'gif' = 'png';
+        
+        if (manual.imageUrl.startsWith('data:image/')) {
+          // Extract base64 from data URL
+          const matches = manual.imageUrl.match(/^data:image\/(png|jpe?g|gif);base64,(.+)$/);
+          if (matches) {
+            imageExtension = matches[1] === 'jpg' ? 'jpeg' : matches[1] as 'png' | 'jpeg' | 'gif';
+            imageBase64 = matches[2];
+          }
+        } else if (manual.imageUrl.startsWith('http')) {
+          // Fetch image from URL
+          const imgResponse = await fetch(manual.imageUrl);
+          if (imgResponse.ok) {
+            const imgBuffer = await imgResponse.arrayBuffer();
+            imageBase64 = Buffer.from(imgBuffer).toString('base64');
+            const contentType = imgResponse.headers.get('content-type') || '';
+            if (contentType.includes('jpeg') || contentType.includes('jpg')) {
+              imageExtension = 'jpeg';
+            } else if (contentType.includes('gif')) {
+              imageExtension = 'gif';
+            }
+          }
+        }
+        
+        if (imageBase64) {
+          const imageId = workbook.addImage({
+            base64: imageBase64,
+            extension: imageExtension
+          });
+          
+          // Place image in Picture area (C3:H11) - approximate position
+          ws.addImage(imageId, {
+            tl: { col: 2.1, row: 2.1 }, // C3 position (0-indexed)
+            ext: { width: 280, height: 200 } // Size in pixels
+          });
+          productImageAdded = true;
+        }
+      } catch (imgError) {
+        console.warn('Could not add product image:', imgError);
+      }
+    }
+    
+    // Show placeholder text only if no image was added
+    if (!productImageAdded) {
+      ws.getCell('C3').value = '[No Image]';
+    }
 
     ws.mergeCells('I3:J3');
     ws.getCell('I3').value = 'Item List';

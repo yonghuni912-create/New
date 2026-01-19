@@ -4,8 +4,68 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 import { extractShapeTextsFromExcel, ShapeTextInfo } from '@/lib/excelShapeParser';
 import { matchProcessPng, DEFAULT_PROCESS_ASSET_INDEX, ProcessAssetIndex } from '@/lib/processAssets';
+
+// Extract images from Excel file using JSZip
+async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, string>> {
+  const sheetImages = new Map<string, string>(); // sheetName -> base64 data URL
+  
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    
+    // Get all image files from xl/media/
+    const mediaFiles: { name: string; data: string }[] = [];
+    const mediaFolder = zip.folder('xl/media');
+    
+    if (mediaFolder) {
+      const promises: Promise<void>[] = [];
+      
+      mediaFolder.forEach((relativePath, file) => {
+        if (!file.dir && /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(relativePath)) {
+          promises.push(
+            file.async('base64').then(data => {
+              const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
+              const mimeType = ext === 'jpg' ? 'jpeg' : ext;
+              mediaFiles.push({
+                name: relativePath,
+                data: `data:image/${mimeType};base64,${data}`
+              });
+            })
+          );
+        }
+      });
+      
+      await Promise.all(promises);
+    }
+    
+    console.log(`📷 Client: Found ${mediaFiles.length} images in Excel file`);
+    
+    // Get workbook.xml to find sheet order and assign images
+    if (mediaFiles.length > 0) {
+      const workbookFile = zip.file('xl/workbook.xml');
+      if (workbookFile) {
+        const workbookContent = await workbookFile.async('string');
+        const sheetMatches = workbookContent.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*sheetId="(\d+)"/g);
+        
+        let imageIndex = 0;
+        for (const match of sheetMatches) {
+          const sheetName = match[1];
+          if (imageIndex < mediaFiles.length) {
+            sheetImages.set(sheetName, mediaFiles[imageIndex].data);
+            console.log(`📷 Assigned image to sheet: ${sheetName}`);
+            imageIndex++;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Client: Error extracting images:', error);
+  }
+  
+  return sheetImages;
+}
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -1500,6 +1560,16 @@ export default function TemplatesPage() {
       console.log('📊 Parsing Excel client-side...');
       const buffer = await file.arrayBuffer();
       
+      // 0. 이미지 추출 (JSZip 사용)
+      console.log('📷 Extracting images from Excel...');
+      let sheetImagesMap: Map<string, string> = new Map();
+      try {
+        sheetImagesMap = await extractImagesFromExcel(buffer);
+        console.log(`✅ Extracted ${sheetImagesMap.size} sheet images`);
+      } catch (imageError) {
+        console.warn('⚠️ Could not extract images:', imageError);
+      }
+      
       // 1. 도형 텍스트 추출 (프로세스명이 도형에 저장되어 있음)
       console.log('🔍 Extracting shape texts from Excel...');
       let shapesBySheet: Map<number, ShapeTextInfo[]> = new Map();
@@ -1526,6 +1596,12 @@ export default function TemplatesPage() {
         const sheetShapes = shapesBySheet.get(sheetIdx + 1) || [];
         const manual = parseManualSheet(sheet, sheetName, sheetShapes);
         if (manual) {
+          // 이미지 첨부 (시트 이름 기준)
+          const imageData = sheetImagesMap.get(sheetName);
+          if (imageData) {
+            manual.imageData = imageData;
+            console.log(`📷 Attached image to manual: ${manual.name}`);
+          }
           allManuals.push(manual);
         }
       }
@@ -3270,10 +3346,18 @@ export default function TemplatesPage() {
                                         Picture
                                       </div>
                                       <div className="flex-1 flex items-center justify-center bg-gray-50 text-gray-400 text-center p-4" style={{ minHeight: '120px' }}>
-                                        <div>
-                                          <Image className="w-8 h-8 mx-auto mb-1 opacity-30" />
-                                          <span>이미지 영역</span>
-                                        </div>
+                                        {currentManual.imageData ? (
+                                          <img 
+                                            src={currentManual.imageData} 
+                                            alt={currentManual.name || 'Product'} 
+                                            className="max-h-32 max-w-full object-contain"
+                                          />
+                                        ) : (
+                                          <div>
+                                            <Image className="w-8 h-8 mx-auto mb-1 opacity-30" />
+                                            <span>이미지 없음</span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
