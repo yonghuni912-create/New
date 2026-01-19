@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { extractShapeTextsFromExcel, ShapeTextInfo } from '@/lib/excelShapeParser';
+import { matchProcessPng, DEFAULT_PROCESS_ASSET_INDEX, ProcessAssetIndex } from '@/lib/processAssets';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -35,6 +37,13 @@ interface CookingStep {
   process: string;
   manual: string;
   translatedManual?: string;
+  pngFilename?: string | null; // 프로세스 PNG 파일명
+  processMatchInfo?: {
+    originalText: string;
+    matchMethod: string;
+    matchScore: number;
+    needsVerification: boolean;
+  } | null;
 }
 
 interface ManualGroup {
@@ -1081,7 +1090,7 @@ export default function TemplatesPage() {
   // │ 13. 조리 단계        │ PROC_MAN+1 ~ 다음BBQ│ A=공정명, D=설명     │
   // └─────────────────────────────────────────────────────────────────┘
   //
-  const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string): any | null => {
+  const parseManualSheet = (sheet: XLSX.WorkSheet, sheetName: string, shapeTexts: ShapeTextInfo[] = []): any | null => {
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
     if (data.length < 10) return null;
     
@@ -1095,6 +1104,23 @@ export default function TemplatesPage() {
         sheetLower.includes('summary')) {
       return null;
     }
+    
+    // 도형에서 프로세스명 추출 및 매칭
+    const processLabelsFromShapes = shapeTexts.map(shape => {
+      const matchResult = matchProcessPng(shape.text, DEFAULT_PROCESS_ASSET_INDEX);
+      return {
+        originalText: shape.text,
+        matchedProcess: matchResult.canonical_label,
+        pngFilename: matchResult.filename,
+        row: shape.row,
+        matchMethod: matchResult.method,
+        matchScore: matchResult.score,
+        needsVerification: matchResult.needs_verification
+      };
+    }).filter(p => p.matchScore > 0.5 || p.matchMethod !== 'default');
+    
+    console.log(`📍 Sheet "${sheetName}": Found ${processLabelsFromShapes.length} process labels from shapes:`, 
+      processLabelsFromShapes.map(p => `${p.originalText} → ${p.matchedProcess} (${p.matchMethod})`));
     
     // === Step 1: 모든 마커 위치 찾기 ===
     interface Marker { row: number; type: string; col?: number; }
@@ -1201,7 +1227,7 @@ export default function TemplatesPage() {
     let pictureInfo: any = null;
     let itemListInfo: any = null;
     const ingredients: any[] = [];
-    const cookingMethod: { process: string; manual: string; translatedManual: string }[] = [];
+    const cookingMethod: CookingStep[] = [];
     
     // 4-1. Title 파싱: NAME 행 - 1
     if (nameMarker) {
@@ -1324,7 +1350,7 @@ export default function TemplatesPage() {
       
       if (startRow >= endRow) continue;
       
-      let processIndex = cookingMethod.length + 1; // 프로세스 번호 (연속)
+      let processIndex = cookingMethod.length; // 프로세스 인덱스 (0-based)
       let currentManualLines: string[] = [];
       let lastRowWasEmpty = true; // 시작 시 새 프로세스로 간주
       
@@ -1343,10 +1369,24 @@ export default function TemplatesPage() {
         if (isEmptyRow) {
           // 빈 행: 현재까지의 프로세스 저장하고 빈 행 플래그 설정
           if (currentManualLines.length > 0) {
+            // 도형에서 추출한 프로세스명 사용 (순서대로)
+            const shapeProcess = processLabelsFromShapes[processIndex];
+            const processLabel = shapeProcess 
+              ? shapeProcess.matchedProcess 
+              : `Process ${processIndex + 1}`;
+            const pngFilename = shapeProcess?.pngFilename || null;
+            
             cookingMethod.push({
-              process: `Process ${processIndex}`,
+              process: processLabel,
               manual: currentManualLines.join('\n'),
-              translatedManual: ''
+              translatedManual: '',
+              pngFilename, // PNG 파일명 추가
+              processMatchInfo: shapeProcess ? {
+                originalText: shapeProcess.originalText,
+                matchMethod: shapeProcess.matchMethod,
+                matchScore: shapeProcess.matchScore,
+                needsVerification: shapeProcess.needsVerification
+              } : null
             });
             processIndex++;
             currentManualLines = [];
@@ -1370,10 +1410,23 @@ export default function TemplatesPage() {
       
       // 페이지 끝에서 남은 프로세스 저장
       if (currentManualLines.length > 0) {
+        const shapeProcess = processLabelsFromShapes[processIndex];
+        const processLabel = shapeProcess 
+          ? shapeProcess.matchedProcess 
+          : `Process ${processIndex + 1}`;
+        const pngFilename = shapeProcess?.pngFilename || null;
+        
         cookingMethod.push({
-          process: `Process ${processIndex}`,
+          process: processLabel,
           manual: currentManualLines.join('\n'),
-          translatedManual: ''
+          translatedManual: '',
+          pngFilename,
+          processMatchInfo: shapeProcess ? {
+            originalText: shapeProcess.originalText,
+            matchMethod: shapeProcess.matchMethod,
+            matchScore: shapeProcess.matchScore,
+            needsVerification: shapeProcess.needsVerification
+          } : null
         });
       }
     }
@@ -1424,14 +1477,32 @@ export default function TemplatesPage() {
       // Always parse client-side for reliability
       console.log('📊 Parsing Excel client-side...');
       const buffer = await file.arrayBuffer();
+      
+      // 1. 도형 텍스트 추출 (프로세스명이 도형에 저장되어 있음)
+      console.log('🔍 Extracting shape texts from Excel...');
+      let shapesBySheet: Map<number, ShapeTextInfo[]> = new Map();
+      try {
+        shapesBySheet = await extractShapeTextsFromExcel(buffer);
+        console.log(`✅ Found shapes in ${shapesBySheet.size} sheets`);
+        shapesBySheet.forEach((shapes, sheetIdx) => {
+          console.log(`  Sheet ${sheetIdx}: ${shapes.map(s => s.text).join(', ')}`);
+        });
+      } catch (shapeError) {
+        console.warn('⚠️ Could not extract shape texts:', shapeError);
+      }
+      
+      // 2. 기본 엑셀 데이터 파싱
       const workbook = XLSX.read(buffer, { type: 'array' });
       
       console.log(`📋 Found ${workbook.SheetNames.length} sheets`);
       
       const allManuals: any[] = [];
-      for (const sheetName of workbook.SheetNames) {
+      for (let sheetIdx = 0; sheetIdx < workbook.SheetNames.length; sheetIdx++) {
+        const sheetName = workbook.SheetNames[sheetIdx];
         const sheet = workbook.Sheets[sheetName];
-        const manual = parseManualSheet(sheet, sheetName);
+        // 시트 인덱스에 해당하는 도형 텍스트 가져오기 (1-based index)
+        const sheetShapes = shapesBySheet.get(sheetIdx + 1) || [];
+        const manual = parseManualSheet(sheet, sheetName, sheetShapes);
         if (manual) {
           allManuals.push(manual);
         }
@@ -3220,7 +3291,8 @@ export default function TemplatesPage() {
                                 
                                 {/* PROCESS / MANUAL Header */}
                                 <div className="flex border-b border-gray-300">
-                                  <div className="w-32 bg-gray-100 px-2 py-1 font-semibold text-center border-r border-gray-300">PROCESS</div>
+                                  <div className="w-16 bg-gray-100 px-1 py-1 font-semibold text-center border-r border-gray-300 text-xs">ICON</div>
+                                  <div className="w-28 bg-gray-100 px-2 py-1 font-semibold text-center border-r border-gray-300">PROCESS</div>
                                   <div className="flex-1 bg-gray-100 px-2 py-1 font-semibold text-center">MANUAL</div>
                                 </div>
                                 
@@ -3228,9 +3300,41 @@ export default function TemplatesPage() {
                                 <div className="max-h-64 overflow-y-auto">
                                   {currentManual.cookingMethod?.map((step: any, idx: number) => (
                                     <div key={idx} className="flex border-b border-gray-200 last:border-b-0">
-                                      <div className="w-32 px-2 py-2 border-r border-gray-200 bg-gray-50 font-medium text-orange-700">
-                                        {step.process}
+                                      {/* Process PNG Icon */}
+                                      <div className="w-16 px-1 py-1 border-r border-gray-200 bg-gray-50 flex items-center justify-center">
+                                        {step.pngFilename ? (
+                                          <img 
+                                            src={`/process-icons/${encodeURIComponent(step.pngFilename)}`}
+                                            alt={step.process}
+                                            className="w-12 h-12 object-contain"
+                                            onError={(e) => {
+                                              // 이미지 로드 실패 시 대체 이미지
+                                              (e.target as HTMLImageElement).src = '/process-icons/generic_process.png';
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">
+                                            ?
+                                          </div>
+                                        )}
                                       </div>
+                                      {/* Process Name */}
+                                      <div className="w-28 px-2 py-2 border-r border-gray-200 bg-gray-50">
+                                        <div className="font-medium text-orange-700 text-xs">
+                                          {step.process}
+                                        </div>
+                                        {step.processMatchInfo?.needsVerification && (
+                                          <div className="text-xs text-yellow-600 mt-1" title={`원본: ${step.processMatchInfo.originalText}`}>
+                                            ⚠️ 확인 필요
+                                          </div>
+                                        )}
+                                        {step.processMatchInfo?.matchMethod === 'fuzzy' && (
+                                          <div className="text-xs text-blue-500 mt-1" title={`유사도: ${(step.processMatchInfo.matchScore * 100).toFixed(0)}%`}>
+                                            ~{(step.processMatchInfo.matchScore * 100).toFixed(0)}%
+                                          </div>
+                                        )}
+                                      </div>
+                                      {/* Manual Text */}
                                       <div className="flex-1 px-2 py-2 whitespace-pre-wrap">
                                         {step.manual?.split('\n').map((line: string, lineIdx: number) => (
                                           <div key={lineIdx} className="mb-1 last:mb-0">
