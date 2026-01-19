@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, AlertTriangle } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { DEFAULT_PROCESS_ASSET_INDEX, matchProcessPng, type MatchResult, type ProcessAssetIndex } from '@/lib/processAssets';
 
 // 타입 정의
 interface IngredientSuggestion {
@@ -36,7 +35,6 @@ interface CookingStep {
   process: string;
   manual: string;
   translatedManual?: string;
-  pngMatch?: MatchResult;
 }
 
 interface ManualGroup {
@@ -73,6 +71,12 @@ interface SavedManual {
     unlinked: number;
     isFullyLinked: boolean;
     hasUnlinked: boolean;
+  };
+  processStats?: {
+    total: number;
+    assigned: number;
+    unassigned: number;
+    isFullyAssigned: boolean;
   };
 }
 
@@ -139,7 +143,7 @@ export default function TemplatesPage() {
   const [sellingPrice, setSellingPrice] = useState('');
   const [ingredients, setIngredients] = useState<ManualIngredient[]>([{ ...EMPTY_INGREDIENT }]);
   const [cookingSteps, setCookingSteps] = useState<CookingStep[]>(
-    DEFAULT_COOKING_PROCESSES.map(p => ({ process: p, manual: '', translatedManual: '' }))
+    Array(8).fill(null).map(() => ({ process: '', manual: '', translatedManual: '' }))
   );
   const [showPreview, setShowPreview] = useState(false);
   
@@ -600,20 +604,22 @@ export default function TemplatesPage() {
           setIngredients([{ ...EMPTY_INGREDIENT }]);
         }
         
-        // Load cooking method - INITIALIZE FIRST
-        setCookingSteps(DEFAULT_COOKING_PROCESSES.map(p => ({ process: p, manual: '', translatedManual: '' })));
-        
+        // Load cooking method - use actual saved data, or empty steps if none
         if (fullManual.cookingMethod) {
           const cookingData = typeof fullManual.cookingMethod === 'string' 
             ? JSON.parse(fullManual.cookingMethod) 
             : fullManual.cookingMethod;
           if (Array.isArray(cookingData) && cookingData.length > 0) {
-            setCookingSteps(cookingData.map((step: any, index: number) => ({
-              process: step.process || DEFAULT_COOKING_PROCESSES[index] || '',
+            setCookingSteps(cookingData.map((step: any) => ({
+              process: step.process || '',
               manual: step.manual || '',
               translatedManual: step.translatedManual || ''
             })));
+          } else {
+            setCookingSteps(Array(8).fill(null).map(() => ({ process: '', manual: '', translatedManual: '' })));
           }
+        } else {
+          setCookingSteps(Array(8).fill(null).map(() => ({ process: '', manual: '', translatedManual: '' })));
         }
         
         // Load price template ID
@@ -881,7 +887,7 @@ export default function TemplatesPage() {
     setShelfLife('');
     setSellingPrice('');
     setIngredients([{ ...EMPTY_INGREDIENT }]);
-    setCookingSteps(DEFAULT_COOKING_PROCESSES.map(p => ({ process: p, manual: '', translatedManual: '' })));
+    setCookingSteps(Array(8).fill(null).map(() => ({ process: '', manual: '', translatedManual: '' })));
     setEditingManualId(null);
     setEditorTemplateId('');
     setMenuImage(null);
@@ -2195,78 +2201,28 @@ export default function TemplatesPage() {
             </div>
             <div className="space-y-4">
               {cookingSteps.map((step, i) => {
-                // Get PNG match for this step
-                const pngMatch = step.process ? matchProcessPng(step.process, DEFAULT_PROCESS_ASSET_INDEX) : null;
-                
                 return (
                 <div key={i} className="grid grid-cols-12 gap-4 items-start">
-                  {/* Process Dropdown with PNG Icon */}
+                  {/* Process Dropdown */}
                   <div className="col-span-3">
-                    <div className="flex items-center gap-2">
-                      {/* PNG Icon Preview */}
-                      {pngMatch && pngMatch.matched && (
-                        <div className="relative flex-shrink-0">
-                          <img 
-                            src={`/process-icons/${encodeURIComponent(pngMatch.filename)}`}
-                            alt={pngMatch.canonical_label}
-                            className="w-10 h-10 object-contain border rounded bg-white"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                          {pngMatch.needs_verification && (
-                            <span 
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center text-xs"
-                              title={`확인 필요: ${pngMatch.method} 매칭 (${Math.round(pngMatch.score * 100)}%)`}
-                            >
-                              !
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <select
-                        value={step.process}
-                        onChange={(e) => {
-                          const newSteps = [...cookingSteps];
-                          const newMatch = e.target.value ? matchProcessPng(e.target.value, DEFAULT_PROCESS_ASSET_INDEX) : undefined;
-                          newSteps[i] = { ...newSteps[i], process: e.target.value, pngMatch: newMatch };
-                          setCookingSteps(newSteps);
-                        }}
-                        className={`flex-1 px-3 py-2 border rounded-md text-sm bg-gray-50 ${
-                          pngMatch?.needs_verification ? 'border-yellow-400' : 'border-gray-300'
-                        }`}
-                      >
-                        <option value="">조리구분 선택</option>
-                        {DEFAULT_COOKING_PROCESSES.map(p => {
-                          const match = matchProcessPng(p, DEFAULT_PROCESS_ASSET_INDEX);
-                          return (
-                            <option key={p} value={p}>
-                              {match.matched && !match.needs_verification ? '✓ ' : match.needs_verification ? '⚠ ' : ''}{p}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                    {/* Match Status Badge */}
-                    {pngMatch && (
-                      <div className={`mt-1 text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
-                        pngMatch.method === 'exact' ? 'bg-green-100 text-green-700' :
-                        pngMatch.method === 'alias' ? 'bg-blue-100 text-blue-700' :
-                        pngMatch.method === 'fuzzy' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-gray-100 text-gray-500'
-                      }`}>
-                        {pngMatch.method === 'exact' ? '✓ 정확 일치' :
-                         pngMatch.method === 'alias' ? '⇄ 별칭 매칭' :
-                         pngMatch.method === 'fuzzy' ? `≈ 유사 ${Math.round(pngMatch.score * 100)}%` :
-                         '✗ 기본 이미지'}
-                        {pngMatch.needs_verification && <AlertTriangle className="w-3 h-3" />}
-                      </div>
-                    )}
+                    <select
+                      value={step.process}
+                      onChange={(e) => {
+                        const newSteps = [...cookingSteps];
+                        newSteps[i] = { ...newSteps[i], process: e.target.value };
+                        setCookingSteps(newSteps);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50"
+                    >
+                      <option value="">조리구분 선택</option>
+                      {DEFAULT_COOKING_PROCESSES.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
                     {step.process === 'Custom' && (
                       <input
                         type="text"
                         placeholder="직접 입력..."
-                        value={step.process === 'Custom' ? '' : step.process}
                         onChange={(e) => {
                           const newSteps = [...cookingSteps];
                           newSteps[i] = { ...newSteps[i], process: e.target.value };
@@ -2584,6 +2540,9 @@ export default function TemplatesPage() {
                       </select>
                     </div>
                   </th>
+                  <th className="px-3 py-2 text-center text-sm font-medium text-gray-700">
+                    프로세스
+                  </th>
                   {activeTab === 'countryManuals' && (
                     <th onClick={() => handleSort('country')} className="px-3 py-2 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                       국가 <SortIcon field="country" />
@@ -2623,14 +2582,6 @@ export default function TemplatesPage() {
                               <div className="text-sm text-gray-500">{manual.koreanName}</div>
                             )}
                           </div>
-                          {manual.hasUnassignedProcess && (
-                            <span 
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-orange-100 text-orange-700" 
-                              title="프로세스 미지정 - 수정 필요"
-                            >
-                              🍳
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-center">
@@ -2647,6 +2598,26 @@ export default function TemplatesPage() {
                             </span>
                             {manual.linkingStats.hasUnlinked && (
                               <span className="text-yellow-500" title={`${manual.linkingStats.unlinked}개 미링킹`}>⚠️</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {manual.processStats ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              manual.processStats.isFullyAssigned
+                                ? 'bg-green-100 text-green-700'
+                                : manual.processStats.unassigned > 0
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {manual.processStats.assigned}/{manual.processStats.total}
+                            </span>
+                            {manual.processStats.unassigned > 0 && (
+                              <span className="text-yellow-500" title={`${manual.processStats.unassigned}개 미지정`}>⚠️</span>
                             )}
                           </div>
                         ) : (

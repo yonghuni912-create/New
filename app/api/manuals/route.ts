@@ -67,11 +67,25 @@ export async function GET(request: NextRequest) {
       
       // Check for unassigned cooking processes
       let hasUnassignedProcess = false;
+      let processStats = { total: 0, assigned: 0, unassigned: 0, isFullyAssigned: true };
+      
       if (manual.cookingMethod) {
         try {
           const steps = JSON.parse(manual.cookingMethod as string);
           if (Array.isArray(steps)) {
-            hasUnassignedProcess = steps.some((s: any) => s.manual && !s.process);
+            // Count steps that have content (manual text)
+            const stepsWithContent = steps.filter((s: any) => s.manual && s.manual.trim());
+            const totalProcessSteps = stepsWithContent.length;
+            const assignedProcessSteps = stepsWithContent.filter((s: any) => s.process && s.process.trim()).length;
+            const unassignedProcessSteps = totalProcessSteps - assignedProcessSteps;
+            
+            hasUnassignedProcess = unassignedProcessSteps > 0;
+            processStats = {
+              total: totalProcessSteps,
+              assigned: assignedProcessSteps,
+              unassigned: unassignedProcessSteps,
+              isFullyAssigned: totalProcessSteps > 0 && unassignedProcessSteps === 0
+            };
           }
         } catch (e) {
           // Ignore parse errors
@@ -90,7 +104,8 @@ export async function GET(request: NextRequest) {
           isFullyLinked: totalIngredients > 0 && unlinkedIngredients === 0,
           hasUnlinked: unlinkedIngredients > 0
         },
-        // Include process status
+        // Include process stats
+        processStats,
         hasUnassignedProcess
       };
     });
