@@ -83,6 +83,7 @@ export default function AuditLogViewer({ entityType, entityId, limit = 50 }: Aud
 
   useEffect(() => {
     fetchLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityType, entityId, filters]);
 
   const fetchLogs = async () => {

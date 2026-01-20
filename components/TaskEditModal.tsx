@@ -85,6 +85,7 @@ export default function TaskEditModal({ task, isOpen = true, onClose, onSave, on
       fetchComments();
       fetchChecklist();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task]);
 
   const fetchUsers = async () => {

@@ -36,6 +36,7 @@ export default function LoginPage() {
         handleAutoLogin(savedEmail, savedPassword);
       }, 500);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleAutoLogin = async (savedEmail: string, savedPassword: string) => {

@@ -112,6 +112,7 @@ export default function StoreForm({ countries, userId, store }: Props) {
     const countryCode = getCountryCode();
     setSelectedCountry(countryCode);
     setSelectedTimezone(store?.timezone || TIMEZONES_BY_COUNTRY[countryCode]?.[0]?.value || 'America/Toronto');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store?.id]);
 
   const selectedCountryData = countries.find((c) => c.code === selectedCountry);

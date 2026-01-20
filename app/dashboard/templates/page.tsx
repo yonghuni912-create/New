@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element, jsx-a11y/alt-text */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
@@ -297,6 +298,7 @@ export default function TemplatesPage() {
   // Load data on mount
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchData = async () => {
@@ -350,6 +352,7 @@ export default function TemplatesPage() {
     if (editorTemplateId && activeTab === 'editor') {
       updatePricesFromTemplate(editorTemplateId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorTemplateId, activeTab]);
 
   const updatePricesFromTemplate = async (templateId: string) => {

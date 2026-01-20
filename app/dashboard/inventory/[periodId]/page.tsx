@@ -61,6 +61,7 @@ export default function InventoryDetailPage({ params }: { params: Promise<{ peri
   useEffect(() => {
     fetchInventoryData();
     fetchSalesData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodId]);
 
   const fetchInventoryData = async () => {

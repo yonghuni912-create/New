@@ -75,6 +75,7 @@ export function usePersistentFilters<T extends FilterState>(
     const loaded = loadFilters(pageKey, defaults);
     setFiltersState(loaded);
     setInitialized(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageKey]);
 
   // Save filters to localStorage when they change

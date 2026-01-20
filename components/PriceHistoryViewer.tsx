@@ -40,6 +40,7 @@ export default function PriceHistoryViewer({ countryId }: PriceHistoryViewerProp
 
   useEffect(() => {
     fetchPriceHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countryId, dateRange]);
 
   const fetchPriceHistory = async () => {

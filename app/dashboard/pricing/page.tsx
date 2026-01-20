@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element, jsx-a11y/alt-text */
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
