@@ -150,8 +150,19 @@ export async function POST(request: NextRequest) {
     
     // Handle direct import mode (JSON body with confirmed manuals)
     if (contentType.includes('application/json')) {
-      const body = await request.json();
+      let body;
+      try {
+        body = await request.json();
+      } catch (jsonError: any) {
+        console.error('❌ JSON parse error:', jsonError?.message);
+        return NextResponse.json({ 
+          error: 'Invalid JSON body', 
+          details: jsonError?.message 
+        }, { status: 400 });
+      }
+      
       if (body.importMode === 'import-direct' && body.manuals) {
+        console.log(`📥 Direct import: ${body.manuals.length} manuals`);
         return handleDirectImport(body.manuals);
       }
     }
@@ -650,7 +661,7 @@ async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames
 }
 
 async function handleDirectImport(manuals: ParsedManual[]) {
-  console.log('📥 handleDirectImport called with', manuals.length, 'manuals');
+  console.log('📥 handleDirectImport called with', manuals?.length || 0, 'manuals');
   
   if (!manuals || manuals.length === 0) {
     console.log('⚠️ No manuals to import');
@@ -662,7 +673,17 @@ async function handleDirectImport(manuals: ParsedManual[]) {
     });
   }
   
-  const db = getDb();
+  let db;
+  try {
+    db = getDb();
+  } catch (dbError: any) {
+    console.error('❌ Database connection error:', dbError?.message);
+    return NextResponse.json({ 
+      error: 'Database connection failed', 
+      details: dbError?.message 
+    }, { status: 500 });
+  }
+  
   const createdManuals = [];
   const errors: string[] = [];
   

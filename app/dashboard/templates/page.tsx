@@ -1888,7 +1888,7 @@ export default function TemplatesPage() {
     }
   };
 
-  // Import Excel manuals (only confirmed ones)
+  // Import Excel manuals (only confirmed ones) - with batch processing for large uploads
   const handleExcelImport = async () => {
     if (!excelFile || !excelPreviewData?.allManuals || excelConfirmedManuals.size === 0) return;
     
@@ -1898,23 +1898,60 @@ export default function TemplatesPage() {
     );
     
     setIsUploading(true);
+    
+    // Batch size - process 5 manuals at a time to avoid request size limits
+    const BATCH_SIZE = 5;
+    let totalImported = 0;
+    let totalLinked = 0;
+    const errors: string[] = [];
+    
     try {
-      // Send confirmed manuals directly instead of re-parsing the file
-      const res = await fetch('/api/manuals/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          importMode: 'import-direct',
-          manuals: confirmedManualData
-        })
-      });
+      // Process in batches
+      for (let i = 0; i < confirmedManualData.length; i += BATCH_SIZE) {
+        const batch = confirmedManualData.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(confirmedManualData.length / BATCH_SIZE);
+        
+        console.log(`📦 Uploading batch ${batchNum}/${totalBatches} (${batch.length} manuals)`);
+        
+        try {
+          const res = await fetch('/api/manuals/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              importMode: 'import-direct',
+              manuals: batch
+            })
+          });
+          
+          if (res.ok) {
+            const data = await res.json();
+            totalImported += data.importedCount || 0;
+            totalLinked += data.linkedIngredients || 0;
+            if (data.errors) {
+              errors.push(...data.errors);
+            }
+          } else {
+            let errorMsg = 'Unknown error';
+            try {
+              const errorData = await res.json();
+              errorMsg = errorData.error || errorData.details || `HTTP ${res.status}`;
+            } catch {
+              errorMsg = `HTTP ${res.status}: ${res.statusText}`;
+            }
+            errors.push(`Batch ${batchNum}: ${errorMsg}`);
+          }
+        } catch (batchError: any) {
+          console.error(`Batch ${batchNum} error:`, batchError);
+          errors.push(`Batch ${batchNum}: ${batchError?.message || 'Network error'}`);
+        }
+      }
       
-      if (res.ok) {
-        const data = await res.json();
-        const linkedInfo = data.linkedIngredients 
-          ? `\n🔗 ${data.linkedIngredients}개 식재료 자동 링킹됨` 
-          : '';
-        alert(`✅ ${data.importedCount}개 매뉴얼이 가져오기 되었습니다.${linkedInfo}`);
+      // Show results
+      if (totalImported > 0) {
+        const linkedInfo = totalLinked > 0 ? `\n🔗 ${totalLinked}개 식재료 자동 링킹됨` : '';
+        const errorInfo = errors.length > 0 ? `\n⚠️ ${errors.length}개 오류 발생` : '';
+        alert(`✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${linkedInfo}${errorInfo}`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);
@@ -1922,12 +1959,11 @@ export default function TemplatesPage() {
         setExcelPreviewIndex(0);
         fetchData();
       } else {
-        const error = await res.json();
-        alert(`가져오기 실패: ${error.error || '알 수 없는 오류'}`);
+        alert(`업로드 실패: ${errors.join(', ') || 'Unknown error'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Excel import error:', error);
-      alert('가져오기 중 오류가 발생했습니다.');
+      alert(`가져오기 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}`);
     } finally {
       setIsUploading(false);
     }
