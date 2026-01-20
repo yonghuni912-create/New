@@ -204,12 +204,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       
       // Create new ingredients
       if (body.ingredients && body.ingredients.length > 0) {
+        const now = new Date().toISOString();
         for (let i = 0; i < body.ingredients.length; i++) {
           const ing = body.ingredients[i];
           const ingredientId = `ing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           await db.execute({
-            sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity, createdAt, updatedAt) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               ingredientId,
               id,
@@ -221,7 +222,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
               i,
               ing.notes || null,
               ing.unitPrice ?? null,
-              ing.baseQuantity ?? null
+              ing.baseQuantity ?? null,
+              now,
+              now
             ],
           });
         }
