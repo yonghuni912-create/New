@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element, jsx-a11y/alt-text */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useSession } from 'next-auth/react';
 import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -431,6 +431,17 @@ export default function TemplatesPage() {
   const [versionHistory, setVersionHistory] = useState<any>(null);
   const [selectedVersionManual, setSelectedVersionManual] = useState<SavedManual | null>(null);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState<any>(null); // Version preview
+
+  // Search state for each tab
+  const [masterSearch, setMasterSearch] = useState('');
+  const [countrySearch, setCountrySearch] = useState('');
+  const [costTableSearch, setCostTableSearch] = useState('');
+  const [trashSearch, setTrashSearch] = useState('');
+  const [archiveSearch, setArchiveSearch] = useState('');
+
+  // Cost Table expanded card state
+  const [expandedCostManualId, setExpandedCostManualId] = useState<string | null>(null);
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -1984,15 +1995,36 @@ export default function TemplatesPage() {
         const isArchived = (m as any).isArchived;
         return (isActive === false || isActive === 0) && (isArchived === false || isArchived === 0 || !isArchived);
       });
+      // Apply search filter
+      if (trashSearch) {
+        filtered = filtered.filter(m => 
+          m.name?.toLowerCase().includes(trashSearch.toLowerCase()) ||
+          m.koreanName?.toLowerCase().includes(trashSearch.toLowerCase())
+        );
+      }
     } else if (activeTab === 'archived') {
       // Show archived manuals (hard deleted, master admin only)
       filtered = filtered.filter(m => !!(m as any).isArchived);
+      // Apply search filter
+      if (archiveSearch) {
+        filtered = filtered.filter(m => 
+          m.name?.toLowerCase().includes(archiveSearch.toLowerCase()) ||
+          m.koreanName?.toLowerCase().includes(archiveSearch.toLowerCase())
+        );
+      }
     } else if (activeTab === 'countryManuals') {
       // Show only country copies (non-master)
       filtered = filtered.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0);
       // Further filter by selected country template
       if (countryFilterTemplateId) {
         filtered = filtered.filter(m => (m as any).priceTemplateId === countryFilterTemplateId);
+      }
+      // Apply search filter
+      if (countrySearch) {
+        filtered = filtered.filter(m => 
+          m.name?.toLowerCase().includes(countrySearch.toLowerCase()) ||
+          m.koreanName?.toLowerCase().includes(countrySearch.toLowerCase())
+        );
       }
     } else {
       // Show active (not deleted, not archived) manuals - for manuals tab, show only masters
@@ -2008,6 +2040,13 @@ export default function TemplatesPage() {
       if (activeTab === 'manuals') {
         // Show only master manuals (isMaster = true or null for legacy)
         filtered = filtered.filter(m => (m as any).isMaster !== false && (m as any).isMaster !== 0);
+        // Apply search filter
+        if (masterSearch) {
+          filtered = filtered.filter(m => 
+            m.name?.toLowerCase().includes(masterSearch.toLowerCase()) ||
+            m.koreanName?.toLowerCase().includes(masterSearch.toLowerCase())
+          );
+        }
       }
     }
     
@@ -2705,15 +2744,32 @@ export default function TemplatesPage() {
               {/* Left: Info */}
               <div className="flex-1 min-w-[200px]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {activeTab === 'countryManuals' ? '국가별 매뉴얼' : '매뉴얼 마스터'}
+                  {activeTab === 'countryManuals' ? '국가별 매뉴얼' : activeTab === 'trash' ? '휴지통' : activeTab === 'archived' ? '보관함' : '매뉴얼 마스터'}
                 </label>
                 <p className="text-sm text-gray-500">
                   {activeTab === 'countryManuals' 
                     ? `총 ${savedManuals.filter(m => {
                         const isActive = (m as any).isActive;
+                        const matchesSearch = !countrySearch || 
+                          (m.name?.toLowerCase().includes(countrySearch.toLowerCase()) ||
+                           m.koreanName?.toLowerCase().includes(countrySearch.toLowerCase()));
                         return (isActive === true || isActive === 1 || isActive === undefined) && 
-                               ((m as any).isMaster === false || (m as any).isMaster === 0);
+                               ((m as any).isMaster === false || (m as any).isMaster === 0) && matchesSearch;
                       }).length}개 국가별 매뉴얼`
+                    : activeTab === 'trash'
+                    ? `총 ${savedManuals.filter(m => {
+                        const matchesSearch = !trashSearch || 
+                          (m.name?.toLowerCase().includes(trashSearch.toLowerCase()) ||
+                           m.koreanName?.toLowerCase().includes(trashSearch.toLowerCase()));
+                        return (m as any).isActive === false && matchesSearch;
+                      }).length}개 삭제된 매뉴얼`
+                    : activeTab === 'archived'
+                    ? `총 ${savedManuals.filter(m => {
+                        const matchesSearch = !archiveSearch || 
+                          (m.name?.toLowerCase().includes(archiveSearch.toLowerCase()) ||
+                           m.koreanName?.toLowerCase().includes(archiveSearch.toLowerCase()));
+                        return (m as any).isArchived === true && matchesSearch;
+                      }).length}개 보관된 매뉴얼`
                     : `총 ${savedManuals.filter(m => {
                         const isActive = (m as any).isActive;
                         const isArchived = (m as any).isArchived;
@@ -2721,10 +2777,33 @@ export default function TemplatesPage() {
                         const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
                         const notArchived = !isArchived || isArchived === 0 || isArchived === false;
                         const isReallyMaster = isMaster !== false && isMaster !== 0;
-                        return isReallyActive && notArchived && isReallyMaster;
+                        const matchesSearch = !masterSearch || 
+                          (m.name?.toLowerCase().includes(masterSearch.toLowerCase()) ||
+                           m.koreanName?.toLowerCase().includes(masterSearch.toLowerCase()));
+                        return isReallyActive && notArchived && isReallyMaster && matchesSearch;
                       }).length}개 마스터 매뉴얼`
                   }
                 </p>
+              </div>
+
+              {/* Search Box for each tab */}
+              <div className="min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">검색</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="메뉴명 검색..."
+                    value={activeTab === 'manuals' ? masterSearch : activeTab === 'countryManuals' ? countrySearch : activeTab === 'trash' ? trashSearch : archiveSearch}
+                    onChange={(e) => {
+                      if (activeTab === 'manuals') setMasterSearch(e.target.value);
+                      else if (activeTab === 'countryManuals') setCountrySearch(e.target.value);
+                      else if (activeTab === 'trash') setTrashSearch(e.target.value);
+                      else setArchiveSearch(e.target.value);
+                    }}
+                    className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
               </div>
 
               {/* Excel Upload Button (for manuals tab) */}
@@ -3166,24 +3245,50 @@ export default function TemplatesPage() {
       {/* Cost Table Tab */}
       {activeTab === 'costTable' && (
         <div className="space-y-4">
-          {/* Cost Table Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold">원가표 (Cost Table)</h2>
-              <p className="text-sm text-gray-500">저장된 매뉴얼의 원가를 계산합니다</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Price Template:</span>
-              <select
-                value={editorTemplateId}
-                onChange={(e) => setEditorTemplateId(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                <option value="">Select Template</option>
-                {priceTemplates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.currency || 'CAD'})</option>
-                ))}
-              </select>
+          {/* Cost Table Header with Filter & Search */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h2 className="text-xl font-bold">원가표 (Cost Table)</h2>
+                <p className="text-sm text-gray-500">
+                  국가별 매뉴얼의 원가를 계산합니다 ({savedManuals.filter(m => {
+                    const isActive = (m as any).isActive;
+                    const matchesCountry = !countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId;
+                    const matchesSearch = !costTableSearch || 
+                      (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
+                       m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
+                    return (isActive === true || isActive === 1 || isActive === undefined) && 
+                           ((m as any).isMaster === false || (m as any).isMaster === 0) &&
+                           matchesCountry && matchesSearch;
+                  }).length}개)
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="메뉴 검색..."
+                    value={costTableSearch}
+                    onChange={(e) => setCostTableSearch(e.target.value)}
+                    className="pl-9 pr-3 py-2 border rounded-lg text-sm w-48"
+                  />
+                </div>
+                {/* Country Filter */}
+                <div>
+                  <select
+                    value={countryFilterTemplateId}
+                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">모든 국가</option>
+                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                      <option key={t.id} value={t.id}>{t.country} ({t.currency || 'CAD'})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3192,55 +3297,179 @@ export default function TemplatesPage() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-8"></th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">메뉴명</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Menu Name</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">식재료 수</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Food Cost</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Package</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total Cost</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">판매가</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">원가율</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">마진</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {savedManuals.filter(m => !m.isDeleted && !m.isArchived).length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      저장된 매뉴얼이 없습니다. Editor 탭에서 매뉴얼을 먼저 작성해주세요.
-                    </td>
-                  </tr>
-                ) : (
-                  savedManuals.filter(m => !m.isDeleted && !m.isArchived).map(manual => {
-                    // Calculate cost from ingredients: (사용량 / 기준수량) × 단가
+                {(() => {
+                  // Filter to show only country manuals (non-master, matching country filter, matching search)
+                  const filteredManuals = savedManuals.filter(m => {
+                    const isActive = (m as any).isActive;
+                    const matchesCountry = !countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId;
+                    const matchesSearch = !costTableSearch || 
+                      (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
+                       m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
+                    return (isActive === true || isActive === 1 || isActive === undefined) && 
+                           ((m as any).isMaster === false || (m as any).isMaster === 0) &&
+                           matchesCountry && matchesSearch;
+                  });
+                  
+                  if (filteredManuals.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                          {countryFilterTemplateId ? '선택한 국가에 매뉴얼이 없습니다.' : '국가별 매뉴얼이 없습니다. 마스터 매뉴얼을 국가에 복제해주세요.'}
+                        </td>
+                      </tr>
+                    );
+                  }
+                  
+                  return filteredManuals.map(manual => {
+                    // Calculate food cost from ingredients: (사용량 / 기준수량) × 단가
                     const ingredientCount = manual.ingredients?.length || 0;
-                    const totalCost = manual.ingredients?.reduce((sum: number, ing: any) => {
-                      const usageQty = ing.quantity || 0; // 매뉴얼에서 실제 사용량
-                      const baseQty = ing.baseQuantity || 1; // pricing 기준 수량 (0이면 1로)
-                      const price = ing.unitPrice || 0; // pricing 가격
-                      // 원가 = (사용량 / 기준수량) × 가격
+                    const foodCost = manual.ingredients?.reduce((sum: number, ing: any) => {
+                      const usageQty = ing.quantity || 0;
+                      const baseQty = ing.baseQuantity || 1;
+                      const price = ing.unitPrice || 0;
                       const cost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
                       return sum + cost;
                     }, 0) || 0;
+                    
+                    // Package cost (assuming 10% of food cost as placeholder - can be customized)
+                    const packageCost = foodCost * 0.10;
+                    const totalCost = foodCost + packageCost;
                     const sellingPrice = manual.sellingPrice || 0;
-                    const costRate = sellingPrice > 0 ? ((totalCost / sellingPrice) * 100).toFixed(1) : '-';
-                    const margin = sellingPrice > 0 ? (sellingPrice - totalCost).toFixed(2) : '-';
+                    const foodCostRate = sellingPrice > 0 ? ((foodCost / sellingPrice) * 100) : 0;
+                    const totalCostRate = sellingPrice > 0 ? ((totalCost / sellingPrice) * 100) : 0;
+                    const isExpanded = expandedCostManualId === manual.id;
                     
                     return (
-                      <tr key={manual.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handlePreviewManual(manual)}>
-                        <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
-                        <td className="px-4 py-3 text-gray-600">{manual.name}</td>
-                        <td className="px-3 py-2 text-center">{ingredientCount}</td>
-                        <td className="px-4 py-3 text-right font-mono">${totalCost.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right font-mono">${sellingPrice.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right">
-                          <span className={`${parseFloat(costRate as string) > 35 ? 'text-red-600' : 'text-green-600'}`}>
-                            {costRate}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-green-600">${margin}</td>
-                      </tr>
+                      <Fragment key={manual.id}>
+                        <tr 
+                          className={`hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
+                          onClick={() => setExpandedCostManualId(isExpanded ? null : manual.id)}
+                        >
+                          <td className="px-4 py-3 text-center">
+                            <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </td>
+                          <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
+                          <td className="px-4 py-3 text-gray-600">{manual.name}</td>
+                          <td className="px-3 py-2 text-center">{ingredientCount}</td>
+                          <td className="px-4 py-3 text-right font-mono">${foodCost.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-mono text-gray-500">${packageCost.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-mono font-bold">${totalCost.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-mono">${sellingPrice.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right">
+                            <span className={`font-medium ${totalCostRate > 35 ? 'text-red-600' : 'text-green-600'}`}>
+                              {totalCostRate.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                        
+                        {/* Expanded Cost Detail Card */}
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={9} className="px-4 py-4 bg-gray-50">
+                              <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                                <div className="grid grid-cols-2 gap-6">
+                                  {/* Left: Food Cost Breakdown */}
+                                  <div>
+                                    <h4 className="font-bold text-sm mb-3 text-gray-800 border-b pb-2">
+                                      Food Cost Breakdown
+                                    </h4>
+                                    <table className="w-full text-xs">
+                                      <thead className="bg-orange-100">
+                                        <tr>
+                                          <th className="px-2 py-1 text-left">Ingredient</th>
+                                          <th className="px-2 py-1 text-right">Weight</th>
+                                          <th className="px-2 py-1 text-right">Unit Price</th>
+                                          <th className="px-2 py-1 text-right">Cost</th>
+                                          <th className="px-2 py-1 text-right">%</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {manual.ingredients?.map((ing: any, i: number) => {
+                                          const usageQty = ing.quantity || 0;
+                                          const baseQty = ing.baseQuantity || 1;
+                                          const price = ing.unitPrice || 0;
+                                          const ingCost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                                          const portion = foodCost > 0 ? (ingCost / foodCost * 100) : 0;
+                                          return (
+                                            <tr key={i} className="border-b border-gray-100">
+                                              <td className="px-2 py-1">{ing.name || ing.koreanName}</td>
+                                              <td className="px-2 py-1 text-right">{usageQty} {ing.unit}</td>
+                                              <td className="px-2 py-1 text-right">${price.toFixed(3)}</td>
+                                              <td className="px-2 py-1 text-right font-mono">${ingCost.toFixed(2)}</td>
+                                              <td className="px-2 py-1 text-right">{portion.toFixed(1)}%</td>
+                                            </tr>
+                                          );
+                                        })}
+                                        <tr className="bg-orange-50 font-bold">
+                                          <td className="px-2 py-1" colSpan={3}>Food Total</td>
+                                          <td className="px-2 py-1 text-right font-mono">${foodCost.toFixed(2)}</td>
+                                          <td className="px-2 py-1 text-right">100%</td>
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  
+                                  {/* Right: Summary */}
+                                  <div>
+                                    <h4 className="font-bold text-sm mb-3 text-gray-800 border-b pb-2">
+                                      Cost Summary
+                                    </h4>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between py-2 border-b">
+                                        <span className="text-gray-600">Food Cost</span>
+                                        <span className="font-mono font-medium">${foodCost.toFixed(2)}</span>
+                                      </div>
+                                      <div className="flex justify-between py-2 border-b">
+                                        <span className="text-gray-600">Package Cost (10%)</span>
+                                        <span className="font-mono">${packageCost.toFixed(2)}</span>
+                                      </div>
+                                      <div className="flex justify-between py-2 border-b bg-yellow-50 -mx-2 px-2">
+                                        <span className="font-bold">Total Cost (Inc. package)</span>
+                                        <span className="font-mono font-bold">${totalCost.toFixed(2)}</span>
+                                      </div>
+                                      <div className="flex justify-between py-2 border-b">
+                                        <span className="text-gray-600">Selling Price</span>
+                                        <span className="font-mono">${sellingPrice.toFixed(2)}</span>
+                                      </div>
+                                      <div className="flex justify-between py-2 border-b">
+                                        <span className="text-gray-600">Margin</span>
+                                        <span className="font-mono text-green-600">${(sellingPrice - totalCost).toFixed(2)}</span>
+                                      </div>
+                                      <div className="flex justify-between py-2">
+                                        <span className="text-gray-600">Food Cost %</span>
+                                        <span className={`font-bold ${foodCostRate > 30 ? 'text-red-600' : 'text-green-600'}`}>
+                                          {foodCostRate.toFixed(1)}%
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between py-2 bg-blue-50 -mx-2 px-2 rounded">
+                                        <span className="font-bold">Total Cost %</span>
+                                        <span className={`font-bold ${totalCostRate > 35 ? 'text-red-600' : 'text-green-600'}`}>
+                                          {totalCostRate.toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
-                  })
-                )}
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -3248,7 +3477,8 @@ export default function TemplatesPage() {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-sm text-blue-700">
               <strong>원가 계산 방법:</strong> (사용량 / 기준수량) × 단가<br/>
-              예) Pricing에서 1,000g에 $10 → 매뉴얼에서 100g 사용 → 원가 = (100 / 1000) × $10 = $1
+              예) Pricing에서 1,000g에 $10 → 매뉴얼에서 100g 사용 → 원가 = (100 / 1000) × $10 = $1<br/>
+              <strong>Package Cost:</strong> 현재 Food Cost의 10%로 자동 계산됩니다.
             </p>
           </div>
         </div>
@@ -3827,7 +4057,7 @@ export default function TemplatesPage() {
       {/* Version History Modal */}
       {showVersionModal && selectedVersionManual && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[80vh] overflow-hidden">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b">
               <div>
                 <h3 className="text-lg font-semibold">버전 히스토리</h3>
@@ -3835,12 +4065,12 @@ export default function TemplatesPage() {
                   {selectedVersionManual.name} - 현재 v{versionHistory?.currentVersion || 1}
                 </p>
               </div>
-              <button onClick={() => setShowVersionModal(false)} className="p-2 hover:bg-gray-100 rounded">
+              <button onClick={() => { setShowVersionModal(false); setPreviewVersion(null); }} className="p-2 hover:bg-gray-100 rounded">
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="p-4 overflow-y-auto max-h-[60vh]">
+            <div className="p-4 overflow-y-auto max-h-[70vh]">
               {isLoadingVersions ? (
                 <div className="text-center py-8 text-gray-500">로딩 중...</div>
               ) : versionHistory?.versions?.length === 0 ? (
@@ -3861,47 +4091,139 @@ export default function TemplatesPage() {
                           {versionHistory?.lastUpdated ? new Date(versionHistory.lastUpdated).toLocaleString('ko-KR') : '-'}
                         </span>
                       </div>
+                      <button
+                        onClick={() => setPreviewVersion(previewVersion === 'current' ? null : 'current')}
+                        className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${previewVersion === 'current' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        <Eye className="w-4 h-4" />
+                        미리보기
+                      </button>
                     </div>
                     <div className="mt-2 text-sm text-gray-600">{selectedVersionManual.name}</div>
+                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                      <span>식재료: {selectedVersionManual.ingredients?.length || 0}개</span>
+                      <span>판매가: ${selectedVersionManual.sellingPrice?.toFixed(2) || '-'}</span>
+                    </div>
+                    {/* Current Version Preview */}
+                    {previewVersion === 'current' && (
+                      <div className="mt-4 p-3 bg-white border border-green-200 rounded">
+                        <h4 className="font-medium text-sm mb-2">현재 버전 내용</h4>
+                        <div className="text-xs space-y-2">
+                          <div><strong>메뉴명:</strong> {selectedVersionManual.name} / {selectedVersionManual.koreanName}</div>
+                          <div><strong>Shelf Life:</strong> {selectedVersionManual.shelfLife || '-'}</div>
+                          <div><strong>판매가:</strong> ${selectedVersionManual.sellingPrice?.toFixed(2) || '-'}</div>
+                          <div><strong>식재료 ({selectedVersionManual.ingredients?.length || 0}개):</strong></div>
+                          <ul className="ml-4 list-disc">
+                            {selectedVersionManual.ingredients?.slice(0, 5).map((ing: any, i: number) => (
+                              <li key={i}>{ing.name || ing.koreanName} - {ing.quantity} {ing.unit}</li>
+                            ))}
+                            {(selectedVersionManual.ingredients?.length || 0) > 5 && <li>... 외 {selectedVersionManual.ingredients!.length - 5}개</li>}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Previous Versions */}
-                  {versionHistory?.versions?.map((ver: any) => (
-                    <div key={ver.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="px-2 py-1 bg-gray-400 text-white text-xs rounded font-medium">이전</span>
-                          <span className="ml-2 font-medium">v{ver.version}</span>
-                          <span className="ml-2 text-sm text-gray-500">
-                            {ver.createdAt ? new Date(ver.createdAt).toLocaleString('ko-KR') : '-'}
-                          </span>
+                  {versionHistory?.versions?.map((ver: any, verIndex: number) => {
+                    // Calculate differences from current version
+                    const currentIngCount = selectedVersionManual.ingredients?.length || 0;
+                    const verIngCount = ver.ingredients?.length || 0;
+                    const ingDiff = currentIngCount - verIngCount;
+                    const priceDiff = (selectedVersionManual.sellingPrice || 0) - (ver.sellingPrice || 0);
+                    
+                    // Find added/removed ingredients
+                    const currentIngNames = selectedVersionManual.ingredients?.map((i: any) => i.name || i.koreanName) || [];
+                    const verIngNames = ver.ingredients?.map((i: any) => i.name || i.koreanName) || [];
+                    const addedIngs = currentIngNames.filter((n: string) => !verIngNames.includes(n));
+                    const removedIngs = verIngNames.filter((n: string) => !currentIngNames.includes(n));
+                    
+                    return (
+                      <div key={ver.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg hover:border-purple-300 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="px-2 py-1 bg-gray-400 text-white text-xs rounded font-medium">이전</span>
+                            <span className="ml-2 font-medium">v{ver.version}</span>
+                            <span className="ml-2 text-sm text-gray-500">
+                              {ver.createdAt ? new Date(ver.createdAt).toLocaleString('ko-KR') : '-'}
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setPreviewVersion(previewVersion === ver.id ? null : ver.id)}
+                              className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${previewVersion === ver.id ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              <Eye className="w-4 h-4" />
+                              미리보기
+                            </button>
+                            <button
+                              onClick={() => handleRestoreVersion(ver.id)}
+                              className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600"
+                            >
+                              복구
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => handleRestoreVersion(ver.id)}
-                          className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600"
-                        >
-                          이 버전으로 복구
-                        </button>
-                      </div>
-                      <div className="mt-2">
-                        <div className="text-sm font-medium">{ver.name}</div>
-                        {ver.changeNote && (
-                          <div className="text-xs text-gray-500 mt-1">변경 사유: {ver.changeNote}</div>
-                        )}
-                        <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                          <span>식재료: {ver.ingredients?.length || 0}개</span>
-                          <span>판매가: ${ver.sellingPrice?.toFixed(2) || '-'}</span>
+                        <div className="mt-2">
+                          <div className="text-sm font-medium">{ver.name}</div>
+                          {ver.changeNote && (
+                            <div className="text-xs text-gray-500 mt-1">변경 사유: {ver.changeNote}</div>
+                          )}
+                          <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                            <span>식재료: {verIngCount}개</span>
+                            <span>판매가: ${ver.sellingPrice?.toFixed(2) || '-'}</span>
+                          </div>
+                          
+                          {/* Changes from this version to current */}
+                          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                            <div className="font-medium text-yellow-800 mb-1">이 버전 이후 변경 내용:</div>
+                            <div className="space-y-1 text-yellow-700">
+                              {ingDiff !== 0 && (
+                                <div>• 식재료: {ingDiff > 0 ? `+${ingDiff}개 추가` : `${Math.abs(ingDiff)}개 삭제`}</div>
+                              )}
+                              {priceDiff !== 0 && (
+                                <div>• 판매가: {priceDiff > 0 ? `+$${priceDiff.toFixed(2)}` : `-$${Math.abs(priceDiff).toFixed(2)}`}</div>
+                              )}
+                              {addedIngs.length > 0 && (
+                                <div className="text-green-600">• 추가된 식재료: {addedIngs.slice(0, 3).join(', ')}{addedIngs.length > 3 ? ` 외 ${addedIngs.length - 3}개` : ''}</div>
+                              )}
+                              {removedIngs.length > 0 && (
+                                <div className="text-red-600">• 삭제된 식재료: {removedIngs.slice(0, 3).join(', ')}{removedIngs.length > 3 ? ` 외 ${removedIngs.length - 3}개` : ''}</div>
+                              )}
+                              {ingDiff === 0 && priceDiff === 0 && addedIngs.length === 0 && removedIngs.length === 0 && (
+                                <div className="text-gray-500">변경 없음</div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Version Preview */}
+                          {previewVersion === ver.id && (
+                            <div className="mt-3 p-3 bg-white border border-blue-200 rounded">
+                              <h4 className="font-medium text-sm mb-2">v{ver.version} 내용</h4>
+                              <div className="text-xs space-y-2">
+                                <div><strong>메뉴명:</strong> {ver.name} / {ver.koreanName}</div>
+                                <div><strong>Shelf Life:</strong> {ver.shelfLife || '-'}</div>
+                                <div><strong>판매가:</strong> ${ver.sellingPrice?.toFixed(2) || '-'}</div>
+                                <div><strong>식재료 ({verIngCount}개):</strong></div>
+                                <ul className="ml-4 list-disc max-h-32 overflow-y-auto">
+                                  {ver.ingredients?.map((ing: any, i: number) => (
+                                    <li key={i}>{ing.name || ing.koreanName} - {ing.quantity} {ing.unit}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
             
             <div className="flex justify-end gap-2 p-4 border-t">
               <button
-                onClick={() => setShowVersionModal(false)}
+                onClick={() => { setShowVersionModal(false); setPreviewVersion(null); }}
                 className="px-4 py-2 text-gray-600 bg-gray-100 rounded hover:bg-gray-200"
               >
                 닫기
