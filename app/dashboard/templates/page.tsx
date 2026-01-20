@@ -81,7 +81,7 @@ async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, 
     
     console.log(`📷 Sheet name to file mapping:`, Object.fromEntries(sheetNameToFile));
     
-    // 4. For each sheet, find which drawing it uses and which image that drawing references
+    // 4. For each sheet, find which drawing it uses and find the PRODUCT PHOTO (top area, row < 15)
     for (const [sheetName, sheetFile] of sheetNameToFile) {
       // sheetFile = "sheet1.xml" -> check xl/worksheets/_rels/sheet1.xml.rels
       const sheetRelsPath = `xl/worksheets/_rels/${sheetFile}.rels`;
@@ -95,25 +95,115 @@ async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, 
       
       const drawingFile = drawingMatch[1]; // drawing1.xml
       
-      // 5. Check the drawing's rels file for image reference
+      // 5. Read the drawing XML to find image positions
+      const drawingPath = `xl/drawings/${drawingFile}`;
+      const drawingContent = await zip.file(drawingPath)?.async('text');
+      
+      // 6. Check the drawing's rels file for rId -> image file mapping
       const drawingRelsPath = `xl/drawings/_rels/${drawingFile}.rels`;
       const drawingRelsContent = await zip.file(drawingRelsPath)?.async('text');
       
-      if (!drawingRelsContent) continue;
+      if (!drawingRelsContent || !drawingContent) continue;
       
-      // Find image reference: Target="../media/image1.png"
-      // Usually the first image in a sheet is the product photo
-      const imageMatches = drawingRelsContent.matchAll(/Target="\.\.\/media\/(image\d+\.[a-z]+)"/gi);
+      // Build rId -> image file mapping
+      const rIdToImage = new Map<string, string>();
+      const imageRelPattern = /<Relationship[^>]+Id="(rId\d+)"[^>]+Target="\.\.\/media\/(image\d+\.[a-z]+)"/gi;
+      let relMatch;
+      while ((relMatch = imageRelPattern.exec(drawingRelsContent)) !== null) {
+        rIdToImage.set(relMatch[1], relMatch[2]);
+      }
+      // Alternative pattern
+      const imageRelPattern2 = /<Relationship[^>]+Target="\.\.\/media\/(image\d+\.[a-z]+)"[^>]+Id="(rId\d+)"/gi;
+      while ((relMatch = imageRelPattern2.exec(drawingRelsContent)) !== null) {
+        rIdToImage.set(relMatch[2], relMatch[1]);
+      }
       
-      for (const imgMatch of imageMatches) {
-        const imageFileName = imgMatch[1]; // image1.png
-        const imageData = mediaFiles.get(imageFileName);
+      // 7. Parse drawing XML to find image anchors with their positions
+      // Look for <xdr:twoCellAnchor> with <xdr:from><xdr:row> for position
+      // Product photo is in rows 2-10 (0-indexed), process icons are in rows 31+
+      interface ImageAnchor {
+        rId: string;
+        row: number;
+        col: number;
+      }
+      
+      const imageAnchors: ImageAnchor[] = [];
+      
+      // Pattern to find twoCellAnchor with blip (image)
+      // <xdr:twoCellAnchor>...<xdr:from><xdr:col>2</xdr:col><xdr:row>2</xdr:row>...</xdr:from>...<a:blip r:embed="rId1"/>...</xdr:twoCellAnchor>
+      const anchorPattern = /<xdr:twoCellAnchor[^>]*>([\s\S]*?)<\/xdr:twoCellAnchor>/g;
+      let anchorMatch;
+      
+      while ((anchorMatch = anchorPattern.exec(drawingContent)) !== null) {
+        const anchorContent = anchorMatch[1];
         
-        if (imageData) {
-          // Assign the first image found to this sheet
-          sheetImages.set(sheetName, imageData);
-          console.log(`📷 Assigned ${imageFileName} to sheet: ${sheetName}`);
-          break; // Use first image only (product photo, not process icons)
+        // Extract position from <xdr:from>
+        const fromMatch = anchorContent.match(/<xdr:from>[\s\S]*?<xdr:col>(\d+)<\/xdr:col>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>[\s\S]*?<\/xdr:from>/);
+        if (!fromMatch) continue;
+        
+        const col = parseInt(fromMatch[1], 10);
+        const row = parseInt(fromMatch[2], 10);
+        
+        // Extract image rId from <a:blip r:embed="rId1"/>
+        const blipMatch = anchorContent.match(/<a:blip[^>]+r:embed="(rId\d+)"/);
+        if (!blipMatch) continue;
+        
+        const rId = blipMatch[1];
+        imageAnchors.push({ rId, row, col });
+      }
+      
+      // Also check oneCellAnchor
+      const oneCellAnchorPattern = /<xdr:oneCellAnchor[^>]*>([\s\S]*?)<\/xdr:oneCellAnchor>/g;
+      while ((anchorMatch = oneCellAnchorPattern.exec(drawingContent)) !== null) {
+        const anchorContent = anchorMatch[1];
+        
+        const fromMatch = anchorContent.match(/<xdr:from>[\s\S]*?<xdr:col>(\d+)<\/xdr:col>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>[\s\S]*?<\/xdr:from>/);
+        if (!fromMatch) continue;
+        
+        const col = parseInt(fromMatch[1], 10);
+        const row = parseInt(fromMatch[2], 10);
+        
+        const blipMatch = anchorContent.match(/<a:blip[^>]+r:embed="(rId\d+)"/);
+        if (!blipMatch) continue;
+        
+        const rId = blipMatch[1];
+        imageAnchors.push({ rId, row, col });
+      }
+      
+      console.log(`📷 Sheet "${sheetName}" has ${imageAnchors.length} images:`, imageAnchors.map(a => ({ rId: a.rId, row: a.row, col: a.col })));
+      
+      // 8. Find the product photo: image in top area (row < 15) and column >= 2 (C column or right)
+      // Sort by row to get the topmost image first
+      const productPhotoAnchors = imageAnchors
+        .filter(a => a.row < 15 && a.col >= 2) // Top area, C column or right
+        .sort((a, b) => a.row - b.row);
+      
+      if (productPhotoAnchors.length > 0) {
+        const productAnchor = productPhotoAnchors[0];
+        const imageFileName = rIdToImage.get(productAnchor.rId);
+        
+        if (imageFileName) {
+          const imageData = mediaFiles.get(imageFileName);
+          if (imageData) {
+            sheetImages.set(sheetName, imageData);
+            console.log(`📷 ✅ Assigned product photo ${imageFileName} (row ${productAnchor.row}, col ${productAnchor.col}) to sheet: ${sheetName}`);
+            continue; // Move to next sheet
+          }
+        }
+      }
+      
+      // 9. Fallback: if no image found in top area, try the topmost image regardless of column
+      const sortedByRow = [...imageAnchors].sort((a, b) => a.row - b.row);
+      if (sortedByRow.length > 0) {
+        const topImage = sortedByRow[0];
+        const imageFileName = rIdToImage.get(topImage.rId);
+        
+        if (imageFileName) {
+          const imageData = mediaFiles.get(imageFileName);
+          if (imageData) {
+            sheetImages.set(sheetName, imageData);
+            console.log(`📷 ⚠️ Fallback: Assigned topmost image ${imageFileName} (row ${topImage.row}) to sheet: ${sheetName}`);
+          }
         }
       }
     }
