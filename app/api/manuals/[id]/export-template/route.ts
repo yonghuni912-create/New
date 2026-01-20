@@ -3,6 +3,7 @@ import { createClient } from '@libsql/client';
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
+import { matchProcessPng, DEFAULT_PROCESS_ASSET_INDEX } from '@/lib/processAssets';
 
 function getDb() {
   return createClient({
@@ -194,12 +195,55 @@ export async function GET(
           ? JSON.parse(manual.cookingMethod) 
           : manual.cookingMethod;
         if (Array.isArray(parsed)) {
-          cookingSteps = parsed.map((step: any) => ({
-            process: String(step.process || ''),
-            manual: String(step.manual || step.translatedManual || ''),
-            translatedManual: String(step.translatedManual || step.manual || ''),
-            pngFilename: step.pngFilename || PROCESS_ICONS[step.process] || null
-          }));
+          cookingSteps = parsed.map((step: any, idx: number) => {
+            let process = String(step.process || '');
+            let pngFilename = step.pngFilename || PROCESS_ICONS[process] || null;
+            
+            // If process is empty or generic, try to infer from manual text
+            if (!process || process === 'Process' || process.startsWith('Process ')) {
+              const manualText = String(step.manual || step.translatedManual || '').toLowerCase();
+              
+              // Try to infer process type from manual content
+              if (manualText.includes('prepare') || manualText.includes('wash') || manualText.includes('chop') || manualText.includes('slice') || manualText.includes('cut')) {
+                process = 'Ingredients Preparation';
+              } else if (manualText.includes('marinate') || manualText.includes('marination')) {
+                process = 'Marination';
+              } else if (manualText.includes('batter') || manualText.includes('coating')) {
+                process = 'Battering';
+              } else if (manualText.includes('fry') || manualText.includes('deep fry') || manualText.includes('frying')) {
+                process = 'Frying';
+              } else if (manualText.includes('grill') || manualText.includes('grilling')) {
+                process = 'Grill';
+              } else if (manualText.includes('saute') || manualText.includes('sauté') || manualText.includes('pan fry')) {
+                process = 'Saute';
+              } else if (manualText.includes('serve') || manualText.includes('customer') || manualText.includes('serving')) {
+                process = 'Serving';
+              } else if (manualText.includes('assemble') || manualText.includes('plate') || manualText.includes('put on')) {
+                process = 'Assembling';
+              } else if (manualText.includes('sauce') && manualText.includes('mix')) {
+                process = 'Sauce Mix';
+              } else if (manualText.includes('brush') && manualText.includes('sauce')) {
+                process = 'Brushing Sauce';
+              } else if (manualText.includes('season') || manualText.includes('toss')) {
+                process = 'Seasoning Toss';
+              } else if (manualText.includes('cook') || manualText.includes('heat')) {
+                process = 'Cooking';
+              }
+              
+              // Try matchProcessPng for better matching
+              if (process && process !== 'Process') {
+                const match = matchProcessPng(process, DEFAULT_PROCESS_ASSET_INDEX);
+                pngFilename = match.filename || PROCESS_ICONS[process] || pngFilename;
+              }
+            }
+            
+            return {
+              process: process || `Step ${idx + 1}`,
+              manual: String(step.manual || step.translatedManual || ''),
+              translatedManual: String(step.translatedManual || step.manual || ''),
+              pngFilename: pngFilename
+            };
+          });
         }
       } catch {
         cookingSteps = [{ process: 'Process', manual: String(manual.cookingMethod) }];

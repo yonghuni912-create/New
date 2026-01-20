@@ -887,11 +887,11 @@ export default function TemplatesPage() {
     }
   };
 
-  // Bulk Permanent Delete (from Trash or Archive - Master Admin only)
+  // Bulk Permanent Delete (from Trash or Archive - Master/Admin only)
   const handleBulkPermanentDelete = async () => {
     if (selectedManualIds.size === 0) return;
-    if (!isMasterAdmin) {
-      alert('영구 삭제는 Master Admin만 가능합니다.');
+    if (!isMaster) {
+      alert('영구 삭제는 관리자만 가능합니다.');
       return;
     }
     if (!confirm(`⚠️ 경고: ${selectedManualIds.size}개 매뉴얼을 완전히 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 데이터가 영구적으로 삭제됩니다.`)) return;
@@ -919,10 +919,10 @@ export default function TemplatesPage() {
     }
   };
 
-  // Single Permanent Delete (Master Admin only)
+  // Single Permanent Delete (Master/Admin only)
   const handlePermanentDelete = async (manual: SavedManual) => {
-    if (!isMasterAdmin) {
-      alert('영구 삭제는 Master Admin만 가능합니다.');
+    if (!isMaster) {
+      alert('영구 삭제는 관리자만 가능합니다.');
       return;
     }
     
@@ -2678,7 +2678,7 @@ export default function TemplatesPage() {
                       )}
                     </>
                   )}
-                  {activeTab === 'archived' && isMasterAdmin && (
+                  {activeTab === 'archived' && isMaster && (
                     <>
                       <button
                         onClick={handleBulkRestore}
@@ -3437,18 +3437,32 @@ export default function TemplatesPage() {
                                 
                                 {/* Cooking Steps */}
                                 <div className="max-h-64 overflow-y-auto">
-                                  {currentManual.cookingMethod?.map((step: any, idx: number) => (
+                                  {currentManual.cookingMethod?.map((step: any, idx: number) => {
+                                    // PNG filename fallback: use step.pngFilename or try to match from process name
+                                    const pngFilename = step.pngFilename || (() => {
+                                      const match = matchProcessPng(step.process || '', DEFAULT_PROCESS_ASSET_INDEX);
+                                      return match.filename || null;
+                                    })();
+                                    
+                                    return (
                                     <div key={idx} className="flex border-b border-gray-200 last:border-b-0">
                                       {/* Process with PNG Icon */}
                                       <div className="w-32 px-2 py-2 border-r border-gray-200 bg-gray-50 flex flex-col items-center justify-center">
-                                        {step.pngFilename ? (
+                                        {pngFilename ? (
                                           <img 
-                                            src={`/process-png/${encodeURIComponent(step.pngFilename)}`}
+                                            src={`/process-png/${encodeURIComponent(pngFilename)}`}
                                             alt={step.process}
                                             className="w-16 h-16 object-contain mb-1"
                                             onError={(e) => {
                                               // 이미지 로드 실패 시 프로세스명 텍스트로 대체
                                               (e.target as HTMLImageElement).style.display = 'none';
+                                              const parent = (e.target as HTMLImageElement).parentElement;
+                                              if (parent) {
+                                                const fallback = document.createElement('div');
+                                                fallback.className = 'w-16 h-16 border-2 border-gray-300 rounded flex items-center justify-center text-gray-500 text-xs mb-1';
+                                                fallback.textContent = step.process?.slice(0, 8) || '?';
+                                                parent.insertBefore(fallback, e.target as HTMLImageElement);
+                                              }
                                             }}
                                           />
                                         ) : (
@@ -3474,7 +3488,8 @@ export default function TemplatesPage() {
                                         ))}
                                       </div>
                                     </div>
-                                  ))}
+                                  );
+                                  })}
                                   {(!currentManual.cookingMethod || currentManual.cookingMethod.length === 0) && (
                                     <div className="px-3 py-4 text-center text-gray-400">
                                       조리 방법 정보 없음
@@ -3512,19 +3527,15 @@ export default function TemplatesPage() {
                                     newConfirmed.add(excelPreviewIndex);
                                   }
                                   setExcelConfirmedManuals(newConfirmed);
-                                  // Auto advance to next if confirmed
-                                  if (!excelConfirmedManuals.has(excelPreviewIndex) && excelPreviewIndex < excelPreviewData.allManuals.length - 1) {
-                                    setExcelPreviewIndex(excelPreviewIndex + 1);
-                                  }
                                 }}
                                 className={`px-4 py-2 rounded-lg flex items-center ${
                                   isConfirmed 
-                                    ? 'bg-gray-300 text-gray-700 hover:bg-gray-400' 
-                                    : 'bg-green-500 text-white hover:bg-green-600'
+                                    ? 'bg-green-500 text-white hover:bg-green-600' 
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                 }`}
                               >
                                 <Check className="w-4 h-4 mr-2" />
-                                {isConfirmed ? '확인 취소' : '확인 완료'}
+                                {isConfirmed ? '✓ 선택됨' : '업로드 선택'}
                               </button>
                             </div>
                           </div>
@@ -3542,22 +3553,46 @@ export default function TemplatesPage() {
                     </button>
                   </div>
 
-                  {/* Thumbnail Navigation */}
+                  {/* Manual Selection Tabs */}
                   <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs text-gray-500 mb-2">클릭하여 업로드할 매뉴얼 선택 (녹색 = 선택됨)</div>
                     <div className="flex gap-2 overflow-x-auto pb-2">
                       {excelPreviewData.allManuals.map((m: any, idx: number) => (
                         <button
                           key={idx}
-                          onClick={() => setExcelPreviewIndex(idx)}
+                          onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                              // Ctrl/Cmd+Click: Toggle selection
+                              const newConfirmed = new Set(excelConfirmedManuals);
+                              if (newConfirmed.has(idx)) {
+                                newConfirmed.delete(idx);
+                              } else {
+                                newConfirmed.add(idx);
+                              }
+                              setExcelConfirmedManuals(newConfirmed);
+                            } else {
+                              // Normal click: View and toggle selection
+                              setExcelPreviewIndex(idx);
+                              const newConfirmed = new Set(excelConfirmedManuals);
+                              if (newConfirmed.has(idx)) {
+                                newConfirmed.delete(idx);
+                              } else {
+                                newConfirmed.add(idx);
+                              }
+                              setExcelConfirmedManuals(newConfirmed);
+                            }
+                          }}
+                          onDoubleClick={() => setExcelPreviewIndex(idx)}
                           className={`flex-shrink-0 px-3 py-2 rounded text-xs border transition-all ${
-                            idx === excelPreviewIndex 
-                              ? 'bg-orange-500 text-white border-orange-500' 
-                              : excelConfirmedManuals.has(idx)
-                                ? 'bg-green-100 text-green-700 border-green-300'
+                            excelConfirmedManuals.has(idx)
+                              ? 'bg-green-500 text-white border-green-500'
+                              : idx === excelPreviewIndex
+                                ? 'bg-orange-100 text-orange-700 border-orange-300'
                                 : m.hasLinkingIssue
                                   ? 'bg-orange-50 text-orange-700 border-orange-200'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
                           }`}
+                          title={excelConfirmedManuals.has(idx) ? '선택됨 - 클릭하여 해제' : '클릭하여 선택'}
                         >
                           {excelConfirmedManuals.has(idx) && <Check className="w-3 h-3 inline mr-1" />}
                           {idx + 1}. {(m.name || m.koreanName || '이름없음').slice(0, 10)}...
@@ -3575,10 +3610,8 @@ export default function TemplatesPage() {
                 {excelPreviewData?.allManuals?.length > 0 && (
                   <span>
                     {chunkProgress 
-                      ? `📦 청크 업로드: ${chunkProgress.saved}/${chunkProgress.total} 저장됨`
-                      : excelConfirmedManuals.size === excelPreviewData.allManuals.length 
-                        ? '✅ 모든 매뉴얼 확인 완료!'
-                        : `${excelPreviewData.allManuals.length - excelConfirmedManuals.size}개 매뉴얼 확인 대기 중`
+                      ? `📦 업로드 중: ${chunkProgress.saved}/${chunkProgress.total} 저장됨`
+                      : `선택된 매뉴얼: ${excelConfirmedManuals.size}개 / 전체 ${excelPreviewData.allManuals.length}개`
                     }
                   </span>
                 )}
@@ -3592,41 +3625,51 @@ export default function TemplatesPage() {
                 </button>
                 {excelPreviewData?.allManuals?.length > 0 && (
                   <>
-                    {/* Confirm All Button */}
+                    {/* Select All / Deselect All Button */}
                     <button
                       onClick={() => {
-                        const allIndices = new Set<number>(excelPreviewData.allManuals.map((_: any, idx: number) => idx));
-                        setExcelConfirmedManuals(allIndices);
+                        if (excelConfirmedManuals.size === excelPreviewData.allManuals.length) {
+                          setExcelConfirmedManuals(new Set());
+                        } else {
+                          const allIndices = new Set<number>(excelPreviewData.allManuals.map((_: any, idx: number) => idx));
+                          setExcelConfirmedManuals(allIndices);
+                        }
                       }}
                       className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center"
                     >
                       <CheckCheck className="w-4 h-4 mr-2" />
-                      전체 확인
+                      {excelConfirmedManuals.size === excelPreviewData.allManuals.length ? '전체 해제' : '전체 선택'}
                     </button>
                     
-                    {/* Chunked Upload Button - for large datasets */}
-                    {pendingManuals.length > 10 && (
-                      <button
-                        onClick={handleChunkedUpload}
-                        disabled={isUploading}
-                        className="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-                        청크 업로드 ({pendingManuals.length}개)
-                      </button>
-                    )}
-                    
-                    {/* Import Button - for small datasets or confirmed manuals */}
-                    {pendingManuals.length <= 10 && (
-                      <button
-                        onClick={handleExcelImport}
-                        disabled={isUploading || excelConfirmedManuals.size === 0}
-                        className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                        확인된 {excelConfirmedManuals.size}개 가져오기
-                      </button>
-                    )}
+                    {/* Upload Selected Button */}
+                    <button
+                      onClick={async () => {
+                        if (excelConfirmedManuals.size === 0) {
+                          alert('업로드할 매뉴얼을 선택해주세요.\n\n하단의 매뉴얼 탭을 클릭하여 선택하거나 "전체 선택" 버튼을 사용하세요.');
+                          return;
+                        }
+                        
+                        // Get selected manuals
+                        const selectedManuals = excelPreviewData.allManuals.filter((_: any, idx: number) => 
+                          excelConfirmedManuals.has(idx)
+                        );
+                        
+                        if (selectedManuals.length > 10) {
+                          // Use chunked upload for large selection
+                          setPendingManuals(selectedManuals);
+                          setChunkProgress({ current: 0, total: selectedManuals.length, saved: 0 });
+                          handleChunkedUpload();
+                        } else {
+                          // Direct upload for small selection
+                          handleExcelImport();
+                        }
+                      }}
+                      disabled={isUploading || excelConfirmedManuals.size === 0}
+                      className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      {isUploading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                      선택된 {excelConfirmedManuals.size}개 업로드
+                    </button>
                   </>
                 )}
               </div>
