@@ -254,7 +254,10 @@ export async function GET(
     ws.getCell('B3').value = 'Picture';
     ws.getCell('B3').font = FONTS.pictureLabel;
     ws.getCell('B3').alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getCell('B3').border = { left: mediumBorder, right: thinBorder };
+    // B3:B11 병합셀 테두리 - 모든 행에 적용
+    for (let r = 3; r <= 11; r++) {
+      ws.getCell(`B${r}`).border = { left: mediumBorder, right: thinBorder };
+    }
 
     // Picture area C3:H11 (merged for image)
     ws.mergeCells('C3:H11');
@@ -527,10 +530,16 @@ export async function GET(
     // Set row heights and borders
     for (let r = COOKING_START_ROW; r <= COOKING_END_ROW; r++) {
       ws.getRow(r).height = TEMPLATE_CONFIG.rowHeights.cookingRow;
+      // B 열 왼쪽 굵은 테두리
       ws.getCell(`B${r}`).border = { left: mediumBorder };
+      // D 열 오른쪽 얀은 테두리
       ws.getCell(`D${r}`).border = { right: thinBorder };
+      // J 열 오른쪽 굵은 테두리
       ws.getCell(`J${r}`).border = { right: mediumBorder };
     }
+    
+    // B32:D61 왼쪽 테두리 유지 (병합 후에도)
+    ws.getCell('B32').border = { left: mediumBorder };
     
     // Track which row each process starts at for PNG placement
     const processStartRows: { process: string; pngFilename?: string; startRow: number }[] = [];
@@ -562,14 +571,17 @@ export async function GET(
       // Blank rows are left empty (for process separation)
     }
     
-    // Bottom border for row 61
-    ws.getCell('B61').border = { left: mediumBorder, bottom: mediumBorder };
-    for (let c = 2; c <= 9; c++) {
+    // Bottom border for row 61 - 하단 굵은 테두리
+    for (let c = 2; c <= 10; c++) {
       const cell = ws.getCell(61, c);
-      cell.border = { ...cell.border, bottom: mediumBorder };
+      const isFirst = c === 2;
+      const isLast = c === 10;
+      cell.border = { 
+        left: isFirst ? mediumBorder : undefined,
+        right: isLast ? mediumBorder : (c === 4 ? thinBorder : undefined),
+        bottom: mediumBorder 
+      };
     }
-    ws.getCell('D61').border = { right: thinBorder, bottom: mediumBorder };
-    ws.getCell('J61').border = { right: mediumBorder, bottom: mediumBorder };
     
     // Add PNG icons for each process at their start rows
     // PNG top edge aligns with the start row of each process
@@ -608,15 +620,18 @@ export async function GET(
     ws.getCell('B62').value = 'BBQ CANADA';
     ws.getCell('B62').font = FONTS.small;
     ws.getCell('B62').alignment = { horizontal: 'right' };
-    ws.getCell('B62').border = { left: mediumBorder, right: mediumBorder, bottom: mediumBorder };
     ws.getRow(62).height = TEMPLATE_CONFIG.rowHeights.bbqCanada;
     
-    // B62:J62 하단 테두리 적용
+    // B62:J62 모든 셀에 테두리 적용
     for (let c = 2; c <= 10; c++) {
       const cell = ws.getCell(62, c);
-      cell.border = { ...cell.border, bottom: mediumBorder };
-      if (c === 2) cell.border = { ...cell.border, left: mediumBorder, bottom: mediumBorder };
-      if (c === 10) cell.border = { ...cell.border, right: mediumBorder, bottom: mediumBorder };
+      const isFirst = c === 2;
+      const isLast = c === 10;
+      cell.border = { 
+        left: isFirst ? mediumBorder : undefined,
+        right: isLast ? mediumBorder : undefined,
+        bottom: mediumBorder 
+      };
     }
 
     // Add page breaks
