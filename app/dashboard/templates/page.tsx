@@ -1898,47 +1898,51 @@ export default function TemplatesPage() {
     );
     
     setIsUploading(true);
+    setChunkProgress({ current: 0, total: confirmedManualData.length, saved: 0 });
     
     // Process 1 manual at a time to avoid payload size limits
-    const BATCH_SIZE = 1;
     let totalImported = 0;
     let totalLinked = 0;
     const errors: string[] = [];
     
     try {
-      // Process in batches
-      for (let i = 0; i < confirmedManualData.length; i += BATCH_SIZE) {
-        const batch = confirmedManualData.slice(i, i + BATCH_SIZE);
-        const batchNum = i + 1;
-        const totalCount = confirmedManualData.length;
+      // Process one by one
+      for (let i = 0; i < confirmedManualData.length; i++) {
+        const manual = confirmedManualData[i];
         
-        console.log(`📦 Uploading ${batchNum}/${totalCount}: ${batch[0]?.name || 'unknown'}`);
+        // Update progress
+        setChunkProgress({ current: i + 1, total: confirmedManualData.length, saved: totalImported });
         
-        // Compress image data if too large (limit to 500KB per image)
-        const compressedBatch = batch.map((manual: any) => {
-          const result = { ...manual };
-          if (result.imageData && result.imageData.length > 500000) {
-            console.log(`🗜️ Image too large (${Math.round(result.imageData.length / 1024)}KB), removing...`);
-            delete result.imageData; // Remove oversized images
-          }
-          return result;
-        });
+        console.log(`📦 Uploading ${i + 1}/${confirmedManualData.length}: ${manual?.name || 'unknown'}`);
+        
+        // Compress image data if too large (limit to 300KB per image)
+        const compressedManual = { ...manual };
+        if (compressedManual.imageData && compressedManual.imageData.length > 300000) {
+          console.log(`🗜️ Image too large (${Math.round(compressedManual.imageData.length / 1024)}KB), removing...`);
+          delete compressedManual.imageData;
+        }
         
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 second timeout
+          
           const res = await fetch('/api/manuals/upload', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               importMode: 'import-direct',
-              manuals: compressedBatch
-            })
+              manuals: [compressedManual]
+            }),
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
           
           if (res.ok) {
             const data = await res.json();
             totalImported += data.importedCount || 0;
             totalLinked += data.linkedIngredients || 0;
-            if (data.errors) {
+            if (data.errors && data.errors.length > 0) {
               errors.push(...data.errors);
             }
           } else {
@@ -1949,18 +1953,29 @@ export default function TemplatesPage() {
             } catch {
               errorMsg = `HTTP ${res.status}: ${res.statusText}`;
             }
-            errors.push(`${batch[0]?.name || batchNum}: ${errorMsg}`);
+            console.error(`❌ Failed: ${manual?.name}: ${errorMsg}`);
+            errors.push(`${manual?.name || i + 1}: ${errorMsg}`);
           }
-        } catch (batchError: any) {
-          console.error(`Upload error for ${batch[0]?.name}:`, batchError);
-          errors.push(`${batch[0]?.name || batchNum}: ${batchError?.message || 'Network error'}`);
+        } catch (fetchError: any) {
+          const errorMsg = fetchError?.name === 'AbortError' ? 'Timeout' : (fetchError?.message || 'Network error');
+          console.error(`❌ Error for ${manual?.name}:`, errorMsg);
+          errors.push(`${manual?.name || i + 1}: ${errorMsg}`);
+        }
+        
+        // Small delay between requests to avoid rate limiting
+        if (i < confirmedManualData.length - 1) {
+          await new Promise(r => setTimeout(r, 100));
         }
       }
       
+      // Final progress update
+      setChunkProgress({ current: confirmedManualData.length, total: confirmedManualData.length, saved: totalImported });
+      
       // Show results
+      const linkedInfo = totalLinked > 0 ? `\n🔗 ${totalLinked}개 식재료 자동 링킹됨` : '';
+      const errorInfo = errors.length > 0 ? `\n⚠️ ${errors.length}개 오류 발생` : '';
+      
       if (totalImported > 0) {
-        const linkedInfo = totalLinked > 0 ? `\n🔗 ${totalLinked}개 식재료 자동 링킹됨` : '';
-        const errorInfo = errors.length > 0 ? `\n⚠️ ${errors.length}개 오류 발생` : '';
         alert(`✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${linkedInfo}${errorInfo}`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
@@ -1969,13 +1984,15 @@ export default function TemplatesPage() {
         setExcelPreviewIndex(0);
         fetchData();
       } else {
-        alert(`업로드 실패: ${errors.join(', ') || 'Unknown error'}`);
+        const firstErrors = errors.slice(0, 3).join('\n');
+        alert(`업로드 실패: ${errors.length}개 오류\n\n${firstErrors}${errors.length > 3 ? `\n... 외 ${errors.length - 3}개` : ''}`);
       }
     } catch (error: any) {
       console.error('Excel import error:', error);
-      alert(`가져오기 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}`);
+      alert(`가져오기 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}\n\n저장 완료: ${totalImported}개`);
     } finally {
       setIsUploading(false);
+      setChunkProgress(null);
     }
   };
 
@@ -4076,15 +4093,8 @@ export default function TemplatesPage() {
                           excelConfirmedManuals.has(idx)
                         );
                         
-                        if (selectedManuals.length > 10) {
-                          // Use chunked upload for large selection
-                          setPendingManuals(selectedManuals);
-                          setChunkProgress({ current: 0, total: selectedManuals.length, saved: 0 });
-                          handleChunkedUpload();
-                        } else {
-                          // Direct upload for small selection
-                          handleExcelImport();
-                        }
+                        // Always use handleExcelImport (has batch processing built-in)
+                        handleExcelImport();
                       }}
                       disabled={isUploading || excelConfirmedManuals.size === 0}
                       className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
