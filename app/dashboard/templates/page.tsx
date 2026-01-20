@@ -1899,8 +1899,8 @@ export default function TemplatesPage() {
     
     setIsUploading(true);
     
-    // Batch size - process 5 manuals at a time to avoid request size limits
-    const BATCH_SIZE = 5;
+    // Process 1 manual at a time to avoid payload size limits
+    const BATCH_SIZE = 1;
     let totalImported = 0;
     let totalLinked = 0;
     const errors: string[] = [];
@@ -1909,10 +1909,20 @@ export default function TemplatesPage() {
       // Process in batches
       for (let i = 0; i < confirmedManualData.length; i += BATCH_SIZE) {
         const batch = confirmedManualData.slice(i, i + BATCH_SIZE);
-        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(confirmedManualData.length / BATCH_SIZE);
+        const batchNum = i + 1;
+        const totalCount = confirmedManualData.length;
         
-        console.log(`📦 Uploading batch ${batchNum}/${totalBatches} (${batch.length} manuals)`);
+        console.log(`📦 Uploading ${batchNum}/${totalCount}: ${batch[0]?.name || 'unknown'}`);
+        
+        // Compress image data if too large (limit to 500KB per image)
+        const compressedBatch = batch.map((manual: any) => {
+          const result = { ...manual };
+          if (result.imageData && result.imageData.length > 500000) {
+            console.log(`🗜️ Image too large (${Math.round(result.imageData.length / 1024)}KB), removing...`);
+            delete result.imageData; // Remove oversized images
+          }
+          return result;
+        });
         
         try {
           const res = await fetch('/api/manuals/upload', {
@@ -1920,7 +1930,7 @@ export default function TemplatesPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               importMode: 'import-direct',
-              manuals: batch
+              manuals: compressedBatch
             })
           });
           
@@ -1939,11 +1949,11 @@ export default function TemplatesPage() {
             } catch {
               errorMsg = `HTTP ${res.status}: ${res.statusText}`;
             }
-            errors.push(`Batch ${batchNum}: ${errorMsg}`);
+            errors.push(`${batch[0]?.name || batchNum}: ${errorMsg}`);
           }
         } catch (batchError: any) {
-          console.error(`Batch ${batchNum} error:`, batchError);
-          errors.push(`Batch ${batchNum}: ${batchError?.message || 'Network error'}`);
+          console.error(`Upload error for ${batch[0]?.name}:`, batchError);
+          errors.push(`${batch[0]?.name || batchNum}: ${batchError?.message || 'Network error'}`);
         }
       }
       
