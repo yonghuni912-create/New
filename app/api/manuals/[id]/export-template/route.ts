@@ -508,86 +508,159 @@ export async function GET(
     ws.getRow(31).height = TEMPLATE_CONFIG.rowHeights.cookingSubHeader;
 
     // Rows 32-61: Cooking Method Content (30 rows)
-    // Each cooking step: 3-4 rows with PNG icon in PROCESS column, manual text in MANUAL column
+    // Dynamic row allocation based on manual text length
+    // Process box has thin border, no border between processes
     
-    const ROWS_PER_STEP = 4; // rows per cooking step
     const COOKING_START_ROW = 32;
     const COOKING_END_ROW = 61;
-    const MAX_STEPS = Math.floor((COOKING_END_ROW - COOKING_START_ROW + 1) / ROWS_PER_STEP);
+    const TOTAL_ROWS = COOKING_END_ROW - COOKING_START_ROW + 1; // 30 rows
+    const MIN_ROWS_PER_STEP = 3; // Minimum rows for PNG icon
     
-    // Process PNG icons path - use 'process png' folder in project root
-    const iconBasePath = path.join(process.cwd(), 'process png');
+    // Process PNG icons path - use 'public/process-png' folder
+    const iconBasePath = path.join(process.cwd(), 'public', 'process-png');
     
-    // Set up cooking method rows
+    // Calculate rows needed for each step based on text length
+    const calculateRowsForStep = (text: string): number => {
+      if (!text) return MIN_ROWS_PER_STEP;
+      const lines = text.split('\n').length;
+      // Approximate: 2 lines per row, minimum 3 rows
+      return Math.max(MIN_ROWS_PER_STEP, Math.ceil(lines / 2) + 1);
+    };
+    
+    // Calculate row allocation for all steps
+    const stepRowCounts: number[] = cookingSteps.map(step => 
+      calculateRowsForStep(step.translatedManual || step.manual || '')
+    );
+    const totalNeeded = stepRowCounts.reduce((a, b) => a + b, 0);
+    
+    // Adjust if total exceeds available rows
+    let scaleFactor = 1;
+    if (totalNeeded > TOTAL_ROWS && cookingSteps.length > 0) {
+      scaleFactor = TOTAL_ROWS / totalNeeded;
+    }
+    
+    // Initialize all rows with basic styling (no borders initially)
     for (let r = COOKING_START_ROW; r <= COOKING_END_ROW; r++) {
       ws.getRow(r).height = TEMPLATE_CONFIG.rowHeights.ingredient;
+      // Only outer borders
       ws.getCell(`B${r}`).border = { left: mediumBorder };
-      ws.getCell(`D${r}`).border = { right: thinBorder };
       ws.getCell(`J${r}`).border = { right: mediumBorder };
     }
     
-    // Insert cooking steps with PNG icons
-    for (let stepIdx = 0; stepIdx < Math.min(cookingSteps.length, MAX_STEPS); stepIdx++) {
+    // Insert cooking steps with dynamic row allocation
+    let currentRow = COOKING_START_ROW;
+    
+    for (let stepIdx = 0; stepIdx < cookingSteps.length; stepIdx++) {
       const step = cookingSteps[stepIdx];
-      const startRow = COOKING_START_ROW + (stepIdx * ROWS_PER_STEP);
-      const endRow = startRow + ROWS_PER_STEP - 1;
+      const rowCount = Math.max(MIN_ROWS_PER_STEP, Math.floor(stepRowCounts[stepIdx] * scaleFactor));
+      const startRow = currentRow;
+      const endRow = Math.min(startRow + rowCount - 1, COOKING_END_ROW);
       
-      if (endRow > COOKING_END_ROW) break;
+      if (startRow > COOKING_END_ROW) break;
       
       // Merge cells for this step's PROCESS area (B:D)
-      ws.mergeCells(`B${startRow}:D${endRow}`);
-      ws.getCell(`B${startRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getCell(`B${startRow}`).border = { left: mediumBorder };
-      ws.getCell(`D${endRow}`).border = { right: thinBorder, bottom: thinBorder };
-      
-      // Merge cells for this step's MANUAL area (E:J)
-      ws.mergeCells(`E${startRow}:J${endRow}`);
-      const manualText = step.translatedManual || step.manual || '';
-      ws.getCell(`E${startRow}`).value = manualText;
-      ws.getCell(`E${startRow}`).font = FONTS.content;
-      ws.getCell(`E${startRow}`).alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
-      ws.getCell(`E${startRow}`).border = { left: thinBorder };
-      ws.getCell(`J${endRow}`).border = { right: mediumBorder, bottom: thinBorder };
-      
-      // Insert PNG icon for this process
-      const pngFilename = step.pngFilename || PROCESS_ICONS[step.process];
-      if (pngFilename) {
-        const iconPath = path.join(iconBasePath, pngFilename);
-        if (fs.existsSync(iconPath)) {
-          try {
-            const imageData = fs.readFileSync(iconPath);
-            const base64Image = imageData.toString('base64');
-            const imageId = workbook.addImage({ 
-              base64: base64Image, 
-              extension: 'png' 
-            });
-            // Place PNG in the center of PROCESS cell area
-            ws.addImage(imageId, {
-              tl: { col: 1.3, row: startRow - 1 + 0.3 }, // B column (index 1), adjusted for centering
-              ext: { width: 70, height: 70 }, // PNG size
-            });
-          } catch (imgError) {
-            console.warn(`Could not add process image ${pngFilename}:`, imgError);
-            // Fallback: show process name as text
+      if (endRow >= startRow) {
+        ws.mergeCells(`B${startRow}:D${endRow}`);
+        ws.getCell(`B${startRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+        
+        // PROCESS box border - thin border around the box only
+        // Top border (only for first step or after gap)
+        ws.getCell(`B${startRow}`).border = { 
+          left: mediumBorder, 
+          top: thinBorder 
+        };
+        ws.getCell(`C${startRow}`).border = { top: thinBorder };
+        ws.getCell(`D${startRow}`).border = { top: thinBorder, right: thinBorder };
+        
+        // Side borders for middle rows
+        for (let r = startRow + 1; r < endRow; r++) {
+          ws.getCell(`B${r}`).border = { left: mediumBorder };
+          ws.getCell(`D${r}`).border = { right: thinBorder };
+        }
+        
+        // Bottom border
+        if (endRow > startRow) {
+          ws.getCell(`B${endRow}`).border = { left: mediumBorder, bottom: thinBorder };
+          ws.getCell(`C${endRow}`).border = { bottom: thinBorder };
+          ws.getCell(`D${endRow}`).border = { right: thinBorder, bottom: thinBorder };
+        } else {
+          // Single row step
+          ws.getCell(`B${startRow}`).border = { 
+            left: mediumBorder, 
+            top: thinBorder, 
+            bottom: thinBorder 
+          };
+          ws.getCell(`C${startRow}`).border = { top: thinBorder, bottom: thinBorder };
+          ws.getCell(`D${startRow}`).border = { 
+            top: thinBorder, 
+            right: thinBorder, 
+            bottom: thinBorder 
+          };
+        }
+        
+        // Merge cells for this step's MANUAL area (E:J)
+        ws.mergeCells(`E${startRow}:J${endRow}`);
+        const manualText = step.translatedManual || step.manual || '';
+        ws.getCell(`E${startRow}`).value = manualText;
+        ws.getCell(`E${startRow}`).font = FONTS.content;
+        ws.getCell(`E${startRow}`).alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+        // MANUAL area - no left border (it's the PROCESS right border), only outer right
+        ws.getCell(`J${startRow}`).border = { right: mediumBorder };
+        for (let r = startRow + 1; r <= endRow; r++) {
+          ws.getCell(`J${r}`).border = { right: mediumBorder };
+        }
+        
+        // Insert PNG icon for this process
+        const pngFilename = step.pngFilename || PROCESS_ICONS[step.process];
+        if (pngFilename) {
+          const iconPath = path.join(iconBasePath, pngFilename);
+          if (fs.existsSync(iconPath)) {
+            try {
+              const imageData = fs.readFileSync(iconPath);
+              const base64Image = imageData.toString('base64');
+              const imageId = workbook.addImage({ 
+                base64: base64Image, 
+                extension: 'png' 
+              });
+              // Place PNG centered in PROCESS cell area
+              const rowMid = startRow + Math.floor((endRow - startRow) / 2);
+              ws.addImage(imageId, {
+                tl: { col: 1.2, row: rowMid - 1 + 0.1 },
+                ext: { width: 75, height: 60 },
+              });
+            } catch (imgError) {
+              console.warn(`Could not add process image ${pngFilename}:`, imgError);
+              ws.getCell(`B${startRow}`).value = step.process;
+              ws.getCell(`B${startRow}`).font = FONTS.content;
+            }
+          } else {
             ws.getCell(`B${startRow}`).value = step.process;
             ws.getCell(`B${startRow}`).font = FONTS.content;
           }
         } else {
-          // File not found, show process name as text
           ws.getCell(`B${startRow}`).value = step.process;
           ws.getCell(`B${startRow}`).font = FONTS.content;
         }
-      } else {
-        // No PNG mapping, show process name as text
-        ws.getCell(`B${startRow}`).value = step.process;
-        ws.getCell(`B${startRow}`).font = FONTS.content;
       }
+      
+      currentRow = endRow + 1;
     }
     
-    // Bottom border for row 61
+    // Fill remaining empty rows with only outer borders
+    for (let r = currentRow; r <= COOKING_END_ROW; r++) {
+      ws.getCell(`B${r}`).border = { left: mediumBorder };
+      ws.getCell(`J${r}`).border = { right: mediumBorder };
+    }
+    
+    // Bottom border for entire section (row 61)
     ws.getCell('B61').border = { left: mediumBorder, bottom: mediumBorder };
-    ws.getCell('D61').border = { right: thinBorder, bottom: mediumBorder };
-    ws.getCell('E61').border = { left: thinBorder, bottom: mediumBorder };
+    ws.getCell('C61').border = { bottom: mediumBorder };
+    ws.getCell('D61').border = { bottom: mediumBorder };
+    ws.getCell('E61').border = { bottom: mediumBorder };
+    ws.getCell('F61').border = { bottom: mediumBorder };
+    ws.getCell('G61').border = { bottom: mediumBorder };
+    ws.getCell('H61').border = { bottom: mediumBorder };
+    ws.getCell('I61').border = { bottom: mediumBorder };
     ws.getCell('J61').border = { right: mediumBorder, bottom: mediumBorder };
 
     // Row 62: BBQ CANADA

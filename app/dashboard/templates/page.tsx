@@ -3440,12 +3440,12 @@ export default function TemplatesPage() {
                                       <div className="w-32 px-2 py-2 border-r border-gray-200 bg-gray-50 flex flex-col items-center justify-center">
                                         {step.pngFilename ? (
                                           <img 
-                                            src={`/process-icons/${encodeURIComponent(step.pngFilename)}`}
+                                            src={`/process-png/${encodeURIComponent(step.pngFilename)}`}
                                             alt={step.process}
                                             className="w-16 h-16 object-contain mb-1"
                                             onError={(e) => {
-                                              // 이미지 로드 실패 시 대체 이미지
-                                              (e.target as HTMLImageElement).src = '/process-icons/generic_process.png';
+                                              // 이미지 로드 실패 시 프로세스명 텍스트로 대체
+                                              (e.target as HTMLImageElement).style.display = 'none';
                                             }}
                                           />
                                         ) : (
