@@ -16,8 +16,8 @@ async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, 
   try {
     const zip = await JSZip.loadAsync(buffer);
     
-    // Get all image files from xl/media/
-    const mediaFiles: { name: string; data: string }[] = [];
+    // 1. Get all image files from xl/media/ (imageN.xxx)
+    const mediaFiles = new Map<string, string>(); // image1.png -> base64 data URL
     const mediaFolder = zip.folder('xl/media');
     
     if (mediaFolder) {
@@ -29,10 +29,8 @@ async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, 
             file.async('base64').then(data => {
               const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
               const mimeType = ext === 'jpg' ? 'jpeg' : ext;
-              mediaFiles.push({
-                name: relativePath,
-                data: `data:image/${mimeType};base64,${data}`
-              });
+              // Key: image1.png, image2.jpeg, etc.
+              mediaFiles.set(relativePath, `data:image/${mimeType};base64,${data}`);
             })
           );
         }
@@ -41,26 +39,85 @@ async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, 
       await Promise.all(promises);
     }
     
-    console.log(`📷 Client: Found ${mediaFiles.length} images in Excel file`);
+    console.log(`📷 Client: Found ${mediaFiles.size} images in Excel file:`, Array.from(mediaFiles.keys()));
     
-    // Get workbook.xml to find sheet order and assign images
-    if (mediaFiles.length > 0) {
-      const workbookFile = zip.file('xl/workbook.xml');
-      if (workbookFile) {
-        const workbookContent = await workbookFile.async('string');
-        const sheetMatches = workbookContent.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*sheetId="(\d+)"/g);
-        
-        let imageIndex = 0;
-        for (const match of sheetMatches) {
-          const sheetName = match[1];
-          if (imageIndex < mediaFiles.length) {
-            sheetImages.set(sheetName, mediaFiles[imageIndex].data);
-            console.log(`📷 Assigned image to sheet: ${sheetName}`);
-            imageIndex++;
-          }
+    if (mediaFiles.size === 0) return sheetImages;
+    
+    // 2. Parse workbook.xml.rels to find rId -> sheet file mapping
+    const workbookRelsContent = await zip.file('xl/_rels/workbook.xml.rels')?.async('text');
+    const rIdToSheetFile = new Map<string, string>(); // rId1 -> sheet1.xml
+    
+    if (workbookRelsContent) {
+      // <Relationship Id="rId1" Target="worksheets/sheet1.xml" .../>
+      const relPattern = /<Relationship[^>]+Id="(rId\d+)"[^>]+Target="worksheets\/(sheet\d+\.xml)"/g;
+      let match;
+      while ((match = relPattern.exec(workbookRelsContent)) !== null) {
+        rIdToSheetFile.set(match[1], match[2]);
+      }
+      // Alternative pattern (Target before Id)
+      const relPattern2 = /<Relationship[^>]+Target="worksheets\/(sheet\d+\.xml)"[^>]+Id="(rId\d+)"/g;
+      while ((match = relPattern2.exec(workbookRelsContent)) !== null) {
+        rIdToSheetFile.set(match[2], match[1]);
+      }
+    }
+    
+    // 3. Parse workbook.xml to get sheet display order and their rIds
+    const workbookContent = await zip.file('xl/workbook.xml')?.async('text');
+    const sheetNameToFile = new Map<string, string>(); // "Pa-Dak (Boneless)" -> sheet1.xml
+    
+    if (workbookContent) {
+      // <sheet name="Pa-Dak (Boneless)" sheetId="1" r:id="rId1"/>
+      const sheetPattern = /<sheet[^>]+name="([^"]+)"[^>]+r:id="(rId\d+)"[^>]*\/?>/g;
+      let match;
+      while ((match = sheetPattern.exec(workbookContent)) !== null) {
+        const sheetName = match[1];
+        const rId = match[2];
+        const sheetFile = rIdToSheetFile.get(rId);
+        if (sheetFile) {
+          sheetNameToFile.set(sheetName, sheetFile);
         }
       }
     }
+    
+    console.log(`📷 Sheet name to file mapping:`, Object.fromEntries(sheetNameToFile));
+    
+    // 4. For each sheet, find which drawing it uses and which image that drawing references
+    for (const [sheetName, sheetFile] of sheetNameToFile) {
+      // sheetFile = "sheet1.xml" -> check xl/worksheets/_rels/sheet1.xml.rels
+      const sheetRelsPath = `xl/worksheets/_rels/${sheetFile}.rels`;
+      const sheetRelsContent = await zip.file(sheetRelsPath)?.async('text');
+      
+      if (!sheetRelsContent) continue;
+      
+      // Find drawing reference: Target="../drawings/drawing1.xml"
+      const drawingMatch = sheetRelsContent.match(/Target="\.\.\/drawings\/(drawing\d+\.xml)"/);
+      if (!drawingMatch) continue;
+      
+      const drawingFile = drawingMatch[1]; // drawing1.xml
+      
+      // 5. Check the drawing's rels file for image reference
+      const drawingRelsPath = `xl/drawings/_rels/${drawingFile}.rels`;
+      const drawingRelsContent = await zip.file(drawingRelsPath)?.async('text');
+      
+      if (!drawingRelsContent) continue;
+      
+      // Find image reference: Target="../media/image1.png"
+      // Usually the first image in a sheet is the product photo
+      const imageMatches = drawingRelsContent.matchAll(/Target="\.\.\/media\/(image\d+\.[a-z]+)"/gi);
+      
+      for (const imgMatch of imageMatches) {
+        const imageFileName = imgMatch[1]; // image1.png
+        const imageData = mediaFiles.get(imageFileName);
+        
+        if (imageData) {
+          // Assign the first image found to this sheet
+          sheetImages.set(sheetName, imageData);
+          console.log(`📷 Assigned ${imageFileName} to sheet: ${sheetName}`);
+          break; // Use first image only (product photo, not process icons)
+        }
+      }
+    }
+    
   } catch (error) {
     console.error('❌ Client: Error extracting images:', error);
   }
