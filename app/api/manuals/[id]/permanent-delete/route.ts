@@ -27,9 +27,14 @@ export async function DELETE(
 
     const currentUserRole = (session.user as any)?.role;
     const currentUserId = (session.user as any)?.id;
+    const currentUserEmail = (session.user as any)?.email;
 
-    // Only users with canPermanentDelete permission can permanently delete
-    if (!hasPermission(currentUserRole, 'canPermanentDelete')) {
+    // Check if user can permanently delete by role OR by special email
+    const canDelete = hasPermission(currentUserRole, 'canPermanentDelete') || 
+      currentUserEmail === 'admin@bbq.com' || 
+      currentUserEmail === 'kun.lee@bbqchickenca.com';
+
+    if (!canDelete) {
       return NextResponse.json(
         { error: 'Only Master Admin can permanently delete manuals' },
         { status: 403 }

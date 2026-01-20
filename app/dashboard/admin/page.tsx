@@ -58,14 +58,21 @@ export default async function AdminPage() {
     redirect('/login');
   }
 
-  const user = session.user as { id: string; role: string };
+  const user = session.user as { id: string; role: string; email?: string };
 
   if (!hasPermission(user.role, 'canManageUsers')) {
     redirect('/dashboard');
   }
 
-  const currentUserIsMasterAdmin = isMasterAdmin(user.role);
-  const assignableRoles = getAssignableRoles(user.role);
+  // Check if current user is master admin by role OR by special email
+  const currentUserIsMasterAdmin = isMasterAdmin(user.role) || 
+    user.email === 'admin@bbq.com' || 
+    user.email === 'kun.lee@bbqchickenca.com';
+  
+  // If user is master by email but not by role, get master-level assignable roles
+  const assignableRoles = currentUserIsMasterAdmin 
+    ? getAssignableRoles('MASTER_ADMIN') 
+    : getAssignableRoles(user.role);
 
   const [users, countries] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: 'desc' } }),

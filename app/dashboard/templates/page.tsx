@@ -2667,7 +2667,7 @@ export default function TemplatesPage() {
                       >
                         <RefreshCw className="w-4 h-4 mr-2" /> 선택 복구
                       </button>
-                      {isMasterAdmin && (
+                      {isMaster && (
                         <button
                           onClick={handleBulkPermanentDelete}
                           disabled={selectedManualIds.size === 0}
@@ -3534,8 +3534,7 @@ export default function TemplatesPage() {
                                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                 }`}
                               >
-                                <Check className="w-4 h-4 mr-2" />
-                                {isConfirmed ? '✓ 선택됨' : '업로드 선택'}
+                                {isConfirmed ? '선택됨' : '업로드 선택'}
                               </button>
                             </div>
                           </div>

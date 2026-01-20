@@ -27,6 +27,12 @@ export async function PATCH(
 
     const currentUserRole = (session.user as any)?.role;
     const currentUserId = (session.user as any)?.id;
+    const currentUserEmail = (session.user as any)?.email;
+
+    // Check if user is master admin by role OR by special email
+    const isUserMasterAdmin = isMasterAdmin(currentUserRole) || 
+      currentUserEmail === 'admin@bbq.com' || 
+      currentUserEmail === 'kun.lee@bbqchickenca.com';
 
     if (!hasPermission(currentUserRole, 'canManageUsers')) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
@@ -57,7 +63,7 @@ export async function PATCH(
     const targetUserData = targetUser.rows[0];
 
     // Prevent modifying MASTER_ADMIN users (only MASTER_ADMIN can do it)
-    if (targetUserData.role === 'MASTER_ADMIN' && !isMasterAdmin(currentUserRole)) {
+    if (targetUserData.role === 'MASTER_ADMIN' && !isUserMasterAdmin) {
       return NextResponse.json(
         { error: 'Cannot modify Master Admin user' },
         { status: 403 }
@@ -65,7 +71,7 @@ export async function PATCH(
     }
 
     // Prevent self-demotion for MASTER_ADMIN
-    if (targetUserId === currentUserId && isMasterAdmin(currentUserRole) && newRole !== 'MASTER_ADMIN') {
+    if (targetUserId === currentUserId && isUserMasterAdmin && newRole !== 'MASTER_ADMIN') {
       return NextResponse.json(
         { error: 'Master Admin cannot demote themselves' },
         { status: 403 }
@@ -73,9 +79,11 @@ export async function PATCH(
     }
 
     // Check if the new role can be assigned by current user
-    const assignableRoles = getAssignableRoles(currentUserRole);
+    // If user is master by email, use master-level assignable roles
+    const effectiveRole = isUserMasterAdmin ? 'MASTER_ADMIN' : currentUserRole;
+    const assignableRoles = getAssignableRoles(effectiveRole);
     const canAssignRole = assignableRoles.some(r => r.value === newRole) || 
-                          (isMasterAdmin(currentUserRole) && newRole === 'MASTER_ADMIN');
+                          (isUserMasterAdmin && newRole === 'MASTER_ADMIN');
 
     if (!canAssignRole) {
       return NextResponse.json(
