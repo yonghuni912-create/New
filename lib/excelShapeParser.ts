@@ -32,8 +32,45 @@ export async function extractShapeTextsFromExcel(
   const zip = await JSZip.loadAsync(fileBuffer);
   const shapesBySheet = new Map<number, ShapeTextInfo[]>();
   
-  // 시트-드로잉 매핑 찾기 (xl/worksheets/_rels/sheetN.xml.rels)
-  const sheetDrawingMap = new Map<number, number>(); // sheetIndex -> drawingIndex
+  // 1. workbook.xml.rels에서 rId와 실제 sheet 파일 매핑 찾기
+  const workbookRelsContent = await zip.file('xl/_rels/workbook.xml.rels')?.async('text');
+  const rIdToSheetFile = new Map<string, string>(); // rId1 -> sheet1.xml
+  
+  if (workbookRelsContent) {
+    const relPattern = /<Relationship[^>]+Id="(rId\d+)"[^>]+Target="worksheets\/(sheet\d+\.xml)"/g;
+    let relMatch;
+    while ((relMatch = relPattern.exec(workbookRelsContent)) !== null) {
+      rIdToSheetFile.set(relMatch[1], relMatch[2]);
+    }
+    // Alternative pattern (Target before Id)
+    const relPattern2 = /<Relationship[^>]+Target="worksheets\/(sheet\d+\.xml)"[^>]+Id="(rId\d+)"/g;
+    while ((relMatch = relPattern2.exec(workbookRelsContent)) !== null) {
+      rIdToSheetFile.set(relMatch[2], relMatch[1]);
+    }
+  }
+  
+  // 2. workbook.xml에서 시트 표시 순서와 rId 매핑 찾기
+  const workbookContent = await zip.file('xl/workbook.xml')?.async('text');
+  const displayOrderToSheetFile = new Map<number, string>(); // 1-based display order -> sheet1.xml
+  
+  if (workbookContent) {
+    // <sheet name="Menu Name" sheetId="1" r:id="rId1"/>
+    const sheetPattern = /<sheet[^>]+name="[^"]*"[^>]+r:id="(rId\d+)"[^>]*\/>/g;
+    let sheetMatch;
+    let displayOrder = 1;
+    
+    while ((sheetMatch = sheetPattern.exec(workbookContent)) !== null) {
+      const rId = sheetMatch[1];
+      const sheetFile = rIdToSheetFile.get(rId);
+      if (sheetFile) {
+        displayOrderToSheetFile.set(displayOrder, sheetFile);
+      }
+      displayOrder++;
+    }
+  }
+  
+  // 3. sheet 파일에서 drawing 매핑 찾기 (sheetN.xml -> drawingN.xml)
+  const sheetFileToDrawingIndex = new Map<string, number>(); // sheet1.xml -> 1
   
   const relsFiles = Object.keys(zip.files).filter(
     name => name.startsWith('xl/worksheets/_rels/sheet') && name.endsWith('.xml.rels')
@@ -43,7 +80,7 @@ export async function extractShapeTextsFromExcel(
     const sheetMatch = relsPath.match(/sheet(\d+)\.xml\.rels$/);
     if (!sheetMatch) continue;
     
-    const sheetIndex = parseInt(sheetMatch[1], 10);
+    const sheetFileName = `sheet${sheetMatch[1]}.xml`;
     const relsContent = await zip.file(relsPath)?.async('text');
     
     if (relsContent) {
@@ -51,12 +88,12 @@ export async function extractShapeTextsFromExcel(
       const drawingMatch = relsContent.match(/Target="\.\.\/drawings\/drawing(\d+)\.xml"/);
       if (drawingMatch) {
         const drawingIndex = parseInt(drawingMatch[1], 10);
-        sheetDrawingMap.set(sheetIndex, drawingIndex);
+        sheetFileToDrawingIndex.set(sheetFileName, drawingIndex);
       }
     }
   }
   
-  // 각 drawing 파일에서 도형 텍스트 추출
+  // 4. 각 drawing 파일에서 도형 텍스트 추출
   const drawingFiles = Object.keys(zip.files).filter(
     name => name.startsWith('xl/drawings/drawing') && name.endsWith('.xml') && !name.includes('_rels')
   );
@@ -70,19 +107,24 @@ export async function extractShapeTextsFromExcel(
     
     if (!drawingContent) continue;
     
-    // 이 drawing에 해당하는 sheet 찾기
-    let sheetIndex = drawingIndex; // 기본값
-    for (const [sIdx, dIdx] of sheetDrawingMap.entries()) {
+    // 이 drawing에 해당하는 표시 순서(display order) 찾기
+    let displayOrder = drawingIndex; // 기본값 (fallback)
+    
+    // sheetFile -> displayOrder 역매핑
+    for (const [order, sheetFile] of displayOrderToSheetFile.entries()) {
+      const dIdx = sheetFileToDrawingIndex.get(sheetFile);
       if (dIdx === drawingIndex) {
-        sheetIndex = sIdx;
+        displayOrder = order;
         break;
       }
     }
     
-    const shapes = parseDrawingXml(drawingContent, sheetIndex);
+    const shapes = parseDrawingXml(drawingContent, displayOrder);
     
     if (shapes.length > 0) {
-      shapesBySheet.set(sheetIndex, shapes);
+      shapesBySheet.set(displayOrder, shapes);
+      console.log(`📐 Sheet display order ${displayOrder}: Found ${shapes.length} shapes with text:`, 
+        shapes.map(s => s.text).slice(0, 5));
     }
   }
   
@@ -91,6 +133,7 @@ export async function extractShapeTextsFromExcel(
 
 /**
  * Drawing XML에서 도형 텍스트와 위치 파싱
+ * 일반 도형(sp), 그룹 도형(grpSp), 커스텀 도형(custSp) 모두 처리
  */
 function parseDrawingXml(xmlContent: string, sheetIndex: number): ShapeTextInfo[] {
   const shapes: ShapeTextInfo[] = [];
@@ -113,10 +156,14 @@ function parseDrawingXml(xmlContent: string, sheetIndex: number): ShapeTextInfo[
     const row = fromRowMatch ? parseInt(fromRowMatch[1], 10) : undefined;
     const col = fromColMatch ? parseInt(fromColMatch[1], 10) : undefined;
     
-    // 도형인지 확인 (sp 태그 존재)
-    if (!anchorContent.includes('<xdr:sp>')) continue;
+    // 도형 존재 확인 - sp, grpSp, custSp 모두 허용
+    // (이미지나 차트가 아닌 경우에만 텍스트 추출)
+    const hasShape = anchorContent.includes('<xdr:sp>') || 
+                     anchorContent.includes('<xdr:grpSp>') ||
+                     anchorContent.includes('<xdr:cxnSp>') ||
+                     anchorContent.includes('<xdr:nvSpPr>');
     
-    // 텍스트 추출 - <a:t> 태그들
+    // 텍스트 추출 - <a:t> 태그들 (도형 유무와 관계없이 추출 시도)
     const textPattern = /<a:t>([^<]*)<\/a:t>/g;
     let textMatch;
     const texts: string[] = [];
@@ -128,7 +175,7 @@ function parseDrawingXml(xmlContent: string, sheetIndex: number): ShapeTextInfo[
       }
     }
     
-    // 텍스트가 있는 도형만 추가
+    // 텍스트가 있는 경우 추가
     if (texts.length > 0) {
       // 여러 <a:t> 태그가 있으면 합치기 (줄바꿈으로 분리된 경우)
       const fullText = texts.join(' ').trim();
@@ -143,8 +190,54 @@ function parseDrawingXml(xmlContent: string, sheetIndex: number): ShapeTextInfo[
     }
   }
   
-  // 행 기준으로 정렬
-  shapes.sort((a, b) => (a.row ?? 0) - (b.row ?? 0));
+  // 그룹 도형 내부의 텍스트도 별도로 추출 (앵커 외부에 있을 수 있음)
+  // 독립적인 <xdr:grpSp> 블록 처리
+  const grpSpPattern = /<xdr:grpSp>([\s\S]*?)<\/xdr:grpSp>/g;
+  let grpMatch;
+  
+  while ((grpMatch = grpSpPattern.exec(xmlContent)) !== null) {
+    const grpContent = grpMatch[1];
+    
+    // 그룹 내 개별 sp 도형에서 텍스트 추출
+    const spPattern = /<xdr:sp>([\s\S]*?)<\/xdr:sp>/g;
+    let spMatch;
+    
+    while ((spMatch = spPattern.exec(grpContent)) !== null) {
+      const spContent = spMatch[1];
+      
+      const textPattern = /<a:t>([^<]*)<\/a:t>/g;
+      let textMatch;
+      const texts: string[] = [];
+      
+      while ((textMatch = textPattern.exec(spContent)) !== null) {
+        const text = textMatch[1].trim();
+        if (text) {
+          texts.push(text);
+        }
+      }
+      
+      if (texts.length > 0) {
+        const fullText = texts.join(' ').trim();
+        // 중복 체크
+        if (fullText && !shapes.some(s => s.text === fullText)) {
+          shapes.push({
+            text: fullText,
+            row: undefined, // 그룹 내부는 위치 정보 없음
+            col: undefined,
+            sheetIndex
+          });
+        }
+      }
+    }
+  }
+  
+  // 행 기준으로 정렬 (row가 없는 것은 뒤로)
+  shapes.sort((a, b) => {
+    if (a.row === undefined && b.row === undefined) return 0;
+    if (a.row === undefined) return 1;
+    if (b.row === undefined) return -1;
+    return a.row - b.row;
+  });
   
   return shapes;
 }
