@@ -45,10 +45,10 @@ const TEMPLATE_CONFIG = {
     maxHeightPx: 257, // 6.8cm at 96dpi ≈ 257px
     maxWidthPx: 416,  // 11cm at 96dpi ≈ 416px
   },
-  // PNG icon size (proper size per user feedback)
+  // PNG icon size - 원본 파일 크기 (높이 1.5cm, 너비 4.22cm)
   pngIcon: {
-    widthPx: 120,
-    heightPx: 80,
+    widthPx: 160,  // 4.22cm at 96dpi ≈ 160px
+    heightPx: 57,  // 1.5cm at 96dpi ≈ 57px
   },
 };
 
@@ -254,7 +254,7 @@ export async function GET(
     ws.getCell('B3').value = 'Picture';
     ws.getCell('B3').font = FONTS.pictureLabel;
     ws.getCell('B3').alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getCell('B3').border = { left: mediumBorder };
+    ws.getCell('B3').border = { left: mediumBorder, right: thinBorder };
 
     // Picture area C3:H11 (merged for image)
     ws.mergeCells('C3:H11');
@@ -309,10 +309,10 @@ export async function GET(
             extension: imageExtension
           });
           
-          // C5:H11 position - centered
+          // C3:H11 position - 더 오른쪽 위로 조정
           // Max: 11cm width, 6.8cm height, maintain aspect ratio
           ws.addImage(imageId, {
-            tl: { col: 2.1, row: 4.1 }, // C5 position (0-indexed: col 2, row 4)
+            tl: { col: 2.3, row: 2.2 }, // C3 position, slightly right and up
             ext: { 
               width: TEMPLATE_CONFIG.picture.maxWidthPx, 
               height: TEMPLATE_CONFIG.picture.maxHeightPx 
@@ -608,8 +608,16 @@ export async function GET(
     ws.getCell('B62').value = 'BBQ CANADA';
     ws.getCell('B62').font = FONTS.small;
     ws.getCell('B62').alignment = { horizontal: 'right' };
-    ws.getCell('B62').border = { left: mediumBorder, right: mediumBorder };
+    ws.getCell('B62').border = { left: mediumBorder, right: mediumBorder, bottom: mediumBorder };
     ws.getRow(62).height = TEMPLATE_CONFIG.rowHeights.bbqCanada;
+    
+    // B62:J62 하단 테두리 적용
+    for (let c = 2; c <= 10; c++) {
+      const cell = ws.getCell(62, c);
+      cell.border = { ...cell.border, bottom: mediumBorder };
+      if (c === 2) cell.border = { ...cell.border, left: mediumBorder, bottom: mediumBorder };
+      if (c === 10) cell.border = { ...cell.border, right: mediumBorder, bottom: mediumBorder };
+    }
 
     // Add page breaks
     ws.getRow(29).addPageBreak();
