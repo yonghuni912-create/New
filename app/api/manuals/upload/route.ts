@@ -41,29 +41,29 @@ interface ParsedManual {
 }
 
 // Extract images from xlsx file (which is actually a ZIP file)
+// Handles both floating images and cell-anchored images
 async function extractImagesFromXlsx(buffer: ArrayBuffer): Promise<Map<string, Map<number, string>>> {
   const sheetImages = new Map<string, Map<number, string>>(); // sheetName -> (imageIndex -> base64)
   
   try {
     const zip = await JSZip.loadAsync(buffer);
     
-    // Get all image files from xl/media/
-    const mediaFiles: { name: string; data: string }[] = [];
+    // Step 1: Get all image files from xl/media/
+    const mediaFiles = new Map<string, string>(); // filename -> base64 data URL
     const mediaFolder = zip.folder('xl/media');
     
     if (mediaFolder) {
       const promises: Promise<void>[] = [];
       
       mediaFolder.forEach((relativePath, file) => {
-        if (!file.dir && /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(relativePath)) {
+        if (!file.dir && /\.(png|jpg|jpeg|gif|webp|bmp|emf|wmf)$/i.test(relativePath)) {
           promises.push(
             file.async('base64').then(data => {
               const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
-              const mimeType = ext === 'jpg' ? 'jpeg' : ext;
-              mediaFiles.push({
-                name: relativePath,
-                data: `data:image/${mimeType};base64,${data}`
-              });
+              let mimeType = ext;
+              if (ext === 'jpg') mimeType = 'jpeg';
+              if (ext === 'emf' || ext === 'wmf') mimeType = 'png'; // Fallback for Windows metafiles
+              mediaFiles.set(relativePath, `data:image/${mimeType};base64,${data}`);
             })
           );
         }
@@ -72,56 +72,97 @@ async function extractImagesFromXlsx(buffer: ArrayBuffer): Promise<Map<string, M
       await Promise.all(promises);
     }
     
-    console.log(`📷 Found ${mediaFiles.length} images in Excel file`);
+    console.log(`📷 Found ${mediaFiles.size} images in Excel file`);
     
-    // Parse drawing relationships to map images to sheets
-    // xl/drawings/_rels/drawing1.xml.rels contains image references
-    const drawingRelsFolder = zip.folder('xl/drawings/_rels');
-    const drawingsFolder = zip.folder('xl/drawings');
+    // Step 2: Get sheet names and their corresponding sheet XML files
+    const workbookFile = zip.file('xl/workbook.xml');
+    const workbookRelsFile = zip.file('xl/_rels/workbook.xml.rels');
     
-    // Get sheet-drawing mappings from xl/worksheets/_rels/
-    const sheetRelsFolder = zip.folder('xl/worksheets/_rels');
-    const sheetToDrawing = new Map<string, string>(); // sheet1.xml -> drawing1.xml
-    
-    if (sheetRelsFolder) {
-      const sheetRelPromises: Promise<void>[] = [];
-      
-      sheetRelsFolder.forEach((relativePath, file) => {
-        if (relativePath.endsWith('.rels')) {
-          sheetRelPromises.push(
-            file.async('string').then(content => {
-              const sheetName = relativePath.replace('.xml.rels', '.xml');
-              // Find drawing reference
-              const drawingMatch = content.match(/Target="\.\.\/drawings\/(drawing\d+\.xml)"/);
-              if (drawingMatch) {
-                sheetToDrawing.set(sheetName, drawingMatch[1]);
-              }
-            })
-          );
-        }
-      });
-      
-      await Promise.all(sheetRelPromises);
+    if (!workbookFile || !workbookRelsFile) {
+      console.log('⚠️ Missing workbook files');
+      return sheetImages;
     }
     
-    // For simplicity, assign first image found to each sheet in order
-    // (More complex: parse drawing XML to get exact image positions)
-    if (mediaFiles.length > 0) {
-      // Get workbook.xml to find sheet order
-      const workbookFile = zip.file('xl/workbook.xml');
-      if (workbookFile) {
-        const workbookContent = await workbookFile.async('string');
-        const sheetMatches = workbookContent.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*sheetId="(\d+)"/g);
-        
-        let imageIndex = 0;
-        for (const match of sheetMatches) {
-          const sheetName = match[1];
-          if (imageIndex < mediaFiles.length) {
-            const imagesForSheet = new Map<number, string>();
-            imagesForSheet.set(0, mediaFiles[imageIndex].data);
-            sheetImages.set(sheetName, imagesForSheet);
-            imageIndex++;
-          }
+    const workbookContent = await workbookFile.async('string');
+    const workbookRelsContent = await workbookRelsFile.async('string');
+    
+    // Parse sheet names and rIds
+    const sheetInfo: { name: string; rId: string }[] = [];
+    const sheetMatches = workbookContent.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g);
+    for (const match of sheetMatches) {
+      sheetInfo.push({ name: match[1], rId: match[2] });
+    }
+    
+    // Parse rId to file mapping
+    const rIdToFile = new Map<string, string>();
+    const relMatches = workbookRelsContent.matchAll(/Id="([^"]+)"[^>]*Target="([^"]+)"/g);
+    for (const match of relMatches) {
+      rIdToFile.set(match[1], match[2]);
+    }
+    
+    // Step 3: For each sheet, find its drawing and then its images
+    for (const sheet of sheetInfo) {
+      const sheetFile = rIdToFile.get(sheet.rId);
+      if (!sheetFile) continue;
+      
+      // Get the sheet's relationship file (e.g., xl/worksheets/_rels/sheet1.xml.rels)
+      const sheetPath = sheetFile.startsWith('/') ? sheetFile.slice(1) : `xl/${sheetFile}`;
+      const sheetRelsPath = sheetPath.replace('worksheets/', 'worksheets/_rels/').replace('.xml', '.xml.rels');
+      const sheetRelsFile = zip.file(sheetRelsPath);
+      
+      if (!sheetRelsFile) continue;
+      
+      const sheetRelsContent = await sheetRelsFile.async('string');
+      
+      // Find drawing reference
+      const drawingMatch = sheetRelsContent.match(/Target="([^"]*drawing[^"]*\.xml)"/i);
+      if (!drawingMatch) continue;
+      
+      const drawingPath = drawingMatch[1].startsWith('..') 
+        ? `xl/drawings/${drawingMatch[1].replace('../drawings/', '')}`
+        : `xl/drawings/${drawingMatch[1]}`;
+      
+      // Get drawing relationships file
+      const drawingFilename = drawingPath.split('/').pop() || '';
+      const drawingRelsPath = `xl/drawings/_rels/${drawingFilename}.rels`;
+      const drawingRelsFile = zip.file(drawingRelsPath);
+      
+      if (!drawingRelsFile) continue;
+      
+      const drawingRelsContent = await drawingRelsFile.async('string');
+      
+      // Find all image references in the drawing relationships
+      const imageRelMatches = drawingRelsContent.matchAll(/Target="([^"]*\/media\/([^"]+))"/g);
+      const imagesForSheet = new Map<number, string>();
+      let imageIdx = 0;
+      
+      for (const imgMatch of imageRelMatches) {
+        const imageName = imgMatch[2]; // e.g., "image1.png"
+        const imageData = mediaFiles.get(imageName);
+        if (imageData) {
+          imagesForSheet.set(imageIdx, imageData);
+          imageIdx++;
+        }
+      }
+      
+      if (imagesForSheet.size > 0) {
+        sheetImages.set(sheet.name, imagesForSheet);
+        console.log(`📷 Sheet "${sheet.name}": ${imagesForSheet.size} image(s)`);
+      }
+    }
+    
+    // Step 4: Fallback - if no images were mapped but media exists, try direct assignment
+    if (sheetImages.size === 0 && mediaFiles.size > 0) {
+      console.log('⚠️ Using fallback image assignment');
+      const mediaArray = Array.from(mediaFiles.values());
+      let imageIndex = 0;
+      
+      for (const sheet of sheetInfo) {
+        if (imageIndex < mediaArray.length) {
+          const imagesForSheet = new Map<number, string>();
+          imagesForSheet.set(0, mediaArray[imageIndex]);
+          sheetImages.set(sheet.name, imagesForSheet);
+          imageIndex++;
         }
       }
     }
@@ -582,19 +623,43 @@ function parseManualSheet(sheetName: string, data: any[][]): ParsedManual | null
 
 // Handle direct import from confirmed preview data
 // Auto-link ingredients to master ingredients using fuzzy matching
-async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames: string[]): Promise<Map<string, { id: string; similarity: number }>> {
-  const linkMap = new Map<string, { id: string; similarity: number }>();
+async function autoLinkIngredients(
+  db: ReturnType<typeof getDb>, 
+  ingredientNames: string[], 
+  priceTemplateId?: string
+): Promise<Map<string, { id: string; similarity: number; unitPrice?: number; baseQuantity?: number }>> {
+  const linkMap = new Map<string, { id: string; similarity: number; unitPrice?: number; baseQuantity?: number }>();
   
   if (ingredientNames.length === 0) return linkMap;
   
   try {
-    // Fetch all master ingredients
-    const mastersResult = await db.execute({
-      sql: `SELECT id, englishName, koreanName FROM IngredientMaster`,
-      args: [],
-    });
+    let masters: any[];
     
-    const masters = mastersResult.rows;
+    if (priceTemplateId) {
+      // 국가별 템플릿이 지정된 경우: 해당 템플릿의 PriceTemplateItem과 매칭
+      console.log(`🌍 Linking with country template: ${priceTemplateId}`);
+      const result = await db.execute({
+        sql: `SELECT pti.ingredientMasterId as id, 
+                     COALESCE(pti.localEnglishName, im.englishName) as englishName, 
+                     COALESCE(pti.localKoreanName, im.koreanName) as koreanName,
+                     pti.unitPrice,
+                     COALESCE(pti.localQuantity, im.quantity) as baseQuantity
+              FROM PriceTemplateItem pti
+              JOIN IngredientMaster im ON pti.ingredientMasterId = im.id
+              WHERE pti.priceTemplateId = ?`,
+        args: [priceTemplateId],
+      });
+      masters = result.rows;
+      console.log(`📦 Found ${masters.length} items in template`);
+    } else {
+      // 마스터 업로드: IngredientMaster 전체와 매칭
+      console.log(`📋 Linking with master ingredients`);
+      const result = await db.execute({
+        sql: `SELECT id, englishName, koreanName, quantity as baseQuantity FROM IngredientMaster`,
+        args: [],
+      });
+      masters = result.rows;
+    }
     
     // Normalize function
     const normalize = (name: string): string => {
@@ -636,7 +701,7 @@ async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames
     for (const inputName of ingredientNames) {
       if (!inputName) continue;
       
-      let bestMatch: { id: string; similarity: number } | null = null;
+      let bestMatch: { id: string; similarity: number; unitPrice?: number; baseQuantity?: number } | null = null;
       
       for (const master of masters) {
         const engSim = similarity(inputName, master.englishName as string || '');
@@ -644,7 +709,12 @@ async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames
         const maxSim = Math.max(engSim, korSim);
         
         if (maxSim >= 0.6 && (!bestMatch || maxSim > bestMatch.similarity)) {
-          bestMatch = { id: master.id as string, similarity: maxSim };
+          bestMatch = { 
+            id: master.id as string, 
+            similarity: maxSim,
+            unitPrice: master.unitPrice as number || undefined,
+            baseQuantity: master.baseQuantity as number || undefined
+          };
         }
       }
       
@@ -700,32 +770,13 @@ async function handleDirectImport(manuals: ParsedManual[], priceTemplateId?: str
     }
   }
   
-  // Auto-link ingredients to master
-  const ingredientLinks = await autoLinkIngredients(db, Array.from(allIngredientNames));
+  // Auto-link ingredients - 국가 템플릿이면 해당 템플릿 아이템과 매칭, 아니면 마스터와 매칭
+  const ingredientLinks = await autoLinkIngredients(
+    db, 
+    Array.from(allIngredientNames),
+    isCountryUpload ? priceTemplateId : undefined
+  );
   const linkedCount = ingredientLinks.size;
-  
-  // If country upload, also fetch price template items for pricing
-  let priceTemplateItems: Map<string, { unitPrice: number; baseQuantity: number }> = new Map();
-  if (isCountryUpload) {
-    try {
-      const priceResult = await db.execute({
-        sql: `SELECT pti.ingredientMasterId, pti.unitPrice, im.quantity as baseQuantity
-              FROM PriceTemplateItem pti
-              JOIN IngredientMaster im ON pti.ingredientMasterId = im.id
-              WHERE pti.priceTemplateId = ?`,
-        args: [priceTemplateId]
-      });
-      for (const row of priceResult.rows) {
-        priceTemplateItems.set(row.ingredientMasterId as string, {
-          unitPrice: row.unitPrice as number || 0,
-          baseQuantity: row.baseQuantity as number || 1
-        });
-      }
-      console.log(`💰 Loaded ${priceTemplateItems.size} price items from template`);
-    } catch (priceError: any) {
-      console.warn('⚠️ Could not load price template items:', priceError?.message);
-    }
-  }
   
   for (const manual of manuals) {
     try {
@@ -765,20 +816,13 @@ async function handleDirectImport(manuals: ParsedManual[], priceTemplateId?: str
         const ing = manual.ingredients[idx];
         const ingId = generateId();
         
-        // Get linked master ingredient ID
+        // Get linked master ingredient ID and price info (from autoLinkIngredients)
         const linkedMaster = ingredientLinks.get(ing.name);
         const ingredientId = linkedMaster?.id || null;
         
-        // Get price info if this is a country upload and ingredient is linked
-        let unitPrice = null;
-        let baseQuantity = null;
-        if (isCountryUpload && ingredientId) {
-          const priceInfo = priceTemplateItems.get(ingredientId);
-          if (priceInfo) {
-            unitPrice = priceInfo.unitPrice;
-            baseQuantity = priceInfo.baseQuantity;
-          }
-        }
+        // 가격 정보는 이제 autoLinkIngredients에서 직접 반환됨
+        const unitPrice = linkedMaster?.unitPrice || null;
+        const baseQuantity = linkedMaster?.baseQuantity || null;
         
         await db.execute({
           sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity, createdAt, updatedAt)

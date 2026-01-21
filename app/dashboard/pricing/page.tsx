@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element, jsx-a11y/alt-text */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
 import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square } from 'lucide-react';
@@ -129,6 +129,17 @@ export default function PricingPage() {
   
   // Image preview state
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // Add item to template modal state
+  const [showAddTemplateItem, setShowAddTemplateItem] = useState(false);
+  const [addTemplateItemForm, setAddTemplateItemForm] = useState({
+    ingredientMasterId: '',
+    unitPrice: 0,
+    packagingUnit: 'g',
+    packagingQty: 1,
+    notes: ''
+  });
+  const [addItemSearchQuery, setAddItemSearchQuery] = useState('');
 
   useEffect(() => {
     if (status === 'unauthenticated') redirect('/login');
@@ -357,6 +368,72 @@ export default function PricingPage() {
       console.error('Save items error:', error);
     }
   };
+
+  // 템플릿에 아이템 추가 핸들러
+  const handleAddTemplateItem = async () => {
+    if (!selectedTemplate || !addTemplateItemForm.ingredientMasterId) {
+      alert('원재료를 선택해주세요.');
+      return;
+    }
+
+    // 이미 존재하는지 체크
+    const alreadyExists = templateItems.some(
+      item => item.ingredientMasterId === addTemplateItemForm.ingredientMasterId
+    );
+    if (alreadyExists) {
+      alert('이 원재료는 이미 템플릿에 있습니다.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/price-templates/${selectedTemplate.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredientMasterId: addTemplateItemForm.ingredientMasterId,
+          unitPrice: addTemplateItemForm.unitPrice,
+          packagingUnit: addTemplateItemForm.packagingUnit,
+          packagingQty: addTemplateItemForm.packagingQty,
+          notes: addTemplateItemForm.notes
+        })
+      });
+
+      if (res.ok) {
+        alert('아이템이 추가되었습니다!');
+        setShowAddTemplateItem(false);
+        setAddTemplateItemForm({
+          ingredientMasterId: '',
+          unitPrice: 0,
+          packagingUnit: 'g',
+          packagingQty: 1,
+          notes: ''
+        });
+        setAddItemSearchQuery('');
+        loadTemplateItems(selectedTemplate.id);
+      } else {
+        const data = await res.json();
+        alert(data.error || '아이템 추가에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Add template item error:', error);
+      alert('아이템 추가에 실패했습니다.');
+    }
+  };
+
+  // 마스터 원재료 목록에서 이미 템플릿에 있는 것을 제외하고 필터링
+  const availableIngredientsForTemplate = useMemo(() => {
+    if (!addItemSearchQuery.trim()) return [];
+    
+    const existingIds = new Set(templateItems.map(item => item.ingredientMasterId));
+    const query = addItemSearchQuery.toLowerCase();
+    
+    return ingredients.filter(ing => 
+      !existingIds.has(ing.id) &&
+      (ing.koreanName.toLowerCase().includes(query) ||
+       ing.englishName.toLowerCase().includes(query) ||
+       ing.category.toLowerCase().includes(query))
+    ).slice(0, 20); // 상위 20개만 표시
+  }, [ingredients, templateItems, addItemSearchQuery]);
 
   const toggleCategory = (cat: string) => {
     const newExpanded = new Set(expandedCategories);
@@ -652,6 +729,17 @@ export default function PricingPage() {
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+              
+              {selectedTemplate && (
+                <button
+                  onClick={() => setShowAddTemplateItem(true)}
+                  className="flex items-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600"
+                  title="템플릿에 아이템 추가"
+                >
+                  <Plus className="w-4 h-4" />
+                  아이템 추가
+                </button>
+              )}
             </div>
 
             {hasUnsavedChanges && (
@@ -1053,6 +1141,170 @@ export default function PricingPage() {
                 alt="제품 이미지" 
                 className="max-w-full max-h-[60vh] mx-auto object-contain"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Template Item Modal */}
+      {showAddTemplateItem && selectedTemplate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-semibold">템플릿에 아이템 추가</h3>
+              <button 
+                onClick={() => {
+                  setShowAddTemplateItem(false);
+                  setAddItemSearchQuery('');
+                  setAddTemplateItemForm({
+                    ingredientMasterId: '',
+                    unitPrice: 0,
+                    packagingUnit: 'g',
+                    packagingQty: 1,
+                    notes: ''
+                  });
+                }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Search and Select Ingredient */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  원재료 검색 *
+                </label>
+                <input
+                  type="text"
+                  value={addItemSearchQuery}
+                  onChange={(e) => setAddItemSearchQuery(e.target.value)}
+                  placeholder="원재료 이름으로 검색..."
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+                
+                {/* Search Results */}
+                {addItemSearchQuery && availableIngredientsForTemplate.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto border rounded-lg">
+                    {availableIngredientsForTemplate.map(ing => (
+                      <button
+                        key={ing.id}
+                        type="button"
+                        onClick={() => {
+                          setAddTemplateItemForm({
+                            ...addTemplateItemForm,
+                            ingredientMasterId: ing.id,
+                            packagingUnit: ing.unit
+                          });
+                          setAddItemSearchQuery(`${ing.koreanName} (${ing.englishName})`);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-b-0 ${
+                          addTemplateItemForm.ingredientMasterId === ing.id ? 'bg-blue-50' : ''
+                        }`}
+                      >
+                        <div className="font-medium">{ing.koreanName}</div>
+                        <div className="text-xs text-gray-500">
+                          {ing.englishName} • {ing.category} • {ing.quantity}{ing.unit}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {addItemSearchQuery && availableIngredientsForTemplate.length === 0 && (
+                  <p className="mt-2 text-sm text-gray-500">
+                    검색 결과가 없거나 이미 템플릿에 있는 항목입니다.
+                  </p>
+                )}
+              </div>
+
+              {/* Unit Price */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  단가 ({selectedTemplate.currency})
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={addTemplateItemForm.unitPrice}
+                  onChange={(e) => setAddTemplateItemForm({
+                    ...addTemplateItemForm,
+                    unitPrice: parseFloat(e.target.value) || 0
+                  })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              {/* Packaging Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    포장 수량
+                  </label>
+                  <input
+                    type="number"
+                    value={addTemplateItemForm.packagingQty}
+                    onChange={(e) => setAddTemplateItemForm({
+                      ...addTemplateItemForm,
+                      packagingQty: parseInt(e.target.value) || 1
+                    })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    포장 단위
+                  </label>
+                  <select
+                    value={addTemplateItemForm.packagingUnit}
+                    onChange={(e) => setAddTemplateItemForm({
+                      ...addTemplateItemForm,
+                      packagingUnit: e.target.value
+                    })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    {UNITS.map(unit => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  비고
+                </label>
+                <input
+                  type="text"
+                  value={addTemplateItemForm.notes}
+                  onChange={(e) => setAddTemplateItemForm({
+                    ...addTemplateItemForm,
+                    notes: e.target.value
+                  })}
+                  placeholder="선택사항"
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowAddTemplateItem(false);
+                  setAddItemSearchQuery('');
+                }}
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleAddTemplateItem}
+                disabled={!addTemplateItemForm.ingredientMasterId}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
+              >
+                추가
+              </button>
             </div>
           </div>
         </div>
