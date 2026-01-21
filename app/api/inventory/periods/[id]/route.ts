@@ -1,8 +1,10 @@
-
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
@@ -10,7 +12,7 @@ export async function GET(
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const { id } = await params;
@@ -34,15 +36,12 @@ export async function GET(
     });
 
     if (!period) {
-      return NextResponse.json({ error: 'Period not found' }, { status: 404 });
+      return ApiErrors.notFound('Period');
     }
 
     return NextResponse.json(period);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching inventory period details:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch inventory period details' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }

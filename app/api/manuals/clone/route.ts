@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +13,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
@@ -19,11 +26,11 @@ export async function POST(request: NextRequest) {
     const { manualIds, priceTemplateId } = body;
 
     if (!manualIds || !Array.isArray(manualIds) || manualIds.length === 0) {
-      return NextResponse.json({ error: 'manualIds are required' }, { status: 400 });
+      return ApiErrors.badRequest('manualIds are required');
     }
 
     if (!priceTemplateId) {
-      return NextResponse.json({ error: 'priceTemplateId is required' }, { status: 400 });
+      return ApiErrors.badRequest('priceTemplateId is required');
     }
 
     // Get the price template to get country name
@@ -32,7 +39,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!priceTemplate) {
-      return NextResponse.json({ error: 'Price template not found' }, { status: 404 });
+      return ApiErrors.notFound('Price template');
     }
 
     console.log(`📋 Cloning ${manualIds.length} manuals to template: ${priceTemplate.country}`);
@@ -127,12 +134,9 @@ export async function POST(request: NextRequest) {
       clonedManuals
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('❌ Error cloning manuals:', error);
-    return NextResponse.json({ 
-      error: 'Failed to clone manuals', 
-      details: error?.message 
-    }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 

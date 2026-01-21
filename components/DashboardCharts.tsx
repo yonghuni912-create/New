@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -67,20 +68,20 @@ const COLORS = [
 ];
 
 export default function DashboardCharts({ storesByCountry, storesByStatus }: DashboardChartsProps) {
-  // Prepare data with localized names
-  const countryData = storesByCountry.map((item, idx) => ({
+  // Prepare data with localized names - memoized to prevent unnecessary re-renders
+  const countryData = useMemo(() => storesByCountry.map((item, idx) => ({
     ...item,
     name: COUNTRY_NAMES[item.country] || item.country,
     color: COLORS[idx % COLORS.length]
-  }));
+  })), [storesByCountry]);
 
-  const statusData = storesByStatus.map((item, idx) => ({
+  const statusData = useMemo(() => storesByStatus.map((item, idx) => ({
     ...item,
     name: STATUS_NAMES[item.status] || item.status,
     color: item.color || COLORS[idx % COLORS.length]
-  }));
+  })), [storesByStatus]);
 
-  const totalStores = storesByCountry.reduce((sum, item) => sum + item.count, 0);
+  const totalStores = useMemo(() => storesByCountry.reduce((sum, item) => sum + item.count, 0), [storesByCountry]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

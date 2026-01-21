@@ -4,7 +4,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square, ChevronLeft } from 'lucide-react';
+import { useItemsPerPage, getItemsPerPageLabel, ITEMS_PER_PAGE_OPTIONS } from '@/lib/useItemsPerPage';
 
 interface IngredientMaster {
   id: string;
@@ -140,6 +141,12 @@ export default function PricingPage() {
     notes: ''
   });
   const [addItemSearchQuery, setAddItemSearchQuery] = useState('');
+
+  // Pagination state
+  const [masterCurrentPage, setMasterCurrentPage] = useState(1);
+  const [templateCurrentPage, setTemplateCurrentPage] = useState(1);
+  const { itemsPerPage: masterItemsPerPage, setItemsPerPage: setMasterItemsPerPage, getNumericValue: getMasterNumeric } = useItemsPerPage('pricing_master');
+  const { itemsPerPage: templateItemsPerPage, setItemsPerPage: setTemplateItemsPerPage, getNumericValue: getTemplateNumeric } = useItemsPerPage('pricing_templates');
 
   useEffect(() => {
     if (status === 'unauthenticated') redirect('/login');

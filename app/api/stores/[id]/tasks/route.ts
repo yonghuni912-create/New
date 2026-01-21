@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 // Create a new task for a store
 export async function POST(
@@ -11,7 +16,12 @@ export async function POST(
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return ApiErrors.unauthorized();
+    }
+
+    const userRole = (session.user as any)?.role;
+    if (!hasPermission(userRole, 'canCreate')) {
+      return ApiErrors.forbidden('Create permission required');
     }
 
     const { id } = await params;
@@ -19,7 +29,7 @@ export async function POST(
     const { title, startDate, dueDate, phase } = body;
 
     if (!title || !startDate || !dueDate) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return ApiErrors.badRequest('Missing required fields');
     }
 
     const task = await prisma.task.create({
@@ -33,10 +43,20 @@ export async function POST(
       }
     });
 
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'Task',
+      entityId: task.id,
+      oldValue: null,
+      newValue: { title, storeId: id, phase } as any,
+    });
+
     return NextResponse.json(task);
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
+    return ApiErrors.serverError(e);
   }
 }
 
@@ -46,6 +66,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return ApiErrors.unauthorized();
+    }
+
     const { id } = await params;
 
     const tasks = await prisma.task.findMany({
@@ -54,8 +79,8 @@ export async function GET(
     });
 
     return NextResponse.json(tasks);
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
+    return ApiErrors.serverError(e);
   }
 }

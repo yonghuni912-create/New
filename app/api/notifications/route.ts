@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 // GET - Get notifications for current user
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const user = session.user as { id: string };
@@ -30,9 +33,9 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ notifications, unreadCount });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching notifications:', error);
-    return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   try {
@@ -57,9 +60,9 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(notification, { status: 201 });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating notification:', error);
-    return NextResponse.json({ error: 'Failed to create notification' }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 
@@ -67,7 +70,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const user = session.user as { id: string };
@@ -89,8 +92,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error updating notifications:', error);
-    return NextResponse.json({ error: 'Failed to update notifications' }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }

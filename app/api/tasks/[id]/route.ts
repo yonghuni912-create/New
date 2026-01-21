@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 // Update a task
 export async function PATCH(
@@ -12,7 +16,12 @@ export async function PATCH(
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return ApiErrors.unauthorized();
+    }
+
+    const userRole = (session.user as any)?.role;
+    if (!hasPermission(userRole, 'canEdit')) {
+      return ApiErrors.forbidden('Edit permission required');
     }
 
     const { id } = await params;
@@ -46,9 +55,9 @@ export async function PATCH(
     });
 
     return NextResponse.json(task);
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
+    return ApiErrors.serverError(e);
   }
 }
 
@@ -60,7 +69,7 @@ export async function GET(
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return ApiErrors.unauthorized();
     }
 
     const { id } = await params;
@@ -77,13 +86,13 @@ export async function GET(
     });
 
     if (!task) {
-      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+      return ApiErrors.notFound('Task');
     }
 
     return NextResponse.json(task);
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to fetch task' }, { status: 500 });
+    return ApiErrors.serverError(e);
   }
 }
 
@@ -95,7 +104,12 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return ApiErrors.unauthorized();
+    }
+
+    const userRole = (session.user as any)?.role;
+    if (!hasPermission(userRole, 'canDelete')) {
+      return ApiErrors.forbidden('Delete permission required');
     }
 
     const { id } = await params;
@@ -126,8 +140,8 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e);
-    return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });
+    return ApiErrors.serverError(e);
   }
 }

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+
+export const dynamic = 'force-dynamic';
 
 function getDb() {
   return createClient({
@@ -10,6 +16,11 @@ function getDb() {
 
 // GET /api/manuals/[id]/versions - Get version history
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { id } = await params;
   
   try {
@@ -78,6 +89,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 // POST /api/manuals/[id]/versions - Restore a specific version
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canEdit')) {
+    return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
+  }
+
   const { id } = await params;
   
   try {

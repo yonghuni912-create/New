@@ -141,6 +141,12 @@ model Task {
   dependencies    TaskDependency[] @relation("DependentTask")
   dependents      TaskDependency[] @relation("DependencyTask")
   comments        TaskComment[]
+
+  // 자주 쿼리되는 필드에 인덱스 추가
+  @@index([storeId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([dueDate])
 }
 
 model TaskComment {
@@ -193,6 +199,12 @@ model AuditLog {
   userAgent  String?
   createdAt  DateTime @default(now())
   user       User?    @relation(fields: [userId], references: [id])
+
+  // 자주 쿼리되는 필드에 인덱스 추가
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
 }
 
 // 알림
@@ -206,6 +218,10 @@ model Notification {
   linkUrl   String?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
 }
 
 // 식재료 마스터 (가격 없이 기본 정보만)
@@ -293,6 +309,13 @@ model MenuManual {
   // Self-relation for master/copy
   masterManual    MenuManual?        @relation("ManualCopies", fields: [masterManualId], references: [id], onDelete: SetNull)
   copies          MenuManual[]       @relation("ManualCopies")
+
+  // 자주 쿼리되는 필드에 인덱스 추가
+  @@index([priceTemplateId])
+  @@index([isMaster])
+  @@index([isActive])
+  @@index([isArchived])
+  @@index([masterManualId])
 }
 
 // 매뉴얼 재료
@@ -314,6 +337,9 @@ model ManualIngredient {
   updatedAt        DateTime          @updatedAt
   manual           MenuManual        @relation(fields: [manualId], references: [id], onDelete: Cascade)
   ingredientMaster IngredientMaster? @relation("MasterToManualIngredient", fields: [ingredientId], references: [id], onDelete: SetNull)
+
+  @@index([manualId])
+  @@index([ingredientId])
 }
 
 // 재고 관리

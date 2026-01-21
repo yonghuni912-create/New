@@ -3,11 +3,12 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, FileSpreadsheet } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, FileSpreadsheet, DollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { extractShapeTextsFromExcel, ShapeTextInfo } from '@/lib/excelShapeParser';
 import { matchProcessPng, DEFAULT_PROCESS_ASSET_INDEX, ProcessAssetIndex } from '@/lib/processAssets';
+import { useItemsPerPage, getItemsPerPageLabel, ITEMS_PER_PAGE_OPTIONS } from '@/lib/useItemsPerPage';
 
 // Extract images from Excel file using JSZip
 async function extractImagesFromExcel(buffer: ArrayBuffer): Promise<Map<string, string>> {
@@ -424,7 +425,47 @@ export default function TemplatesPage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  // 페이지당 아이템 수 - 탭별로 관리
+  const { itemsPerPage: manualsItemsPerPage, setItemsPerPage: setManualsItemsPerPage, getNumericValue: getManualsNumeric } = useItemsPerPage('templates_manuals');
+  const { itemsPerPage: countryItemsPerPage, setItemsPerPage: setCountryItemsPerPage, getNumericValue: getCountryNumeric } = useItemsPerPage('templates_country');
+  const { itemsPerPage: trashItemsPerPage, setItemsPerPage: setTrashItemsPerPage, getNumericValue: getTrashNumeric } = useItemsPerPage('templates_trash');
+  const { itemsPerPage: archivedItemsPerPage, setItemsPerPage: setArchivedItemsPerPage, getNumericValue: getArchivedNumeric } = useItemsPerPage('templates_archived');
+  const { itemsPerPage: costTableItemsPerPage, setItemsPerPage: setCostTableItemsPerPage, getNumericValue: getCostTableNumeric } = useItemsPerPage('templates_costTable');
+
+  // 현재 탭에 따른 itemsPerPage 가져오기
+  const getCurrentItemsPerPage = () => {
+    switch (activeTab) {
+      case 'manuals': return manualsItemsPerPage;
+      case 'countryManuals': return countryItemsPerPage;
+      case 'trash': return trashItemsPerPage;
+      case 'archived': return archivedItemsPerPage;
+      case 'costTable': return costTableItemsPerPage;
+      default: return manualsItemsPerPage;
+    }
+  };
+  
+  const setCurrentItemsPerPage = (value: typeof manualsItemsPerPage) => {
+    switch (activeTab) {
+      case 'manuals': setManualsItemsPerPage(value); break;
+      case 'countryManuals': setCountryItemsPerPage(value); break;
+      case 'trash': setTrashItemsPerPage(value); break;
+      case 'archived': setArchivedItemsPerPage(value); break;
+      case 'costTable': setCostTableItemsPerPage(value); break;
+      default: setManualsItemsPerPage(value);
+    }
+    setCurrentPage(1); // 페이지 수 변경 시 첫 페이지로
+  };
+
+  const getCurrentNumericItemsPerPage = (total: number) => {
+    switch (activeTab) {
+      case 'manuals': return getManualsNumeric(total);
+      case 'countryManuals': return getCountryNumeric(total);
+      case 'trash': return getTrashNumeric(total);
+      case 'archived': return getArchivedNumeric(total);
+      case 'costTable': return getCostTableNumeric(total);
+      default: return getManualsNumeric(total);
+    }
+  };
 
   // Version history state
   const [showVersionModal, setShowVersionModal] = useState(false);
@@ -458,6 +499,8 @@ export default function TemplatesPage() {
   const [linkingReviewPriceEdits, setLinkingReviewPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
   const [linkingReviewLoading, setLinkingReviewLoading] = useState(false);
   const [masterIngredientsList, setMasterIngredientsList] = useState<any[]>([]); // 마스터 원재료 목록
+  const [linkingSearchQueries, setLinkingSearchQueries] = useState<Map<string, string>>(new Map()); // editKey -> 검색어
+  const [linkingSearchOpen, setLinkingSearchOpen] = useState<string | null>(null); // 열려있는 검색 드롭다운 editKey
 
   // 판매가 일괄 수정 모달
   const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
@@ -1029,8 +1072,8 @@ export default function TemplatesPage() {
 
   // Hard Delete (Archive)
   const handleHardDelete = async (manual: SavedManual) => {
-    const input = prompt("완전 삭제하시려면 'TRASH'를 대문자로 입력하세요.\n이 작업 후에는 일반 사용자는 볼 수 없게 되며 마스터 계정에서만 복구 가능합니다.");
-    if (input !== 'TRASH') return;
+    const input = prompt("Archive로 이동하시려면 'ARCHIVE'를 대문자로 입력하세요.\n이 작업 후에는 일반 사용자는 볼 수 없게 되며 마스터 계정에서만 복구 가능합니다.");
+    if (input !== 'ARCHIVE') return;
 
     try {
       const res = await fetch(`/api/manuals/${manual.id}`, {
@@ -1040,14 +1083,14 @@ export default function TemplatesPage() {
       });
       
       if (res.ok) {
-        alert('매뉴얼이 완전 삭제(보관) 처리되었습니다.');
+        alert('매뉴얼이 Archive로 이동되었습니다. 마스터 계정에서만 볼 수 있습니다.');
         fetchData();
       } else {
-        alert('삭제 실패');
+        alert('Archive 이동 실패');
       }
     } catch (error) {
-      console.error('Hard delete error:', error);
-      alert('완전 삭제 중 오류가 발생했습니다.');
+      console.error('Archive move error:', error);
+      alert('Archive 이동 중 오류가 발생했습니다.');
     }
   };
 
@@ -2178,16 +2221,31 @@ export default function TemplatesPage() {
     }
   };
 
-  // 링킹 리뷰 모달 열기 - 모든 매뉴얼과 식재료 로드
+  // 링킹 리뷰 모달 열기 - 선택된 템플릿의 매뉴얼과 식재료 로드
   const openLinkingReviewModal = async () => {
     setLinkingReviewLoading(true);
     setShowLinkingReviewModal(true);
     
     try {
-      // 모든 매뉴얼과 식재료 상세 정보 가져오기
+      // 현재 선택된 템플릿 기준으로 필터링
+      const currentTemplateId = editorTemplateId;
+      const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '';
+      
+      // 선택된 템플릿의 매뉴얼만 필터링
+      const filteredManuals = savedManuals.filter(manual => {
+        if (isMaster) {
+          // 마스터 선택 시: isMaster=true이거나 priceTemplateId가 없는 것
+          return (manual as any).isMaster === true || (manual as any).isMaster === 1 || !(manual as any).priceTemplateId;
+        } else {
+          // 특정 템플릿 선택 시: 해당 템플릿에 연결된 매뉴얼만
+          return (manual as any).priceTemplateId === currentTemplateId;
+        }
+      });
+      
+      // 필터링된 매뉴얼의 상세 정보 가져오기
       const manualsWithIngredients = [];
       
-      for (const manual of savedManuals) {
+      for (const manual of filteredManuals) {
         try {
           const res = await fetch(`/api/manuals/${manual.id}`);
           if (res.ok) {
@@ -2201,8 +2259,14 @@ export default function TemplatesPage() {
       
       setLinkingReviewManuals(manualsWithIngredients);
       
-      // 마스터 원재료 목록 로드
-      const ingredientsRes = await fetch('/api/ingredients');
+      // 템플릿에 해당하는 원재료 목록 로드
+      // 마스터인 경우 전체 원재료, 국가 템플릿인 경우 해당 템플릿 아이템
+      let ingredientsUrl = '/api/ingredients';
+      if (!isMaster && currentTemplateId) {
+        ingredientsUrl = `/api/ingredients?priceTemplateId=${currentTemplateId}`;
+      }
+      
+      const ingredientsRes = await fetch(ingredientsUrl);
       if (ingredientsRes.ok) {
         const ingredients = await ingredientsRes.json();
         setMasterIngredientsList(ingredients);
@@ -2518,9 +2582,14 @@ export default function TemplatesPage() {
   // Get manuals for selected group (legacy, now uses getFilteredManuals)
   const getGroupManuals = () => {
     const filtered = getFilteredManuals();
-    // Apply pagination
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
+    const totalCount = filtered.length;
+    const itemsPerPage = getCurrentNumericItemsPerPage(totalCount);
+    // Apply pagination (전체보기인 경우 모든 아이템 반환)
+    if (getCurrentItemsPerPage() === 'all') {
+      return filtered;
+    }
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
     return filtered.slice(startIndex, endIndex);
   };
   
@@ -2531,7 +2600,10 @@ export default function TemplatesPage() {
   
   // Get total pages
   const getTotalPages = () => {
-    return Math.ceil(getTotalFilteredCount() / ITEMS_PER_PAGE);
+    const totalCount = getTotalFilteredCount();
+    if (getCurrentItemsPerPage() === 'all') return 1;
+    const itemsPerPage = getCurrentNumericItemsPerPage(totalCount);
+    return Math.ceil(totalCount / itemsPerPage);
   };
   
   // Reset page when filter changes
@@ -3147,23 +3219,96 @@ export default function TemplatesPage() {
         <div className="space-y-4">
           {/* Controls Row */}
           <div className="bg-white rounded-lg shadow p-4">
+            {/* Country Manuals 탭 전용 UI */}
+            {activeTab === 'countryManuals' ? (
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Country Filter */}
+                <div className="min-w-[150px]">
+                  <select
+                    value={countryFilterTemplateId}
+                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="__select__">-- Select Country --</option>
+                    <option value="">All Countries</option>
+                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                      <option key={t.id} value={t.id}>{t.country}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Search */}
+                <div className="min-w-[200px]">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="메뉴명 검색..."
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Bulk Download */}
+                <button
+                  onClick={toggleMultiSelectMode}
+                  className={`px-4 py-2 rounded-lg flex items-center text-sm ${
+                    isMultiSelectMode 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <CheckCheck className="w-4 h-4 mr-2" />
+                  {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
+                </button>
+
+                {/* 식재료 수정 (Linking Review) */}
+                <button
+                  onClick={() => openLinkingReviewModal()}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center text-sm"
+                >
+                  <Edit className="w-4 h-4 mr-2" />
+                  식재료 수정
+                </button>
+
+                {/* 판매가 수정 (Bulk Price Edit) */}
+                <button
+                  onClick={() => setShowBulkPriceModal(true)}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center text-sm"
+                >
+                  <DollarSign className="w-4 h-4 mr-2" />
+                  판매가 수정
+                </button>
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* 선택 작업 & 삭제 */}
+                <div className="flex flex-col items-end gap-1">
+                  {selectedManualIds.size > 0 && (
+                    <span className="text-xs text-blue-600 font-medium">{selectedManualIds.size}개 선택됨</span>
+                  )}
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={selectedManualIds.size === 0}
+                    className="px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm flex items-center"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" /> 삭제
+                  </button>
+                </div>
+              </div>
+            ) : (
+            /* 기존 다른 탭들의 UI */
             <div className="flex items-end gap-4 flex-wrap">
               {/* Left: Info */}
               <div className="flex-1 min-w-[200px]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {activeTab === 'countryManuals' ? '국가별 매뉴얼' : activeTab === 'trash' ? '휴지통' : activeTab === 'archived' ? '보관함' : '매뉴얼 마스터'}
+                  {activeTab === 'trash' ? '휴지통' : activeTab === 'archived' ? '보관함' : '매뉴얼 마스터'}
                 </label>
                 <p className="text-sm text-gray-500">
-                  {activeTab === 'countryManuals' 
-                    ? `총 ${savedManuals.filter(m => {
-                        const isActive = (m as any).isActive;
-                        const matchesSearch = !countrySearch || 
-                          (m.name?.toLowerCase().includes(countrySearch.toLowerCase()) ||
-                           m.koreanName?.toLowerCase().includes(countrySearch.toLowerCase()));
-                        return (isActive === true || isActive === 1 || isActive === undefined) && 
-                               ((m as any).isMaster === false || (m as any).isMaster === 0) && matchesSearch;
-                      }).length}개 국가별 매뉴얼`
-                    : activeTab === 'trash'
+                  {activeTab === 'trash'
                     ? `총 ${savedManuals.filter(m => {
                         const matchesSearch = !trashSearch || 
                           (m.name?.toLowerCase().includes(trashSearch.toLowerCase()) ||
@@ -3180,10 +3325,10 @@ export default function TemplatesPage() {
                     : `총 ${savedManuals.filter(m => {
                         const isActive = (m as any).isActive;
                         const isArchived = (m as any).isArchived;
-                        const isMaster = (m as any).isMaster;
+                        const isMasterFlag = (m as any).isMaster;
                         const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
                         const notArchived = !isArchived || isArchived === 0 || isArchived === false;
-                        const isReallyMaster = isMaster !== false && isMaster !== 0;
+                        const isReallyMaster = isMasterFlag !== false && isMasterFlag !== 0;
                         const matchesSearch = !masterSearch || 
                           (m.name?.toLowerCase().includes(masterSearch.toLowerCase()) ||
                            m.koreanName?.toLowerCase().includes(masterSearch.toLowerCase()));
@@ -3201,10 +3346,9 @@ export default function TemplatesPage() {
                   <input
                     type="text"
                     placeholder="메뉴명 검색..."
-                    value={activeTab === 'manuals' ? masterSearch : activeTab === 'countryManuals' ? countrySearch : activeTab === 'trash' ? trashSearch : archiveSearch}
+                    value={activeTab === 'manuals' ? masterSearch : activeTab === 'trash' ? trashSearch : archiveSearch}
                     onChange={(e) => {
                       if (activeTab === 'manuals') setMasterSearch(e.target.value);
-                      else if (activeTab === 'countryManuals') setCountrySearch(e.target.value);
                       else if (activeTab === 'trash') setTrashSearch(e.target.value);
                       else setArchiveSearch(e.target.value);
                     }}
@@ -3234,39 +3378,6 @@ export default function TemplatesPage() {
                     <CheckCheck className="w-4 h-4 mr-2" />
                     {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
                   </button>
-                </div>
-              )}
-
-              {/* Bulk Download Button (for countryManuals tab) */}
-              {activeTab === 'countryManuals' && (
-                <button
-                  onClick={toggleMultiSelectMode}
-                  className={`px-4 py-2 rounded-lg flex items-center ${
-                    isMultiSelectMode 
-                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <CheckCheck className="w-4 h-4 mr-2" />
-                  {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
-                </button>
-              )}
-
-              {/* Country Filter (for countryManuals tab) */}
-              {activeTab === 'countryManuals' && (
-                <div className="min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Country Filter</label>
-                  <select
-                    value={countryFilterTemplateId}
-                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
-                  >
-                    <option value="__select__">-- Select --</option>
-                    <option value="">All Countries</option>
-                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
-                      <option key={t.id} value={t.id}>{t.country}</option>
-                    ))}
-                  </select>
                 </div>
               )}
 
@@ -3309,7 +3420,7 @@ export default function TemplatesPage() {
                   )}
                 </label>
                 <div className="flex gap-2 justify-end">
-                  {(activeTab === 'manuals' || activeTab === 'countryManuals') && (
+                  {activeTab === 'manuals' && (
                     <>
                       <button
                         onClick={handleBulkDelete}
@@ -3361,6 +3472,7 @@ export default function TemplatesPage() {
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Manuals List */}
@@ -3614,10 +3726,10 @@ export default function TemplatesPage() {
                               </button>
                               <button 
                                 onClick={() => handleHardDelete(manual)}
-                                className="p-1 text-gray-400 hover:text-red-700 bg-red-50 rounded" 
-                                title="Hard Delete"
+                                className="p-1 text-gray-400 hover:text-purple-700 bg-purple-50 rounded" 
+                                title="Move to Archive"
                               >
-                                <Trash2 className="w-4 h-4 text-red-600" />
+                                <Archive className="w-4 h-4 text-purple-600" />
                               </button>
                             </>
                           )}
@@ -3664,12 +3776,35 @@ export default function TemplatesPage() {
               </tbody>
             </table>
             
-            {/* Pagination */}
-            {getTotalPages() > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t">
+            {/* Pagination & Items Per Page */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t">
+              <div className="flex items-center gap-4">
                 <div className="text-sm text-gray-500">
-                  총 {getTotalFilteredCount()}개 중 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, getTotalFilteredCount())}개 표시
+                  {getCurrentItemsPerPage() === 'all' 
+                    ? `총 ${getTotalFilteredCount()}개 표시`
+                    : `총 ${getTotalFilteredCount()}개 중 ${Math.min(((currentPage - 1) * getCurrentNumericItemsPerPage(getTotalFilteredCount())) + 1, getTotalFilteredCount())}-${Math.min(currentPage * getCurrentNumericItemsPerPage(getTotalFilteredCount()), getTotalFilteredCount())}개 표시`
+                  }
                 </div>
+                {/* Items per page selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">페이지당:</span>
+                  <select
+                    value={getCurrentItemsPerPage()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCurrentItemsPerPage(val === 'all' ? 'all' : parseInt(val) as 10 | 20 | 50 | 100);
+                    }}
+                    className="px-2 py-1 text-sm border rounded hover:border-gray-400"
+                  >
+                    {ITEMS_PER_PAGE_OPTIONS.map(opt => (
+                      <option key={opt} value={opt}>
+                        {getItemsPerPageLabel(opt)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {getTotalPages() > 1 && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCurrentPage(1)}
@@ -3727,8 +3862,8 @@ export default function TemplatesPage() {
                     »
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -3860,7 +3995,7 @@ export default function TemplatesPage() {
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-8"></th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">메뉴명</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Menu Name</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">식재료 수</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">링킹 현황</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Food Cost</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Package</th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total Cost</th>
@@ -3895,6 +4030,10 @@ export default function TemplatesPage() {
                   return filteredManuals.map(manual => {
                     // Calculate food cost from ingredients: (사용량 / 기준수량) × 단가
                     const ingredientCount = manual.ingredients?.length || 0;
+                    // 링킹된 식재료 수 계산 (ingredientId가 있고 unitPrice > 0인 경우)
+                    const linkedIngredientCount = manual.ingredients?.filter((ing: any) => 
+                      ing.ingredientId && ing.unitPrice !== null && ing.unitPrice !== undefined && ing.unitPrice > 0
+                    ).length || 0;
                     const foodCost = manual.ingredients?.reduce((sum: number, ing: any) => {
                       const usageQty = ing.quantity || 0;
                       const baseQty = ing.baseQuantity || 1;
@@ -3937,7 +4076,11 @@ export default function TemplatesPage() {
                           </td>
                           <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
                           <td className="px-4 py-3 text-gray-600">{manual.name}</td>
-                          <td className="px-3 py-2 text-center">{ingredientCount}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`font-medium ${linkedIngredientCount === ingredientCount && ingredientCount > 0 ? 'text-green-600' : linkedIngredientCount === 0 ? 'text-red-600' : 'text-yellow-600'}`}>
+                              {linkedIngredientCount}/{ingredientCount}
+                            </span>
+                          </td>
                           <td className="px-4 py-3 text-right font-mono">${foodCost.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-mono text-gray-500">${packageCost.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-mono font-bold">${totalCost.toFixed(2)}</td>
@@ -5021,22 +5164,36 @@ export default function TemplatesPage() {
       {/* 링킹 리뷰 모달 - 전체 매뉴얼 및 식재료 링킹 확인/수정 */}
       {showLinkingReviewModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col">
             {/* Header */}
             <div className="px-6 py-4 border-b flex justify-between items-center">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">🔗 전체 식재료 링킹 리뷰</h2>
+                <h2 className="text-xl font-bold text-gray-900">🔗 식재료 링킹 리뷰</h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  각 매뉴얼의 식재료 링킹 상태를 확인하고 수정할 수 있습니다.
+                  {(() => {
+                    const isMaster = !editorTemplateId || editorTemplateId === 'master' || editorTemplateId === '';
+                    const templateName = isMaster 
+                      ? 'Master' 
+                      : priceTemplates.find(t => t.id === editorTemplateId)?.name || editorTemplateId;
+                    return (
+                      <>
+                        <span className="font-medium text-blue-600">[{templateName}]</span> 템플릿의 {linkingReviewManuals.length}개 매뉴얼 식재료 링킹 상태
+                      </>
+                    );
+                  })()}
                 </p>
               </div>
-              <button onClick={() => setShowLinkingReviewModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+              <button onClick={() => {
+                setShowLinkingReviewModal(false);
+                setLinkingSearchOpen(null);
+                setLinkingSearchQueries(new Map());
+              }} className="p-2 hover:bg-gray-100 rounded-lg">
                 <X className="w-6 h-6" />
               </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6" onClick={() => setLinkingSearchOpen(null)}>
               {linkingReviewLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
@@ -5103,11 +5260,12 @@ export default function TemplatesPage() {
                           <table className="w-full text-sm">
                             <thead className="bg-gray-100">
                               <tr>
-                                <th className="px-4 py-2 text-left w-8">#</th>
-                                <th className="px-4 py-2 text-left">식재료명</th>
-                                <th className="px-4 py-2 text-left w-24">수량</th>
-                                <th className="px-4 py-2 text-left w-48">링킹된 마스터</th>
-                                <th className="px-4 py-2 text-left w-64">변경</th>
+                                <th className="px-3 py-2 text-left w-10">#</th>
+                                <th className="px-3 py-2 text-left w-48">매뉴얼상 식재료명</th>
+                                <th className="px-3 py-2 text-left w-48">링킹된 식재료명</th>
+                                <th className="px-3 py-2 text-left w-24">사용량</th>
+                                <th className="px-3 py-2 text-right w-24">원가</th>
+                                <th className="px-3 py-2 text-left min-w-[280px]">변경</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -5115,53 +5273,144 @@ export default function TemplatesPage() {
                                 const editKey = `${manual.id}_${ingIdx}`;
                                 const hasEdit = linkingReviewEdits.has(editKey);
                                 const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
-                                const isLinked = !!ing.ingredientId;
+                                const isLinked = hasEdit ? !!currentLinkId : !!ing.ingredientId;
+                                const linkedMaster = currentLinkId ? masterIngredientsList.find(m => m.id === currentLinkId) : null;
+                                
+                                // 원가 계산: (사용량 / 기준수량) × 단가
+                                const quantity = parseFloat(ing.quantity) || 0;
+                                const baseQuantity = linkedMaster?.baseQuantity || ing.baseQuantity || 1;
+                                const unitPrice = linkedMaster?.unitPrice || ing.unitPrice || 0;
+                                const costPerUsage = baseQuantity > 0 ? (quantity / baseQuantity) * unitPrice : 0;
+                                
+                                // 검색 관련
+                                const searchQuery = linkingSearchQueries.get(editKey) || '';
+                                const isSearchOpen = linkingSearchOpen === editKey;
+                                const filteredMasters = searchQuery.length > 0 
+                                  ? masterIngredientsList.filter(m => 
+                                      m.englishName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                      m.koreanName?.toLowerCase().includes(searchQuery.toLowerCase())
+                                    ).slice(0, 10)
+                                  : masterIngredientsList.slice(0, 10);
                                 
                                 return (
-                                  <tr key={ingIdx} className={`border-t ${!isLinked && !hasEdit ? 'bg-red-50' : ''}`}>
-                                    <td className="px-4 py-2 text-gray-500">{ingIdx + 1}</td>
-                                    <td className="px-4 py-2">
+                                  <tr key={ingIdx} className={`border-t ${!isLinked ? 'bg-red-50' : hasEdit ? 'bg-blue-50' : ''}`}>
+                                    <td className="px-3 py-2 text-gray-500">{ingIdx + 1}</td>
+                                    <td className="px-3 py-2">
                                       <div className="font-medium">{ing.name}</div>
                                       {ing.koreanName && ing.koreanName !== ing.name && (
                                         <div className="text-xs text-gray-500">{ing.koreanName}</div>
                                       )}
                                     </td>
-                                    <td className="px-4 py-2 text-gray-600">
-                                      {ing.quantity || '-'} {ing.unit || ''}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      {isLinked ? (
-                                        <span className="text-green-600 text-xs">
-                                          ✓ {masterIngredientsList.find(m => m.id === ing.ingredientId)?.englishName || ing.ingredientId}
-                                        </span>
+                                    <td className="px-3 py-2">
+                                      {isLinked && linkedMaster ? (
+                                        <div>
+                                          <div className="text-green-700 font-medium">{linkedMaster.englishName}</div>
+                                          {linkedMaster.koreanName && (
+                                            <div className="text-xs text-gray-500">{linkedMaster.koreanName}</div>
+                                          )}
+                                        </div>
                                       ) : (
-                                        <span className="text-red-500 text-xs">❌ 링킹 안됨</span>
+                                        <span className="text-red-500 text-sm">❌ 미링킹</span>
                                       )}
                                     </td>
-                                    <td className="px-4 py-2">
-                                      <select
-                                        value={currentLinkId || ''}
-                                        onChange={(e) => {
-                                          const newValue = e.target.value;
-                                          setLinkingReviewEdits(prev => {
-                                            const newMap = new Map(prev);
-                                            if (newValue === (ing.ingredientId || '')) {
-                                              newMap.delete(editKey);
-                                            } else {
-                                              newMap.set(editKey, newValue);
-                                            }
-                                            return newMap;
-                                          });
-                                        }}
-                                        className={`w-full px-2 py-1 text-sm border rounded ${hasEdit ? 'border-blue-500 bg-blue-50' : ''}`}
-                                      >
-                                        <option value="">-- 링킹 해제 --</option>
-                                        {masterIngredientsList.map(master => (
-                                          <option key={master.id} value={master.id}>
-                                            {master.englishName} ({master.koreanName})
-                                          </option>
-                                        ))}
-                                      </select>
+                                    <td className="px-3 py-2 text-gray-600">
+                                      {ing.quantity || '-'} {ing.unit || ''}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-mono">
+                                      {isLinked && unitPrice > 0 ? (
+                                        <span className="text-gray-700">${costPerUsage.toFixed(2)}</span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2 relative">
+                                      <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          type="text"
+                                          placeholder={currentLinkId ? "검색하여 변경..." : "검색하여 링킹..."}
+                                          value={isSearchOpen ? searchQuery : (linkedMaster ? `${linkedMaster.englishName}` : '')}
+                                          onChange={(e) => {
+                                            setLinkingSearchQueries(prev => {
+                                              const newMap = new Map(prev);
+                                              newMap.set(editKey, e.target.value);
+                                              return newMap;
+                                            });
+                                          }}
+                                          onFocus={() => {
+                                            setLinkingSearchOpen(editKey);
+                                            setLinkingSearchQueries(prev => {
+                                              const newMap = new Map(prev);
+                                              newMap.set(editKey, '');
+                                              return newMap;
+                                            });
+                                          }}
+                                          className={`w-full px-3 py-1.5 text-sm border rounded ${hasEdit ? 'border-blue-500 bg-blue-50' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-400`}
+                                        />
+                                        {isSearchOpen && (
+                                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                            <button
+                                              onClick={() => {
+                                                setLinkingReviewEdits(prev => {
+                                                  const newMap = new Map(prev);
+                                                  if (ing.ingredientId === '' || !ing.ingredientId) {
+                                                    newMap.delete(editKey);
+                                                  } else {
+                                                    newMap.set(editKey, '');
+                                                  }
+                                                  return newMap;
+                                                });
+                                                setLinkingSearchOpen(null);
+                                              }}
+                                              className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 border-b"
+                                            >
+                                              ✕ 링킹 해제
+                                            </button>
+                                            {filteredMasters.length > 0 ? (
+                                              filteredMasters.map(master => (
+                                                <button
+                                                  key={master.id}
+                                                  onClick={() => {
+                                                    setLinkingReviewEdits(prev => {
+                                                      const newMap = new Map(prev);
+                                                      if (master.id === ing.ingredientId) {
+                                                        newMap.delete(editKey);
+                                                      } else {
+                                                        newMap.set(editKey, master.id);
+                                                      }
+                                                      return newMap;
+                                                    });
+                                                    setLinkingSearchOpen(null);
+                                                  }}
+                                                  className={`w-full px-3 py-2 text-left text-sm hover:bg-blue-50 flex justify-between items-center ${
+                                                    master.id === currentLinkId ? 'bg-blue-100' : ''
+                                                  }`}
+                                                >
+                                                  <div>
+                                                    <div className="font-medium">{master.englishName}</div>
+                                                    {master.koreanName && (
+                                                      <div className="text-xs text-gray-500">{master.koreanName}</div>
+                                                    )}
+                                                  </div>
+                                                  {master.unitPrice > 0 && (
+                                                    <span className="text-xs text-gray-500 ml-2">
+                                                      ${master.unitPrice.toFixed(2)}/{master.baseQuantity}{master.unit}
+                                                    </span>
+                                                  )}
+                                                </button>
+                                              ))
+                                            ) : (
+                                              <div className="px-3 py-2 text-sm text-gray-500">
+                                                검색 결과 없음
+                                              </div>
+                                            )}
+                                            {masterIngredientsList.length > 10 && searchQuery.length === 0 && (
+                                              <div className="px-3 py-2 text-xs text-gray-400 border-t">
+                                                검색어를 입력하여 더 찾기...
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -5207,6 +5456,8 @@ export default function TemplatesPage() {
                   onClick={() => {
                     setLinkingReviewEdits(new Map());
                     setLinkingReviewPriceEdits(new Map());
+                    setLinkingSearchQueries(new Map());
+                    setLinkingSearchOpen(null);
                     setShowLinkingReviewModal(false);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"

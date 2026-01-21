@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { createClient } from '@libsql/client';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +23,7 @@ function generateId(): string {
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const { searchParams } = new URL(request.url);
@@ -57,9 +60,9 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching price templates:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 
@@ -67,7 +70,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
@@ -75,7 +83,7 @@ export async function POST(request: NextRequest) {
     const { name, country, region, currency, description, copyFromMaster } = body;
 
     if (!name || !country) {
-      return NextResponse.json({ error: 'Name and country are required' }, { status: 400 });
+      return ApiErrors.badRequest('Name and country are required');
     }
 
     const db = getDb();
@@ -103,6 +111,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'PriceTemplate',
+      entityId: id,
+      oldValue: null,
+      newValue: { name, country, region, currency } as any,
+    });
+
     return NextResponse.json({ 
       id, 
       name, 
@@ -111,8 +129,8 @@ export async function POST(request: NextRequest) {
       currency: currency || 'CAD',
       message: 'Price template created successfully' 
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating price template:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }

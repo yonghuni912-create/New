@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,12 +181,17 @@ async function extractImagesFromXlsx(buffer: ArrayBuffer): Promise<Map<string, M
 export async function POST(request: NextRequest) {
   console.log('📤 Manual upload API called');
   
-  // Skip auth for now - allow all uploads
-  // const session = await getServerSession(authOptions);
-  // if (!session) {
-  //   console.log('❌ Unauthorized - no session');
-  //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  // }
+  // Authentication check
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    console.log('❌ Unauthorized - no session');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
+  }
 
   try {
     const contentType = request.headers.get('content-type') || '';

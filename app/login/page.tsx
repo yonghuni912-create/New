@@ -180,12 +180,6 @@ export default function LoginPage() {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
-          <div className="mt-6 text-sm text-gray-500 space-y-1">
-            <p className="font-semibold">Demo Accounts:</p>
-            <p>Admin: admin@bbq.com / admin123</p>
-            <p>PM: pm@bbq.com / pm123</p>
-            <p>User: user@bbq.com / user123</p>
-          </div>
         </CardContent>
       </Card>
     </div>

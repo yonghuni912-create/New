@@ -1,13 +1,17 @@
-
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   try {
@@ -20,19 +24,21 @@ export async function GET() {
       }
     });
     return NextResponse.json(groups);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching inventory groups:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch inventory groups' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
@@ -40,10 +46,7 @@ export async function POST(request: Request) {
     const { name } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { error: 'Group name is required' },
-        { status: 400 }
-      );
+      return ApiErrors.badRequest('Group name is required');
     }
 
     const group = await prisma.inventoryGroup.create({
@@ -52,12 +55,19 @@ export async function POST(request: Request) {
       },
     });
 
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'InventoryGroup',
+      entityId: group.id,
+      oldValue: null,
+      newValue: { name } as any,
+    });
+
     return NextResponse.json(group);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating inventory group:', error);
-    return NextResponse.json(
-      { error: 'Failed to create inventory group' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }

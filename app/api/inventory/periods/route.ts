@@ -1,20 +1,24 @@
-
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const { searchParams } = new URL(request.url);
   const groupId = searchParams.get('groupId');
 
   if (!groupId) {
-    return NextResponse.json({ error: 'Group ID is required' }, { status: 400 });
+    return ApiErrors.badRequest('Group ID is required');
   }
 
   try {
@@ -28,19 +32,21 @@ export async function GET(request: Request) {
       }
     });
     return NextResponse.json(periods);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching inventory periods:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch inventory periods' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
@@ -48,10 +54,7 @@ export async function POST(request: Request) {
     const { groupId, startDate, endDate, notes } = body;
 
     if (!groupId || !startDate || !endDate) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return ApiErrors.badRequest('Missing required fields');
     }
 
     // 1. 해당 그룹의 가장 최근 재고 조사 기간 찾기 (이전 재고 이관용)
@@ -103,12 +106,19 @@ export async function POST(request: Request) {
       });
     }
 
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'InventoryPeriod',
+      entityId: newPeriod.id,
+      oldValue: null,
+      newValue: { groupId, startDate, endDate, notes, itemCount: inventoryItemsData.length } as any,
+    });
+
     return NextResponse.json(newPeriod);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating inventory period:', error);
-    return NextResponse.json(
-      { error: 'Failed to create inventory period' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }

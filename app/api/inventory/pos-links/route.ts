@@ -1,20 +1,24 @@
-
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   const { searchParams } = new URL(request.url);
   const groupId = searchParams.get('groupId');
 
   if (!groupId) {
-    return NextResponse.json({ error: 'Group ID is required' }, { status: 400 });
+    return ApiErrors.badRequest('Group ID is required');
   }
 
   try {
@@ -32,19 +36,21 @@ export async function GET(request: Request) {
       orderBy: { posMenuName: 'asc' },
     });
     return NextResponse.json(links);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching POS links:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch POS links' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
@@ -52,10 +58,7 @@ export async function POST(request: Request) {
     const { groupId, posMenuName, menuManualId } = body;
 
     if (!groupId || !posMenuName || !menuManualId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return ApiErrors.badRequest('Missing required fields');
     }
 
     // Upsert: 이미 존재하면 업데이트, 없으면 생성
@@ -79,39 +82,62 @@ export async function POST(request: Request) {
       }
     });
 
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'MANUAL_CREATE',
+      entityType: 'PosMenuLink',
+      entityId: link.id,
+      oldValue: null,
+      newValue: { groupId, posMenuName, menuManualId } as any,
+    });
+
     return NextResponse.json(link);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating/updating POS link:', error);
-    return NextResponse.json(
-      { error: 'Failed to save POS link' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }
 
 export async function DELETE(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canDelete')) {
+    return ApiErrors.forbidden('Delete permission required');
   }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
   if (!id) {
-    return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    return ApiErrors.badRequest('ID is required');
   }
 
   try {
+    // Get old value for audit log
+    const oldLink = await prisma.posMenuLink.findUnique({ where: { id } });
+
     await prisma.posMenuLink.delete({
       where: { id },
     });
+
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'STORE_DELETE',
+      entityType: 'PosMenuLink',
+      entityId: id,
+      oldValue: oldLink as any,
+      newValue: null,
+    });
+
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error deleting POS link:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete POS link' },
-      { status: 500 }
-    );
+    return ApiErrors.serverError(error);
   }
 }

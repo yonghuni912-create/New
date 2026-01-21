@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { createClient } from '@libsql/client';
+import { createAuditLog } from '@/lib/auditLog';
+import { hasPermission } from '@/lib/rbac';
+import { ApiErrors } from '@/lib/apiResponse';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,14 +22,15 @@ function generateId(): string {
 // GET - Get all items for a template
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
   }
 
   try {
+    const { id } = await params;
     const db = getDb();
     
     const items = await db.execute({
@@ -39,32 +43,38 @@ export async function GET(
         WHERE pti.priceTemplateId = ?
         ORDER BY im.category, im.koreanName
       `,
-      args: [params.id]
+      args: [id]
     });
 
     return NextResponse.json(items.rows);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching price template items:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 
 // POST - Add item to template
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canCreate')) {
+    return ApiErrors.forbidden('Create permission required');
   }
 
   try {
+    const { id: templateId } = await params;
     const body = await request.json();
     const { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes } = body;
 
     if (!ingredientMasterId) {
-      return NextResponse.json({ error: 'ingredientMasterId is required' }, { status: 400 });
+      return ApiErrors.badRequest('ingredientMasterId is required');
     }
 
     const db = getDb();
@@ -74,32 +84,48 @@ export async function POST(
     await db.execute({
       sql: `INSERT INTO PriceTemplateItem (id, priceTemplateId, ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes, createdAt, updatedAt)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, params.id, ingredientMasterId, unitPrice || 0, packagingUnit || null, packagingQty || null, notes || null, now, now]
+      args: [id, templateId, ingredientMasterId, unitPrice || 0, packagingUnit || null, packagingQty || null, notes || null, now, now]
+    });
+
+    // Audit log
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'PRICE_UPDATE',
+      entityType: 'PriceTemplateItem',
+      entityId: id,
+      oldValue: null,
+      newValue: { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes } as any,
     });
 
     return NextResponse.json({ id, message: 'Item added successfully' });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error adding price template item:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }
 
 // PUT - Bulk update items
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return ApiErrors.unauthorized();
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canEdit')) {
+    return ApiErrors.forbidden('Edit permission required');
   }
 
   try {
+    const { id: templateId } = await params;
     const body = await request.json();
-    const { items } = body; // Array of { id, unitPrice, packagingUnit, packagingQty, notes, localEnglishName, localKoreanName, localQuantity, localUnit, localYieldRate }
+    const { items } = body;
 
     if (!items || !Array.isArray(items)) {
-      return NextResponse.json({ error: 'items array is required' }, { status: 400 });
+      return ApiErrors.badRequest('items array is required');
     }
 
     const db = getDb();
@@ -125,15 +151,25 @@ export async function PUT(
             item.localYieldRate || null,
             now, 
             item.id, 
-            params.id
+            templateId
           ]
         });
       }
     }
 
+    // Audit log for bulk update
+    await createAuditLog({
+      userId: (session.user as any).id,
+      action: 'PRICE_UPDATE',
+      entityType: 'PriceTemplateItem',
+      entityId: templateId,
+      oldValue: null,
+      newValue: { itemCount: items.length } as any,
+    });
+
     return NextResponse.json({ message: 'Items updated successfully', count: items.length });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating price template items:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return ApiErrors.serverError(error);
   }
 }

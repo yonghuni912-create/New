@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { hasPermission } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,6 +97,11 @@ interface LinkResult {
 
 // POST - Auto-link ingredient names to master ingredients
 export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { ingredientNames } = body;
