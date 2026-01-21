@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { extractShapeTextsFromExcel, ShapeTextInfo } from '@/lib/excelShapeParser';
@@ -393,7 +393,7 @@ export default function TemplatesPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [cloneTemplateId, setCloneTemplateId] = useState<string>(''); // 복제 대상 국가 템플릿
   const [isCloning, setIsCloning] = useState(false);
-  const [countryFilterTemplateId, setCountryFilterTemplateId] = useState<string>(''); // 국가별 매뉴얼 필터
+  const [countryFilterTemplateId, setCountryFilterTemplateId] = useState<string>('__select__'); // Country filter: __select__ = choose, '' = all, id = specific
   
   // Sorting state for manuals table
   const [sortField, setSortField] = useState<'name' | 'country' | 'cost' | 'sellingPrice' | 'costPct' | null>(null);
@@ -442,6 +442,14 @@ export default function TemplatesPage() {
 
   // Cost Table expanded card state
   const [expandedCostManualId, setExpandedCostManualId] = useState<string | null>(null);
+
+  // Multi-select for bulk download
+  const [selectedManualsForDownload, setSelectedManualsForDownload] = useState<Set<string>>(new Set());
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
+
+  // Upload progress modal state
+  const [showUploadProgressModal, setShowUploadProgressModal] = useState(false);
 
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
@@ -1132,6 +1140,85 @@ export default function TemplatesPage() {
     }
   };
 
+  // Download multiple manuals as single Excel with multiple sheets
+  const handleBulkDownloadManuals = async (manualIds: string[], options: { includeManual: boolean; includeCost: boolean } = { includeManual: true, includeCost: false }) => {
+    if (manualIds.length === 0) {
+      alert('다운로드할 매뉴얼을 선택해주세요.');
+      return;
+    }
+
+    setIsBulkDownloading(true);
+    try {
+      const response = await fetch('/api/manuals/bulk-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          manualIds,
+          includeManual: options.includeManual,
+          includeCost: options.includeCost
+        }),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().split('T')[0];
+        const suffix = options.includeManual && options.includeCost ? 'Manual_Cost' : options.includeCost ? 'Cost' : 'Manuals';
+        a.download = `BBQ_${suffix}_${manualIds.length}items_${timestamp}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+        
+        // Reset selection
+        setSelectedManualsForDownload(new Set());
+        setIsMultiSelectMode(false);
+      } else {
+        const errorText = await response.text().catch(() => '');
+        alert(`다운로드 실패: ${response.status} ${errorText}`);
+      }
+    } catch (error) {
+      console.error('Bulk download error:', error);
+      alert('다운로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsBulkDownloading(false);
+    }
+  };
+
+  // Toggle multi-select mode
+  const toggleMultiSelectMode = () => {
+    if (isMultiSelectMode) {
+      // Exiting multi-select mode - clear selections
+      setSelectedManualsForDownload(new Set());
+    }
+    setIsMultiSelectMode(!isMultiSelectMode);
+  };
+
+  // Toggle manual selection for bulk download
+  const toggleManualForDownload = (manualId: string) => {
+    setSelectedManualsForDownload(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(manualId)) {
+        newSet.delete(manualId);
+      } else {
+        newSet.add(manualId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all visible manuals for download
+  const selectAllManualsForDownload = (manuals: SavedManual[]) => {
+    setSelectedManualsForDownload(new Set(manuals.map(m => m.id)));
+  };
+
+  // Clear manual selection for download
+  const clearManualsForDownload = () => {
+    setSelectedManualsForDownload(new Set());
+  };
+
   // Clear editor form
   const clearEditorForm = () => {
     setMenuName('');
@@ -1214,12 +1301,15 @@ export default function TemplatesPage() {
       if (res.ok) {
         alert(editingManualId ? '매뉴얼이 수정되었습니다!' : '매뉴얼이 저장되었습니다!');
         
+        // Remember which tab we came from before clearing form
+        const returnTab = editorTemplateId && editingManualId ? 'countryManuals' : 'manuals';
+        
         // Reset form
         clearEditorForm();
         
         // Refresh data
         fetchData();
-        setActiveTab('manuals');
+        setActiveTab(returnTab);
       } else {
         // Extract error message from response
         console.error('Save failed with status:', res.status, res.statusText);
@@ -1899,6 +1989,7 @@ export default function TemplatesPage() {
     
     setIsUploading(true);
     setChunkProgress({ current: 0, total: confirmedManualData.length, saved: 0 });
+    setShowUploadProgressModal(true); // Show progress modal
     
     // Process 1 manual at a time to avoid payload size limits
     let totalImported = 0;
@@ -1993,6 +2084,7 @@ export default function TemplatesPage() {
     } finally {
       setIsUploading(false);
       setChunkProgress(null);
+      setShowUploadProgressModal(false); // Hide progress modal
     }
   };
 
@@ -2076,10 +2168,24 @@ export default function TemplatesPage() {
         );
       }
     } else if (activeTab === 'countryManuals') {
-      // Show only country copies (non-master)
-      filtered = filtered.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0);
-      // Further filter by selected country template
-      if (countryFilterTemplateId) {
+      // If "__select__" is chosen, show empty list until user selects a country
+      if (countryFilterTemplateId === '__select__') {
+        return [];
+      }
+      // Show only country copies (non-master) that are active
+      filtered = filtered.filter(m => {
+        const isActive = (m as any).isActive;
+        const isArchived = (m as any).isArchived;
+        const isMaster = (m as any).isMaster;
+        // Must be active (not deleted, not archived)
+        const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
+        const notArchived = !isArchived || isArchived === 0 || isArchived === false;
+        // Must be non-master (country copy)
+        const isCountryCopy = isMaster === false || isMaster === 0;
+        return isReallyActive && notArchived && isCountryCopy;
+      });
+      // Further filter by selected country template (empty string = all countries)
+      if (countryFilterTemplateId && countryFilterTemplateId !== '__select__') {
         filtered = filtered.filter(m => (m as any).priceTemplateId === countryFilterTemplateId);
       }
       // Apply search filter
@@ -2281,11 +2387,10 @@ export default function TemplatesPage() {
             }`}
           >
             <Settings className="w-4 h-4 inline mr-2" />
-            매뉴얼 마스터 ({savedManuals.filter(m => {
+            Master Manuals ({savedManuals.filter(m => {
               const isActive = (m as any).isActive;
               const isArchived = (m as any).isArchived;
               const isMaster = (m as any).isMaster;
-              // Active: isActive is true/1/undefined AND isArchived is false/0/undefined AND isMaster is true/1/undefined
               const isReallyActive = isActive === true || isActive === 1 || isActive === undefined;
               const notArchived = !isArchived || isArchived === 0 || isArchived === false;
               const isReallyMaster = isMaster !== false && isMaster !== 0;
@@ -2299,7 +2404,7 @@ export default function TemplatesPage() {
                 m.linkingStats?.hasUnlinked
               ).length;
               return unlinkedCount > 0 ? (
-                <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded-full" title={`${unlinkedCount}개 미링킹`}>
+                <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded-full" title={`${unlinkedCount} unlinked`}>
                   ⚠️{unlinkedCount}
                 </span>
               ) : null;
@@ -2314,7 +2419,7 @@ export default function TemplatesPage() {
             }`}
           >
             <Globe className="w-4 h-4 inline mr-2" />
-            국가별 매뉴얼 ({savedManuals.filter(m => (m as any).isMaster === false || (m as any).isMaster === 0).length})
+            Country Manuals
           </button>
           <button
             onClick={() => setActiveTab('costTable')}
@@ -2871,25 +2976,54 @@ export default function TemplatesPage() {
 
               {/* Excel Upload Button (for manuals tab) */}
               {activeTab === 'manuals' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowExcelUploadModal(true)}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    엑셀 업로드
+                  </button>
+                  <button
+                    onClick={toggleMultiSelectMode}
+                    className={`px-4 py-2 rounded-lg flex items-center ${
+                      isMultiSelectMode 
+                        ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <CheckCheck className="w-4 h-4 mr-2" />
+                    {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
+                  </button>
+                </div>
+              )}
+
+              {/* Bulk Download Button (for countryManuals tab) */}
+              {activeTab === 'countryManuals' && (
                 <button
-                  onClick={() => setShowExcelUploadModal(true)}
-                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center"
+                  onClick={toggleMultiSelectMode}
+                  className={`px-4 py-2 rounded-lg flex items-center ${
+                    isMultiSelectMode 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  엑셀 업로드
+                  <CheckCheck className="w-4 h-4 mr-2" />
+                  {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
                 </button>
               )}
 
               {/* Country Filter (for countryManuals tab) */}
               {activeTab === 'countryManuals' && (
                 <div className="min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">국가 필터</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Country Filter</label>
                   <select
                     value={countryFilterTemplateId}
                     onChange={(e) => setCountryFilterTemplateId(e.target.value)}
                     className="w-full px-3 py-2 border rounded-lg text-sm"
                   >
-                    <option value="">모든 국가</option>
+                    <option value="__select__">-- Select --</option>
+                    <option value="">All Countries</option>
                     {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
                       <option key={t.id} value={t.id}>{t.country}</option>
                     ))}
@@ -2992,16 +3126,54 @@ export default function TemplatesPage() {
 
           {/* Manuals List */}
           <div className="bg-white rounded-lg shadow overflow-hidden">
+            {isMultiSelectMode && (
+              <div className="bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-orange-700">
+                  <CheckCheck className="w-4 h-4" />
+                  <span className="font-medium">다운로드 선택 모드</span>
+                  <span className="text-orange-500">- 다운로드할 매뉴얼을 체크하세요</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => selectAllManualsForDownload(getGroupManuals())}
+                    className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
+                  >
+                    모두 선택
+                  </button>
+                  <button
+                    onClick={clearManualsForDownload}
+                    className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                  >
+                    선택 해제
+                  </button>
+                </div>
+              </div>
+            )}
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-2 text-center w-10">
-                    <input
-                      type="checkbox"
-                      checked={selectedManualIds.size > 0 && selectedManualIds.size === getTotalFilteredCount()}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
-                    />
+                    {isMultiSelectMode ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedManualsForDownload.size > 0 && selectedManualsForDownload.size === getGroupManuals().length}
+                        onChange={() => {
+                          if (selectedManualsForDownload.size === getGroupManuals().length) {
+                            clearManualsForDownload();
+                          } else {
+                            selectAllManualsForDownload(getGroupManuals());
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                      />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={selectedManualIds.size > 0 && selectedManualIds.size === getTotalFilteredCount()}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                    )}
                   </th>
                   <th onClick={() => handleSort('name')} className="px-3 py-2 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     메뉴명 <SortIcon field="name" />
@@ -3045,15 +3217,28 @@ export default function TemplatesPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {getGroupManuals().map((manual) => {
+                  const isSelectedForDownload = selectedManualsForDownload.has(manual.id);
                   return (
-                    <tr key={manual.id} className={`hover:bg-gray-50 ${selectedManualIds.has(manual.id) ? 'bg-blue-50' : ''}`}>
+                    <tr key={manual.id} className={`hover:bg-gray-50 ${
+                      isMultiSelectMode && isSelectedForDownload ? 'bg-orange-50' : 
+                      selectedManualIds.has(manual.id) ? 'bg-blue-50' : ''
+                    }`}>
                       <td className="px-3 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedManualIds.has(manual.id)}
-                          onChange={() => toggleManualSelection(manual.id)}
-                          className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
-                        />
+                        {isMultiSelectMode ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelectedForDownload}
+                            onChange={() => toggleManualForDownload(manual.id)}
+                            className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                          />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={selectedManualIds.has(manual.id)}
+                            onChange={() => toggleManualSelection(manual.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
@@ -3224,9 +3409,13 @@ export default function TemplatesPage() {
                 })}
                 {getGroupManuals().length === 0 && (
                   <tr>
-                    <td colSpan={activeTab === 'trash' ? 9 : 8} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={activeTab === 'trash' ? 9 : (activeTab === 'countryManuals' ? 9 : 8)} className="px-4 py-8 text-center text-gray-500">
                       {activeTab === 'manuals' 
                         ? '저장된 매뉴얼이 없습니다. Manual Editor에서 새 매뉴얼을 작성하세요.'
+                        : activeTab === 'countryManuals'
+                        ? countryFilterTemplateId === '__select__' 
+                          ? '국가를 선택해주세요.'
+                          : '국가별 매뉴얼이 없습니다. 마스터 매뉴얼을 국가에 복제해주세요.'
                         : activeTab === 'trash'
                         ? '휴지통이 비어있습니다.'
                         : '완전 삭제된 매뉴얼이 없습니다.'}
@@ -3316,7 +3505,7 @@ export default function TemplatesPage() {
                 <p className="text-sm text-gray-500">
                   국가별 매뉴얼의 원가를 계산합니다 ({savedManuals.filter(m => {
                     const isActive = (m as any).isActive;
-                    const matchesCountry = !countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId;
+                    const matchesCountry = countryFilterTemplateId === '__select__' ? false : (!countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId);
                     const matchesSearch = !costTableSearch || 
                       (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
                        m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
@@ -3345,21 +3534,81 @@ export default function TemplatesPage() {
                     onChange={(e) => setCountryFilterTemplateId(e.target.value)}
                     className="px-3 py-2 border rounded-lg text-sm"
                   >
-                    <option value="">모든 국가</option>
+                    <option value="__select__">-- Select --</option>
+                    <option value="">All Countries</option>
                     {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
                       <option key={t.id} value={t.id}>{t.country} ({t.currency || 'CAD'})</option>
                     ))}
                   </select>
                 </div>
+                {/* Bulk Download Button */}
+                <button
+                  onClick={toggleMultiSelectMode}
+                  className={`px-4 py-2 rounded-lg flex items-center ${
+                    isMultiSelectMode 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <CheckCheck className="w-4 h-4 mr-2" />
+                  {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
+                </button>
               </div>
             </div>
           </div>
 
           {/* Cost Table */}
           <div className="bg-white rounded-lg shadow overflow-hidden">
+            {isMultiSelectMode && (
+              <div className="bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-orange-700">
+                  <CheckCheck className="w-4 h-4" />
+                  <span className="font-medium">다운로드 선택 모드</span>
+                  <span className="text-orange-500">- 다운로드할 원가표를 체크하세요</span>
+                </div>
+              </div>
+            )}
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
+                  {isMultiSelectMode && (
+                    <th className="px-3 py-2 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={(() => {
+                          const filteredManuals = savedManuals.filter(m => {
+                            const isActive = (m as any).isActive;
+                            const matchesCountry = countryFilterTemplateId === '__select__' ? false : (!countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId);
+                            const matchesSearch = !costTableSearch || 
+                              (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
+                               m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
+                            return (isActive === true || isActive === 1 || isActive === undefined) && 
+                                   ((m as any).isMaster === false || (m as any).isMaster === 0) &&
+                                   matchesCountry && matchesSearch;
+                          });
+                          return selectedManualsForDownload.size > 0 && selectedManualsForDownload.size === filteredManuals.length;
+                        })()}
+                        onChange={() => {
+                          const filteredManuals = savedManuals.filter(m => {
+                            const isActive = (m as any).isActive;
+                            const matchesCountry = countryFilterTemplateId === '__select__' ? false : (!countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId);
+                            const matchesSearch = !costTableSearch || 
+                              (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
+                               m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
+                            return (isActive === true || isActive === 1 || isActive === undefined) && 
+                                   ((m as any).isMaster === false || (m as any).isMaster === 0) &&
+                                   matchesCountry && matchesSearch;
+                          });
+                          if (selectedManualsForDownload.size === filteredManuals.length) {
+                            clearManualsForDownload();
+                          } else {
+                            selectAllManualsForDownload(filteredManuals);
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 w-8"></th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">메뉴명</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Menu Name</th>
@@ -3376,7 +3625,7 @@ export default function TemplatesPage() {
                   // Filter to show only country manuals (non-master, matching country filter, matching search)
                   const filteredManuals = savedManuals.filter(m => {
                     const isActive = (m as any).isActive;
-                    const matchesCountry = !countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId;
+                    const matchesCountry = countryFilterTemplateId === '__select__' ? false : (!countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId);
                     const matchesSearch = !costTableSearch || 
                       (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
                        m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
@@ -3388,8 +3637,8 @@ export default function TemplatesPage() {
                   if (filteredManuals.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                          {countryFilterTemplateId ? '선택한 국가에 매뉴얼이 없습니다.' : '국가별 매뉴얼이 없습니다. 마스터 매뉴얼을 국가에 복제해주세요.'}
+                        <td colSpan={isMultiSelectMode ? 10 : 9} className="px-4 py-8 text-center text-gray-500">
+                          {countryFilterTemplateId === '__select__' ? '국가를 선택해주세요.' : countryFilterTemplateId ? '선택한 국가에 매뉴얼이 없습니다.' : '국가별 매뉴얼이 없습니다. 마스터 매뉴얼을 국가에 복제해주세요.'}
                         </td>
                       </tr>
                     );
@@ -3413,14 +3662,29 @@ export default function TemplatesPage() {
                     const foodCostRate = sellingPrice > 0 ? ((foodCost / sellingPrice) * 100) : 0;
                     const totalCostRate = sellingPrice > 0 ? ((totalCost / sellingPrice) * 100) : 0;
                     const isExpanded = expandedCostManualId === manual.id;
+                    const isSelectedForDownload = selectedManualsForDownload.has(manual.id);
                     
                     return (
                       <Fragment key={manual.id}>
                         <tr 
-                          className={`hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
-                          onClick={() => setExpandedCostManualId(isExpanded ? null : manual.id)}
+                          className={`hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''} ${isMultiSelectMode && isSelectedForDownload ? 'bg-orange-50' : ''}`}
+                          onClick={() => {
+                            if (!isMultiSelectMode) {
+                              setExpandedCostManualId(isExpanded ? null : manual.id);
+                            }
+                          }}
                         >
-                          <td className="px-4 py-3 text-center">
+                          {isMultiSelectMode && (
+                            <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isSelectedForDownload}
+                                onChange={() => toggleManualForDownload(manual.id)}
+                                className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                              />
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-center" onClick={() => setExpandedCostManualId(isExpanded ? null : manual.id)}>
                             <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                           </td>
                           <td className="px-4 py-3 font-medium">{manual.koreanName || '-'}</td>
@@ -4286,6 +4550,107 @@ export default function TemplatesPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Upload Progress Modal (Overlay) */}
+      {showUploadProgressModal && chunkProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md text-center">
+            <div className="mb-6">
+              <div className="w-16 h-16 mx-auto mb-4 relative">
+                <RefreshCw className="w-16 h-16 text-orange-500 animate-spin" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">매뉴얼 업로드 중...</h3>
+              <p className="text-gray-600">잠시만 기다려주세요</p>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="mb-4">
+              <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.round((chunkProgress.saved / chunkProgress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+            
+            {/* Progress Text */}
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-500">진행률</span>
+              <span className="font-bold text-orange-600">
+                {chunkProgress.saved} / {chunkProgress.total} 완료
+              </span>
+            </div>
+            <div className="mt-2 text-2xl font-bold text-gray-800">
+              {Math.round((chunkProgress.saved / chunkProgress.total) * 100)}%
+            </div>
+            
+            {/* Current item being processed */}
+            <p className="mt-4 text-xs text-gray-400">
+              처리 중... ({chunkProgress.current}/{chunkProgress.total})
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Download Floating Bar */}
+      {isMultiSelectMode && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-xl shadow-2xl border border-gray-200 px-6 py-4 z-50 flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <CheckCheck className="w-5 h-5 text-orange-500" />
+            <span className="font-medium text-gray-700">
+              {selectedManualsForDownload.size}개 선택됨
+            </span>
+          </div>
+          
+          <div className="h-8 w-px bg-gray-200" />
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleBulkDownloadManuals(Array.from(selectedManualsForDownload), { includeManual: true, includeCost: false })}
+              disabled={selectedManualsForDownload.size === 0 || isBulkDownloading}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              매뉴얼만
+            </button>
+            
+            <button
+              onClick={() => handleBulkDownloadManuals(Array.from(selectedManualsForDownload), { includeManual: false, includeCost: true })}
+              disabled={selectedManualsForDownload.size === 0 || isBulkDownloading}
+              className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Table className="w-4 h-4" />
+              원가만
+            </button>
+            
+            <button
+              onClick={() => handleBulkDownloadManuals(Array.from(selectedManualsForDownload), { includeManual: true, includeCost: true })}
+              disabled={selectedManualsForDownload.size === 0 || isBulkDownloading}
+              className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              매뉴얼+원가
+            </button>
+          </div>
+          
+          <div className="h-8 w-px bg-gray-200" />
+          
+          <button
+            onClick={toggleMultiSelectMode}
+            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+          >
+            <X className="w-4 h-4" />
+            취소
+          </button>
+          
+          {isBulkDownloading && (
+            <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+              <RefreshCw className="w-6 h-6 text-orange-500 animate-spin" />
+              <span className="ml-2 text-gray-600">다운로드 중...</span>
+            </div>
+          )}
         </div>
       )}
     </div>

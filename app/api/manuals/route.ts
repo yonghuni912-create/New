@@ -62,7 +62,18 @@ export async function GET(request: NextRequest) {
     // Add linking stats to each manual
     const manualsWithStats = manuals.map(manual => {
       const totalIngredients = manual.ingredients?.length || 0;
-      const linkedIngredients = manual.ingredients?.filter(ing => ing.ingredientId !== null).length || 0;
+      const isMaster = (manual as any).isMaster === true || (manual as any).isMaster === 1;
+      
+      // For master manuals: check only ingredientId
+      // For country manuals: check ingredientId AND unitPrice > 0 (price must exist)
+      const linkedIngredients = manual.ingredients?.filter(ing => {
+        if (!ing.ingredientId) return false;
+        // For country manuals, also check that price is set
+        if (!isMaster) {
+          return (ing.unitPrice !== null && ing.unitPrice !== undefined && ing.unitPrice > 0);
+        }
+        return true;
+      }).length || 0;
       const unlinkedIngredients = totalIngredients - linkedIngredients;
       
       // Check for unassigned cooking processes
