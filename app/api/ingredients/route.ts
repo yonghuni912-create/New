@@ -16,8 +16,61 @@ export async function GET(request: NextRequest) {
   const category = searchParams.get('category');
   const search = searchParams.get('search') || searchParams.get('q');
   const limit = parseInt(searchParams.get('limit') || '100');
+  const priceTemplateId = searchParams.get('priceTemplateId');
 
   try {
+    // 특정 가격 템플릿(국가)의 식재료 조회
+    if (priceTemplateId) {
+      // PriceTemplateItem과 IngredientMaster를 조인하여 해당 국가의 식재료 가져오기
+      const templateItems = await prisma.priceTemplateItem.findMany({
+        where: {
+          priceTemplateId,
+          ...(search ? {
+            OR: [
+              { ingredientMaster: { koreanName: { contains: search } } },
+              { ingredientMaster: { englishName: { contains: search } } },
+              { localKoreanName: { contains: search } },
+              { localEnglishName: { contains: search } },
+            ]
+          } : {}),
+          ...(category ? {
+            ingredientMaster: { category }
+          } : {})
+        },
+        include: {
+          ingredientMaster: true
+        },
+        take: limit,
+        orderBy: [
+          { ingredientMaster: { category: 'asc' } },
+          { ingredientMaster: { koreanName: 'asc' } }
+        ]
+      });
+
+      // PriceTemplateItem 형식을 IngredientMaster 형식과 유사하게 변환
+      const ingredients = templateItems.map(item => ({
+        id: item.ingredientMasterId,
+        category: item.ingredientMaster.category,
+        koreanName: item.localKoreanName || item.ingredientMaster.koreanName,
+        englishName: item.localEnglishName || item.ingredientMaster.englishName,
+        quantity: item.localQuantity || item.ingredientMaster.quantity,
+        unit: item.localUnit || item.ingredientMaster.unit,
+        yieldRate: item.localYieldRate || item.ingredientMaster.yieldRate,
+        unitPrice: item.unitPrice,
+        packagingUnit: item.packagingUnit,
+        packagingQty: item.packagingQty,
+        priceTemplateItemId: item.id,
+        // 원본 마스터 정보도 포함
+        master: {
+          koreanName: item.ingredientMaster.koreanName,
+          englishName: item.ingredientMaster.englishName,
+        }
+      }));
+
+      return NextResponse.json(ingredients);
+    }
+
+    // 기본: IngredientMaster 전체 조회
     const where: any = {};
     
     if (category) {

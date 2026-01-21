@@ -2227,9 +2227,9 @@ export default function TemplatesPage() {
     setShowLinkingReviewModal(true);
     
     try {
-      // 현재 선택된 템플릿 기준으로 필터링
-      const currentTemplateId = editorTemplateId;
-      const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '';
+      // Country Manuals 탭에서는 countryFilterTemplateId 사용, 그 외에는 editorTemplateId 사용
+      const currentTemplateId = activeTab === 'countryManuals' ? countryFilterTemplateId : editorTemplateId;
+      const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '' || currentTemplateId === '__select__';
       
       // 선택된 템플릿의 매뉴얼만 필터링
       const filteredManuals = savedManuals.filter(manual => {
