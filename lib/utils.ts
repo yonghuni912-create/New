@@ -168,3 +168,4 @@ export function formatCurrency(amount: number, currency = 'CAD'): string {
     style: 'currency',
     currency,
   }).format(amount);
+}
