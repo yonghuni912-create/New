@@ -455,8 +455,14 @@ export default function TemplatesPage() {
   const [showLinkingReviewModal, setShowLinkingReviewModal] = useState(false);
   const [linkingReviewManuals, setLinkingReviewManuals] = useState<any[]>([]);
   const [linkingReviewEdits, setLinkingReviewEdits] = useState<Map<string, string>>(new Map()); // ingredientId -> newIngredientMasterId
+  const [linkingReviewPriceEdits, setLinkingReviewPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
   const [linkingReviewLoading, setLinkingReviewLoading] = useState(false);
   const [masterIngredientsList, setMasterIngredientsList] = useState<any[]>([]); // 마스터 원재료 목록
+
+  // 판매가 일괄 수정 모달
+  const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
+  const [bulkPriceEdits, setBulkPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
+  const [bulkPriceLoading, setBulkPriceLoading] = useState(false);
 
   // Upload target template selection (for uploading directly to a country)
   const [uploadTargetTemplateId, setUploadTargetTemplateId] = useState<string>('master'); // 'master' or template ID
@@ -2210,23 +2216,22 @@ export default function TemplatesPage() {
 
   // 링킹 변경사항 저장
   const saveLinkingReviewChanges = async () => {
-    if (linkingReviewEdits.size === 0) {
+    if (linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0) {
       setShowLinkingReviewModal(false);
       return;
     }
 
     setLinkingReviewLoading(true);
-    let successCount = 0;
-    let errorCount = 0;
+    let linkSuccessCount = 0;
+    let linkErrorCount = 0;
+    let priceSuccessCount = 0;
+    let priceErrorCount = 0;
 
     try {
-      // 각 변경사항을 개별적으로 저장
+      // 1. 링킹 변경사항 저장
       for (const [editKey, newMasterId] of linkingReviewEdits) {
         try {
-          // editKey 형식: manualId_ingredientIndex
           const [manualId] = editKey.split('_');
-          
-          // 해당 매뉴얼의 ingredients 배열 업데이트
           const manual = linkingReviewManuals.find(m => m.id === manualId);
           if (!manual) continue;
 
@@ -2234,7 +2239,6 @@ export default function TemplatesPage() {
           const ingredient = manual.ingredients?.[ingredientIndex];
           if (!ingredient) continue;
 
-          // API 호출로 식재료 링킹 업데이트 (PUT 메소드 사용)
           const res = await fetch(`/api/ingredients/auto-link`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -2244,25 +2248,82 @@ export default function TemplatesPage() {
             })
           });
 
-          if (res.ok) {
-            successCount++;
-          } else {
-            errorCount++;
-          }
+          if (res.ok) linkSuccessCount++;
+          else linkErrorCount++;
+        } catch (err) {
+          linkErrorCount++;
+        }
+      }
+
+      // 2. 판매가 변경사항 저장
+      for (const [manualId, sellingPrice] of linkingReviewPriceEdits) {
+        try {
+          const res = await fetch(`/api/manuals/${manualId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sellingPrice })
+          });
+
+          if (res.ok) priceSuccessCount++;
+          else priceErrorCount++;
+        } catch (err) {
+          priceErrorCount++;
+        }
+      }
+
+      const linkMsg = linkSuccessCount > 0 ? `🔗 ${linkSuccessCount}개 링킹` : '';
+      const priceMsg = priceSuccessCount > 0 ? `💰 ${priceSuccessCount}개 판매가` : '';
+      const errorMsg = (linkErrorCount + priceErrorCount) > 0 ? ` (${linkErrorCount + priceErrorCount}개 실패)` : '';
+      
+      alert(`✅ 저장 완료!\n${linkMsg}${linkMsg && priceMsg ? ', ' : ''}${priceMsg} 업데이트${errorMsg}`);
+      setLinkingReviewEdits(new Map());
+      setLinkingReviewPriceEdits(new Map());
+      setShowLinkingReviewModal(false);
+      fetchData();
+    } catch (error) {
+      console.error('Failed to save changes:', error);
+      alert('저장 중 오류가 발생했습니다.');
+    } finally {
+      setLinkingReviewLoading(false);
+    }
+  };
+
+  // 판매가 일괄 수정 저장
+  const saveBulkPriceChanges = async () => {
+    if (bulkPriceEdits.size === 0) {
+      setShowBulkPriceModal(false);
+      return;
+    }
+
+    setBulkPriceLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const [manualId, sellingPrice] of bulkPriceEdits) {
+        try {
+          const res = await fetch(`/api/manuals/${manualId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sellingPrice })
+          });
+
+          if (res.ok) successCount++;
+          else errorCount++;
         } catch (err) {
           errorCount++;
         }
       }
 
-      alert(`✅ ${successCount}개 링킹이 업데이트되었습니다.${errorCount > 0 ? ` (${errorCount}개 실패)` : ''}`);
-      setLinkingReviewEdits(new Map());
-      setShowLinkingReviewModal(false);
+      alert(`✅ ${successCount}개 판매가가 업데이트되었습니다.${errorCount > 0 ? ` (${errorCount}개 실패)` : ''}`);
+      setBulkPriceEdits(new Map());
+      setShowBulkPriceModal(false);
       fetchData();
     } catch (error) {
-      console.error('Failed to save linking changes:', error);
-      alert('링킹 저장 중 오류가 발생했습니다.');
+      console.error('Failed to save bulk prices:', error);
+      alert('판매가 저장 중 오류가 발생했습니다.');
     } finally {
-      setLinkingReviewLoading(false);
+      setBulkPriceLoading(false);
     }
   };
 
@@ -3731,6 +3792,15 @@ export default function TemplatesPage() {
                   <CheckCheck className="w-4 h-4 mr-2" />
                   {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
                 </button>
+                {/* 판매가 일괄 수정 버튼 */}
+                <button
+                  onClick={() => setShowBulkPriceModal(true)}
+                  disabled={countryFilterTemplateId === '__select__'}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  판매가 일괄 수정
+                </button>
               </div>
             </div>
           </div>
@@ -4978,6 +5048,8 @@ export default function TemplatesPage() {
                     const linkedCount = (manual.ingredients || []).filter((ing: any) => ing.ingredientId).length;
                     const totalCount = (manual.ingredients || []).length;
                     const isFullyLinked = linkedCount === totalCount && totalCount > 0;
+                    const hasPriceEdit = linkingReviewPriceEdits.has(manual.id);
+                    const currentPrice = hasPriceEdit ? linkingReviewPriceEdits.get(manual.id) : (manual.sellingPrice || 0);
                     
                     return (
                       <div key={manual.id} className="border rounded-lg overflow-hidden">
@@ -4994,10 +5066,35 @@ export default function TemplatesPage() {
                               )}
                             </div>
                           </div>
-                          <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                            isFullyLinked ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {linkedCount}/{totalCount} 링킹
+                          <div className="flex items-center gap-4">
+                            {/* 판매가 입력란 */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-600">판매가:</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={currentPrice}
+                                onChange={(e) => {
+                                  const newPrice = parseFloat(e.target.value) || 0;
+                                  setLinkingReviewPriceEdits(prev => {
+                                    const newMap = new Map(prev);
+                                    if (newPrice === (manual.sellingPrice || 0)) {
+                                      newMap.delete(manual.id);
+                                    } else {
+                                      newMap.set(manual.id, newPrice);
+                                    }
+                                    return newMap;
+                                  });
+                                }}
+                                className={`w-24 px-2 py-1 text-sm border rounded text-right ${hasPriceEdit ? 'border-blue-500 bg-blue-50' : ''}`}
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              isFullyLinked ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {linkedCount}/{totalCount} 링킹
+                            </div>
                           </div>
                         </div>
 
@@ -5093,10 +5190,15 @@ export default function TemplatesPage() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t flex justify-between items-center">
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-gray-500 flex gap-4">
                 {linkingReviewEdits.size > 0 && (
                   <span className="text-blue-600 font-medium">
-                    {linkingReviewEdits.size}개 변경사항
+                    🔗 {linkingReviewEdits.size}개 링킹
+                  </span>
+                )}
+                {linkingReviewPriceEdits.size > 0 && (
+                  <span className="text-green-600 font-medium">
+                    💰 {linkingReviewPriceEdits.size}개 판매가
                   </span>
                 )}
               </div>
@@ -5104,6 +5206,7 @@ export default function TemplatesPage() {
                 <button
                   onClick={() => {
                     setLinkingReviewEdits(new Map());
+                    setLinkingReviewPriceEdits(new Map());
                     setShowLinkingReviewModal(false);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -5112,11 +5215,120 @@ export default function TemplatesPage() {
                 </button>
                 <button
                   onClick={saveLinkingReviewChanges}
-                  disabled={linkingReviewEdits.size === 0 || linkingReviewLoading}
+                  disabled={(linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0) || linkingReviewLoading}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  저장 ({linkingReviewEdits.size}개)
+                  저장 ({linkingReviewEdits.size + linkingReviewPriceEdits.size}개)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 판매가 일괄 수정 모달 */}
+      {showBulkPriceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">💰 판매가 일괄 수정</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {countryFilterTemplateId && countryFilterTemplateId !== '__select__' 
+                    ? `${priceTemplates.find(t => t.id === countryFilterTemplateId)?.country || '선택한 국가'} 매뉴얼` 
+                    : '전체 매뉴얼'}의 판매가를 한번에 수정합니다.
+                </p>
+              </div>
+              <button onClick={() => setShowBulkPriceModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {bulkPriceLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-4 py-2 text-left">메뉴명</th>
+                      <th className="px-4 py-2 text-left">한글명</th>
+                      <th className="px-4 py-2 text-right w-32">현재 판매가</th>
+                      <th className="px-4 py-2 text-right w-36">새 판매가</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getGroupManuals().map((manual) => {
+                      const hasEdit = bulkPriceEdits.has(manual.id);
+                      const currentPrice = hasEdit ? bulkPriceEdits.get(manual.id) : (manual.sellingPrice || 0);
+                      
+                      return (
+                        <tr key={manual.id} className="border-t">
+                          <td className="px-4 py-2 font-medium">{manual.name}</td>
+                          <td className="px-4 py-2 text-gray-500">{manual.koreanName || '-'}</td>
+                          <td className="px-4 py-2 text-right text-gray-600">
+                            {manual.sellingPrice ? `$${manual.sellingPrice.toFixed(2)}` : '-'}
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={currentPrice}
+                              onChange={(e) => {
+                                const newPrice = parseFloat(e.target.value) || 0;
+                                setBulkPriceEdits(prev => {
+                                  const newMap = new Map(prev);
+                                  if (newPrice === (manual.sellingPrice || 0)) {
+                                    newMap.delete(manual.id);
+                                  } else {
+                                    newMap.set(manual.id, newPrice);
+                                  }
+                                  return newMap;
+                                });
+                              }}
+                              className={`w-full px-2 py-1 text-sm border rounded text-right ${hasEdit ? 'border-blue-500 bg-blue-50' : ''}`}
+                              placeholder="0.00"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {bulkPriceEdits.size > 0 && (
+                  <span className="text-green-600 font-medium">
+                    {bulkPriceEdits.size}개 변경
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setBulkPriceEdits(new Map());
+                    setShowBulkPriceModal(false);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={saveBulkPriceChanges}
+                  disabled={bulkPriceEdits.size === 0 || bulkPriceLoading}
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  저장 ({bulkPriceEdits.size}개)
                 </button>
               </div>
             </div>
