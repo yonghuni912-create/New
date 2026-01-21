@@ -210,3 +210,51 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// PUT - 개별 ManualIngredient의 링킹 업데이트
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { manualIngredientId, newIngredientMasterId, unitPrice, baseQuantity } = body;
+    
+    if (!manualIngredientId) {
+      return NextResponse.json({ error: 'manualIngredientId is required' }, { status: 400 });
+    }
+    
+    const db = getDb();
+    const now = new Date().toISOString();
+    
+    // newIngredientMasterId가 null이면 링킹 해제
+    if (!newIngredientMasterId) {
+      await db.execute({
+        sql: `UPDATE ManualIngredient 
+              SET ingredientId = NULL, unitPrice = NULL, baseQuantity = NULL, updatedAt = ?
+              WHERE id = ?`,
+        args: [now, manualIngredientId]
+      });
+    } else {
+      // 새 마스터 원재료로 링킹
+      // 가격 정보도 함께 업데이트 (제공된 경우)
+      await db.execute({
+        sql: `UPDATE ManualIngredient 
+              SET ingredientId = ?, unitPrice = ?, baseQuantity = ?, updatedAt = ?
+              WHERE id = ?`,
+        args: [newIngredientMasterId, unitPrice || null, baseQuantity || null, now, manualIngredientId]
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      manualIngredientId,
+      newIngredientMasterId,
+      message: newIngredientMasterId ? 'Ingredient linked successfully' : 'Ingredient unlinked'
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Update link error:', error);
+    return NextResponse.json(
+      { error: 'Failed to update ingredient link', details: error?.message },
+      { status: 500 }
+    );
+  }
+}

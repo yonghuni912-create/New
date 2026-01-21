@@ -451,6 +451,13 @@ export default function TemplatesPage() {
   // Upload progress modal state
   const [showUploadProgressModal, setShowUploadProgressModal] = useState(false);
 
+  // 업로드 후 링킹 리뷰 모달
+  const [showLinkingReviewModal, setShowLinkingReviewModal] = useState(false);
+  const [linkingReviewManuals, setLinkingReviewManuals] = useState<any[]>([]);
+  const [linkingReviewEdits, setLinkingReviewEdits] = useState<Map<string, string>>(new Map()); // ingredientId -> newIngredientMasterId
+  const [linkingReviewLoading, setLinkingReviewLoading] = useState(false);
+  const [masterIngredientsList, setMasterIngredientsList] = useState<any[]>([]); // 마스터 원재료 목록
+
   // Upload target template selection (for uploading directly to a country)
   const [uploadTargetTemplateId, setUploadTargetTemplateId] = useState<string>('master'); // 'master' or template ID
   const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false);
@@ -2131,14 +2138,26 @@ export default function TemplatesPage() {
       const errorInfo = errors.length > 0 ? `\n⚠️ ${errors.length}개 오류 발생` : '';
       
       if (totalImported > 0) {
-        alert(`✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${templateInfo}${linkedInfo}${errorInfo}`);
+        // 업로드 성공 - 모달 닫고 데이터 새로고침
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);
         setExcelConfirmedManuals(new Set());
         setExcelPreviewIndex(0);
         setUploadTargetTemplateId('master'); // Reset to master
-        fetchData();
+        
+        // 데이터 새로고침 후 링킹 리뷰 모달 열기
+        await fetchData();
+        
+        // 링킹 리뷰 모달 열기 제안
+        const openReview = confirm(
+          `✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${templateInfo}${linkedInfo}${errorInfo}\n\n` +
+          `전체 식재료 링킹 상태를 확인/수정하시겠습니까?`
+        );
+        
+        if (openReview) {
+          await openLinkingReviewModal();
+        }
       } else {
         const firstErrors = errors.slice(0, 3).join('\n');
         alert(`업로드 실패: ${errors.length}개 오류\n\n${firstErrors}${errors.length > 3 ? `\n... 외 ${errors.length - 3}개` : ''}`);
@@ -2150,6 +2169,100 @@ export default function TemplatesPage() {
       setIsUploading(false);
       setChunkProgress(null);
       setShowUploadProgressModal(false); // Hide progress modal
+    }
+  };
+
+  // 링킹 리뷰 모달 열기 - 모든 매뉴얼과 식재료 로드
+  const openLinkingReviewModal = async () => {
+    setLinkingReviewLoading(true);
+    setShowLinkingReviewModal(true);
+    
+    try {
+      // 모든 매뉴얼과 식재료 상세 정보 가져오기
+      const manualsWithIngredients = [];
+      
+      for (const manual of savedManuals) {
+        try {
+          const res = await fetch(`/api/manuals/${manual.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            manualsWithIngredients.push(data);
+          }
+        } catch (err) {
+          console.warn(`Failed to load manual ${manual.id}`);
+        }
+      }
+      
+      setLinkingReviewManuals(manualsWithIngredients);
+      
+      // 마스터 원재료 목록 로드
+      const ingredientsRes = await fetch('/api/ingredients');
+      if (ingredientsRes.ok) {
+        const ingredients = await ingredientsRes.json();
+        setMasterIngredientsList(ingredients);
+      }
+    } catch (error) {
+      console.error('Failed to load linking review data:', error);
+    } finally {
+      setLinkingReviewLoading(false);
+    }
+  };
+
+  // 링킹 변경사항 저장
+  const saveLinkingReviewChanges = async () => {
+    if (linkingReviewEdits.size === 0) {
+      setShowLinkingReviewModal(false);
+      return;
+    }
+
+    setLinkingReviewLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      // 각 변경사항을 개별적으로 저장
+      for (const [editKey, newMasterId] of linkingReviewEdits) {
+        try {
+          // editKey 형식: manualId_ingredientIndex
+          const [manualId] = editKey.split('_');
+          
+          // 해당 매뉴얼의 ingredients 배열 업데이트
+          const manual = linkingReviewManuals.find(m => m.id === manualId);
+          if (!manual) continue;
+
+          const ingredientIndex = parseInt(editKey.split('_')[1]);
+          const ingredient = manual.ingredients?.[ingredientIndex];
+          if (!ingredient) continue;
+
+          // API 호출로 식재료 링킹 업데이트 (PUT 메소드 사용)
+          const res = await fetch(`/api/ingredients/auto-link`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              manualIngredientId: ingredient.id,
+              newIngredientMasterId: newMasterId || null
+            })
+          });
+
+          if (res.ok) {
+            successCount++;
+          } else {
+            errorCount++;
+          }
+        } catch (err) {
+          errorCount++;
+        }
+      }
+
+      alert(`✅ ${successCount}개 링킹이 업데이트되었습니다.${errorCount > 0 ? ` (${errorCount}개 실패)` : ''}`);
+      setLinkingReviewEdits(new Map());
+      setShowLinkingReviewModal(false);
+      fetchData();
+    } catch (error) {
+      console.error('Failed to save linking changes:', error);
+      alert('링킹 저장 중 오류가 발생했습니다.');
+    } finally {
+      setLinkingReviewLoading(false);
     }
   };
 
@@ -4830,6 +4943,182 @@ export default function TemplatesPage() {
               >
                 생성
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 링킹 리뷰 모달 - 전체 매뉴얼 및 식재료 링킹 확인/수정 */}
+      {showLinkingReviewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">🔗 전체 식재료 링킹 리뷰</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  각 매뉴얼의 식재료 링킹 상태를 확인하고 수정할 수 있습니다.
+                </p>
+              </div>
+              <button onClick={() => setShowLinkingReviewModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {linkingReviewLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="ml-3 text-gray-500">로딩 중...</span>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {linkingReviewManuals.map((manual, manualIdx) => {
+                    const linkedCount = (manual.ingredients || []).filter((ing: any) => ing.ingredientId).length;
+                    const totalCount = (manual.ingredients || []).length;
+                    const isFullyLinked = linkedCount === totalCount && totalCount > 0;
+                    
+                    return (
+                      <div key={manual.id} className="border rounded-lg overflow-hidden">
+                        {/* 매뉴얼 헤더 */}
+                        <div className={`px-4 py-3 flex items-center justify-between ${isFullyLinked ? 'bg-green-50' : 'bg-yellow-50'}`}>
+                          <div className="flex items-center gap-3">
+                            {manual.imageUrl && (
+                              <img src={manual.imageUrl} alt="" className="w-12 h-12 rounded object-cover" />
+                            )}
+                            <div>
+                              <h3 className="font-bold text-gray-900">{manual.name}</h3>
+                              {manual.koreanName && manual.koreanName !== manual.name && (
+                                <p className="text-sm text-gray-500">{manual.koreanName}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                            isFullyLinked ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {linkedCount}/{totalCount} 링킹
+                          </div>
+                        </div>
+
+                        {/* 식재료 테이블 */}
+                        {manual.ingredients && manual.ingredients.length > 0 && (
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-100">
+                              <tr>
+                                <th className="px-4 py-2 text-left w-8">#</th>
+                                <th className="px-4 py-2 text-left">식재료명</th>
+                                <th className="px-4 py-2 text-left w-24">수량</th>
+                                <th className="px-4 py-2 text-left w-48">링킹된 마스터</th>
+                                <th className="px-4 py-2 text-left w-64">변경</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {manual.ingredients.map((ing: any, ingIdx: number) => {
+                                const editKey = `${manual.id}_${ingIdx}`;
+                                const hasEdit = linkingReviewEdits.has(editKey);
+                                const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
+                                const isLinked = !!ing.ingredientId;
+                                
+                                return (
+                                  <tr key={ingIdx} className={`border-t ${!isLinked && !hasEdit ? 'bg-red-50' : ''}`}>
+                                    <td className="px-4 py-2 text-gray-500">{ingIdx + 1}</td>
+                                    <td className="px-4 py-2">
+                                      <div className="font-medium">{ing.name}</div>
+                                      {ing.koreanName && ing.koreanName !== ing.name && (
+                                        <div className="text-xs text-gray-500">{ing.koreanName}</div>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2 text-gray-600">
+                                      {ing.quantity || '-'} {ing.unit || ''}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      {isLinked ? (
+                                        <span className="text-green-600 text-xs">
+                                          ✓ {masterIngredientsList.find(m => m.id === ing.ingredientId)?.englishName || ing.ingredientId}
+                                        </span>
+                                      ) : (
+                                        <span className="text-red-500 text-xs">❌ 링킹 안됨</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <select
+                                        value={currentLinkId || ''}
+                                        onChange={(e) => {
+                                          const newValue = e.target.value;
+                                          setLinkingReviewEdits(prev => {
+                                            const newMap = new Map(prev);
+                                            if (newValue === (ing.ingredientId || '')) {
+                                              newMap.delete(editKey);
+                                            } else {
+                                              newMap.set(editKey, newValue);
+                                            }
+                                            return newMap;
+                                          });
+                                        }}
+                                        className={`w-full px-2 py-1 text-sm border rounded ${hasEdit ? 'border-blue-500 bg-blue-50' : ''}`}
+                                      >
+                                        <option value="">-- 링킹 해제 --</option>
+                                        {masterIngredientsList.map(master => (
+                                          <option key={master.id} value={master.id}>
+                                            {master.englishName} ({master.koreanName})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+
+                        {(!manual.ingredients || manual.ingredients.length === 0) && (
+                          <div className="px-4 py-3 text-gray-500 text-sm">
+                            식재료 없음
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {linkingReviewManuals.length === 0 && !linkingReviewLoading && (
+                    <div className="text-center py-12 text-gray-500">
+                      리뷰할 매뉴얼이 없습니다.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {linkingReviewEdits.size > 0 && (
+                  <span className="text-blue-600 font-medium">
+                    {linkingReviewEdits.size}개 변경사항
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setLinkingReviewEdits(new Map());
+                    setShowLinkingReviewModal(false);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={saveLinkingReviewChanges}
+                  disabled={linkingReviewEdits.size === 0 || linkingReviewLoading}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  저장 ({linkingReviewEdits.size}개)
+                </button>
+              </div>
             </div>
           </div>
         </div>
