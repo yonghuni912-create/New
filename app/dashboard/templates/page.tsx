@@ -5180,7 +5180,7 @@ export default function TemplatesPage() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6" onClick={() => setLinkingSearchOpen(null)}>
+            <div className="flex-1 overflow-y-auto overflow-x-visible p-6" onClick={() => setLinkingSearchOpen(null)}>
               {linkingReviewLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
@@ -5196,7 +5196,7 @@ export default function TemplatesPage() {
                     const currentPrice = hasPriceEdit ? linkingReviewPriceEdits.get(manual.id) : (manual.sellingPrice || 0);
                     
                     return (
-                      <div key={manual.id} className="border rounded-lg overflow-hidden">
+                      <div key={manual.id} className="border rounded-lg" style={{ overflow: 'visible' }}>
                         {/* 매뉴얼 헤더 */}
                         <div className={`px-4 py-3 flex items-center justify-between ${isFullyLinked ? 'bg-green-50' : 'bg-yellow-50'}`}>
                           <div className="flex items-center gap-3">
@@ -5244,7 +5244,8 @@ export default function TemplatesPage() {
 
                         {/* 식재료 테이블 */}
                         {manual.ingredients && manual.ingredients.length > 0 && (
-                          <table className="w-full text-sm">
+                          <div className="overflow-visible">
+                          <table className="w-full text-sm" style={{ overflow: 'visible' }}>
                             <thead className="bg-gray-100">
                               <tr>
                                 <th className="px-3 py-2 text-left w-10">#</th>
@@ -5310,7 +5311,7 @@ export default function TemplatesPage() {
                                         <span className="text-gray-400">-</span>
                                       )}
                                     </td>
-                                    <td className="px-3 py-2 relative">
+                                    <td className="px-3 py-2 relative" style={{ overflow: 'visible' }}>
                                       <div className="relative" onClick={(e) => e.stopPropagation()}>
                                         <input
                                           type="text"
@@ -5334,7 +5335,7 @@ export default function TemplatesPage() {
                                           className={`w-full px-3 py-1.5 text-sm border rounded ${hasEdit ? 'border-blue-500 bg-blue-50' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-400`}
                                         />
                                         {isSearchOpen && (
-                                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                          <div className="absolute left-0 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-80 overflow-y-auto" style={{ zIndex: 9999, minWidth: '300px' }}>
                                             <button
                                               onClick={() => {
                                                 setLinkingReviewEdits(prev => {
@@ -5404,6 +5405,7 @@ export default function TemplatesPage() {
                               })}
                             </tbody>
                           </table>
+                          </div>
                         )}
 
                         {(!manual.ingredients || manual.ingredients.length === 0) && (
