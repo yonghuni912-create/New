@@ -213,6 +213,23 @@ export default function PricingPage() {
     return matchSearch && matchCategory;
   });
 
+  // Pagination for master ingredients
+  const masterTotalPages = masterItemsPerPage === 'all' 
+    ? 1 
+    : Math.ceil(filteredIngredients.length / getMasterNumeric(filteredIngredients.length));
+  
+  const paginatedIngredients = useMemo(() => {
+    if (masterItemsPerPage === 'all') return filteredIngredients;
+    const perPage = getMasterNumeric(filteredIngredients.length);
+    const startIdx = (masterCurrentPage - 1) * perPage;
+    return filteredIngredients.slice(startIdx, startIdx + perPage);
+  }, [filteredIngredients, masterItemsPerPage, masterCurrentPage, getMasterNumeric]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setMasterCurrentPage(1);
+  }, [searchTerm, categoryFilter]);
+
   // Group template items by category
   const groupedItems = templateItems.reduce((acc, item) => {
     const cat = item.category || 'Others';
@@ -608,7 +625,7 @@ export default function PricingPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredIngredients.map(ing => (
+                {paginatedIngredients.map(ing => (
                   <tr key={ing.id} className={`hover:bg-gray-50 ${selectedIngredientIds.has(ing.id) ? 'bg-blue-50' : ''}`}>
                     <td className="px-3 py-3">
                       <input
@@ -668,7 +685,7 @@ export default function PricingPage() {
                     </td>
                   </tr>
                 ))}
-                {filteredIngredients.length === 0 && (
+                {paginatedIngredients.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                       등록된 식재료가 없습니다.
@@ -679,8 +696,71 @@ export default function PricingPage() {
             </table>
           </div>
 
-          <div className="text-sm text-gray-500">
-            총 {filteredIngredients.length}개 / 전체 {ingredients.length}개
+          {/* Pagination Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="text-sm text-gray-500">
+              {masterItemsPerPage === 'all' 
+                ? `총 ${filteredIngredients.length}개 표시`
+                : `총 ${filteredIngredients.length}개 중 ${Math.min(((masterCurrentPage - 1) * getMasterNumeric(filteredIngredients.length)) + 1, filteredIngredients.length)}-${Math.min(masterCurrentPage * getMasterNumeric(filteredIngredients.length), filteredIngredients.length)}개 표시`
+              }
+            </div>
+            <div className="flex items-center gap-4">
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">페이지당:</span>
+                <select
+                  value={masterItemsPerPage}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setMasterItemsPerPage(val === 'all' ? 'all' : parseInt(val) as 10 | 20 | 50 | 100);
+                    setMasterCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-sm border rounded hover:border-gray-400"
+                >
+                  {ITEMS_PER_PAGE_OPTIONS.map(opt => (
+                    <option key={opt} value={opt}>
+                      {getItemsPerPageLabel(opt)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* Pagination buttons */}
+              {masterTotalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMasterCurrentPage(1)}
+                    disabled={masterCurrentPage === 1}
+                    className="px-2 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => setMasterCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={masterCurrentPage === 1}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    이전
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    {masterCurrentPage} / {masterTotalPages}
+                  </span>
+                  <button
+                    onClick={() => setMasterCurrentPage(p => Math.min(masterTotalPages, p + 1))}
+                    disabled={masterCurrentPage === masterTotalPages}
+                    className="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    다음
+                  </button>
+                  <button
+                    onClick={() => setMasterCurrentPage(masterTotalPages)}
+                    disabled={masterCurrentPage === masterTotalPages}
+                    className="px-2 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    »
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1180,7 +1260,7 @@ export default function PricingPage() {
               {/* Search and Select Ingredient */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  원재료 검색 *
+                  원재료 검색 * <span className="text-gray-400 font-normal">(검색 후 목록에서 선택하세요)</span>
                 </label>
                 <input
                   type="text"
@@ -1222,6 +1302,13 @@ export default function PricingPage() {
                   <p className="mt-2 text-sm text-gray-500">
                     검색 결과가 없거나 이미 템플릿에 있는 항목입니다.
                   </p>
+                )}
+                
+                {/* Selected ingredient indicator */}
+                {addTemplateItemForm.ingredientMasterId && (
+                  <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                    ✓ 식재료가 선택되었습니다
+                  </div>
                 )}
               </div>
 
