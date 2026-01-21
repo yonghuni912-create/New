@@ -451,6 +451,16 @@ export default function TemplatesPage() {
   // Upload progress modal state
   const [showUploadProgressModal, setShowUploadProgressModal] = useState(false);
 
+  // Upload target template selection (for uploading directly to a country)
+  const [uploadTargetTemplateId, setUploadTargetTemplateId] = useState<string>('master'); // 'master' or template ID
+  const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false);
+  const [newTemplateForm, setNewTemplateForm] = useState({
+    name: '',
+    country: '',
+    currency: 'USD',
+    description: ''
+  });
+
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -510,6 +520,46 @@ export default function TemplatesPage() {
       console.error('Failed to fetch data:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Create new price template (for upload modal)
+  const handleCreateNewTemplate = async () => {
+    if (!newTemplateForm.name || !newTemplateForm.country) {
+      alert('템플릿 이름과 국가를 입력해주세요.');
+      return;
+    }
+    
+    try {
+      const res = await fetch('/api/price-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newTemplateForm.name,
+          country: newTemplateForm.country,
+          currency: newTemplateForm.currency || 'USD',
+          description: newTemplateForm.description,
+          copyFromMaster: true
+        })
+      });
+      
+      if (res.ok) {
+        const newTemplate = await res.json();
+        // Add to templates list
+        setPriceTemplates(prev => [...prev, newTemplate]);
+        // Select the new template for upload
+        setUploadTargetTemplateId(newTemplate.id);
+        // Close modal and reset form
+        setShowCreateTemplateModal(false);
+        setNewTemplateForm({ name: '', country: '', currency: 'USD', description: '' });
+        alert(`"${newTemplate.name}" 템플릿이 생성되었습니다!`);
+      } else {
+        const error = await res.json();
+        alert(`템플릿 생성 실패: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to create template:', error);
+      alert('템플릿 생성 중 오류가 발생했습니다.');
     }
   };
 
@@ -1987,6 +2037,10 @@ export default function TemplatesPage() {
       excelConfirmedManuals.has(idx)
     );
     
+    // Determine if uploading to a specific country template
+    const isCountryUpload = uploadTargetTemplateId !== 'master';
+    const targetTemplate = isCountryUpload ? priceTemplates.find(t => t.id === uploadTargetTemplateId) : null;
+    
     setIsUploading(true);
     setChunkProgress({ current: 0, total: confirmedManualData.length, saved: 0 });
     setShowUploadProgressModal(true); // Show progress modal
@@ -2004,7 +2058,7 @@ export default function TemplatesPage() {
         // Update progress
         setChunkProgress({ current: i + 1, total: confirmedManualData.length, saved: totalImported });
         
-        console.log(`📦 Uploading ${i + 1}/${confirmedManualData.length}: ${manual?.name || 'unknown'}`);
+        console.log(`📦 Uploading ${i + 1}/${confirmedManualData.length}: ${manual?.name || 'unknown'}${isCountryUpload ? ` → ${targetTemplate?.name}` : ''}`);
         
         // Compress image data if too large (limit to 300KB per image)
         const compressedManual = { ...manual };
@@ -2017,13 +2071,22 @@ export default function TemplatesPage() {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 55000); // 55 second timeout
           
+          // Build request body - include template info if uploading to country
+          const requestBody: any = {
+            importMode: 'import-direct',
+            manuals: [compressedManual]
+          };
+          
+          // If uploading to a country template, set flags
+          if (isCountryUpload && targetTemplate) {
+            requestBody.priceTemplateId = targetTemplate.id;
+            requestBody.isMaster = false;
+          }
+          
           const res = await fetch('/api/manuals/upload', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              importMode: 'import-direct',
-              manuals: [compressedManual]
-            }),
+            body: JSON.stringify(requestBody),
             signal: controller.signal
           });
           
@@ -2063,16 +2126,18 @@ export default function TemplatesPage() {
       setChunkProgress({ current: confirmedManualData.length, total: confirmedManualData.length, saved: totalImported });
       
       // Show results
+      const templateInfo = isCountryUpload && targetTemplate ? `\n📍 ${targetTemplate.name} 템플릿에 저장됨` : '';
       const linkedInfo = totalLinked > 0 ? `\n🔗 ${totalLinked}개 식재료 자동 링킹됨` : '';
       const errorInfo = errors.length > 0 ? `\n⚠️ ${errors.length}개 오류 발생` : '';
       
       if (totalImported > 0) {
-        alert(`✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${linkedInfo}${errorInfo}`);
+        alert(`✅ ${totalImported}개 매뉴얼이 가져오기 되었습니다.${templateInfo}${linkedInfo}${errorInfo}`);
         setShowExcelUploadModal(false);
         setExcelFile(null);
         setExcelPreviewData(null);
         setExcelConfirmedManuals(new Set());
         setExcelPreviewIndex(0);
+        setUploadTargetTemplateId('master'); // Reset to master
         fetchData();
       } else {
         const firstErrors = errors.slice(0, 3).join('\n');
@@ -3941,11 +4006,47 @@ export default function TemplatesPage() {
           <div className="bg-white rounded-lg shadow-lg max-w-5xl w-full max-h-[90vh] overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between items-center">
               <h2 className="text-xl font-bold">엑셀 파일에서 매뉴얼 가져오기</h2>
-              <button onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); }}>
+              <button onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); setUploadTargetTemplateId('master'); }}>
                 <X className="w-6 h-6 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {/* Upload Target Selection - Country Template Dropdown */}
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-blue-600" />
+                    <span className="font-medium text-blue-800">업로드 대상 선택</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={uploadTargetTemplateId}
+                      onChange={(e) => {
+                        if (e.target.value === '__create__') {
+                          setShowCreateTemplateModal(true);
+                        } else {
+                          setUploadTargetTemplateId(e.target.value);
+                        }
+                      }}
+                      className="px-4 py-2 border border-blue-300 rounded-lg bg-white text-blue-800 font-medium focus:ring-2 focus:ring-blue-500 min-w-[200px]"
+                    >
+                      <option value="master">📋 마스터 매뉴얼</option>
+                      <optgroup label="국가별 템플릿">
+                        {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                          <option key={t.id} value={t.id}>🌍 {t.name} ({t.country})</option>
+                        ))}
+                      </optgroup>
+                      <option value="__create__">➕ 새 국가 템플릿 생성...</option>
+                    </select>
+                  </div>
+                </div>
+                {uploadTargetTemplateId !== 'master' && uploadTargetTemplateId !== '__create__' && (
+                  <p className="mt-2 text-sm text-blue-600">
+                    ✨ 선택된 국가 템플릿의 가격이 자동으로 적용됩니다
+                  </p>
+                )}
+              </div>
+
               {/* File Input */}
               {!excelPreviewData && (
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
@@ -4321,7 +4422,7 @@ export default function TemplatesPage() {
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); setPendingManuals([]); setChunkProgress(null); }}
+                  onClick={() => { setShowExcelUploadModal(false); setExcelFile(null); setExcelPreviewData(null); setExcelConfirmedManuals(new Set()); setExcelPreviewIndex(0); setPendingManuals([]); setChunkProgress(null); setUploadTargetTemplateId('master'); }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   취소
@@ -4651,6 +4752,86 @@ export default function TemplatesPage() {
               <span className="ml-2 text-gray-600">다운로드 중...</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Create New Template Modal */}
+      {showCreateTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Globe className="w-5 h-5 text-blue-500" />
+                새 국가 템플릿 생성
+              </h3>
+              <button onClick={() => setShowCreateTemplateModal(false)}>
+                <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">템플릿 이름 *</label>
+                <input
+                  type="text"
+                  value={newTemplateForm.name}
+                  onChange={(e) => setNewTemplateForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="예: Honduras Template"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">국가 *</label>
+                <input
+                  type="text"
+                  value={newTemplateForm.country}
+                  onChange={(e) => setNewTemplateForm(prev => ({ ...prev, country: e.target.value }))}
+                  placeholder="예: Honduras, CA, US..."
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">통화</label>
+                <select
+                  value={newTemplateForm.currency}
+                  onChange={(e) => setNewTemplateForm(prev => ({ ...prev, currency: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="CAD">CAD ($)</option>
+                  <option value="KRW">KRW (₩)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="CNY">CNY (¥)</option>
+                  <option value="JPY">JPY (¥)</option>
+                  <option value="HNL">HNL (L)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
+                <textarea
+                  value={newTemplateForm.description}
+                  onChange={(e) => setNewTemplateForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="템플릿에 대한 설명..."
+                  rows={2}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button
+                onClick={() => setShowCreateTemplateModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleCreateNewTemplate}
+                disabled={!newTemplateForm.name || !newTemplateForm.country}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                생성
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

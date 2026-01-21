@@ -163,7 +163,8 @@ export async function POST(request: NextRequest) {
       
       if (body.importMode === 'import-direct' && body.manuals) {
         console.log(`📥 Direct import: ${body.manuals.length} manuals`);
-        return handleDirectImport(body.manuals);
+        // Pass optional priceTemplateId and isMaster for country-specific uploads
+        return handleDirectImport(body.manuals, body.priceTemplateId, body.isMaster);
       }
     }
     
@@ -660,8 +661,12 @@ async function autoLinkIngredients(db: ReturnType<typeof getDb>, ingredientNames
   return linkMap;
 }
 
-async function handleDirectImport(manuals: ParsedManual[]) {
+async function handleDirectImport(manuals: ParsedManual[], priceTemplateId?: string, isMaster?: boolean) {
   console.log('📥 handleDirectImport called with', manuals?.length || 0, 'manuals');
+  console.log('📍 Target template:', priceTemplateId || 'master', '| isMaster:', isMaster !== false);
+  
+  // Determine if this is a country-specific upload
+  const isCountryUpload = priceTemplateId && isMaster === false;
   
   if (!manuals || manuals.length === 0) {
     console.log('⚠️ No manuals to import');
@@ -699,12 +704,35 @@ async function handleDirectImport(manuals: ParsedManual[]) {
   const ingredientLinks = await autoLinkIngredients(db, Array.from(allIngredientNames));
   const linkedCount = ingredientLinks.size;
   
+  // If country upload, also fetch price template items for pricing
+  let priceTemplateItems: Map<string, { unitPrice: number; baseQuantity: number }> = new Map();
+  if (isCountryUpload) {
+    try {
+      const priceResult = await db.execute({
+        sql: `SELECT pti.ingredientMasterId, pti.unitPrice, im.quantity as baseQuantity
+              FROM PriceTemplateItem pti
+              JOIN IngredientMaster im ON pti.ingredientMasterId = im.id
+              WHERE pti.priceTemplateId = ?`,
+        args: [priceTemplateId]
+      });
+      for (const row of priceResult.rows) {
+        priceTemplateItems.set(row.ingredientMasterId as string, {
+          unitPrice: row.unitPrice as number || 0,
+          baseQuantity: row.baseQuantity as number || 1
+        });
+      }
+      console.log(`💰 Loaded ${priceTemplateItems.size} price items from template`);
+    } catch (priceError: any) {
+      console.warn('⚠️ Could not load price template items:', priceError?.message);
+    }
+  }
+  
   for (const manual of manuals) {
     try {
       const manualId = generateId();
       const now = new Date().toISOString();
       
-      console.log(`📝 Creating manual: ${manual.name}`);
+      console.log(`📝 Creating manual: ${manual.name}${isCountryUpload ? ' (country)' : ' (master)'}`);
       console.log(`   📦 Ingredients count: ${manual.ingredients?.length || 0}`);
       if (manual.ingredients && manual.ingredients.length > 0) {
         console.log(`   📦 First ingredient: ${manual.ingredients[0]?.name}`);
@@ -713,10 +741,10 @@ async function handleDirectImport(manuals: ParsedManual[]) {
         console.log(`   📷 Has image data`);
       }
       
-      // Create manual with imageUrl
+      // Create manual with imageUrl - set isMaster and priceTemplateId based on upload type
       await db.execute({
-        sql: `INSERT INTO MenuManual (id, name, koreanName, sellingPrice, shelfLife, cookingMethod, imageUrl, isMaster, isActive, isArchived, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?)`,
+        sql: `INSERT INTO MenuManual (id, name, koreanName, sellingPrice, shelfLife, cookingMethod, imageUrl, isMaster, priceTemplateId, isActive, isArchived, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
         args: [
           manualId,
           manual.name,
@@ -725,6 +753,8 @@ async function handleDirectImport(manuals: ParsedManual[]) {
           manual.shelfLife || null,
           manual.cookingMethod ? JSON.stringify(manual.cookingMethod) : null,
           manual.imageData || manual.imageUrl || null, // Store base64 or URL
+          isCountryUpload ? 0 : 1, // isMaster: 0 for country, 1 for master
+          isCountryUpload ? priceTemplateId : null, // priceTemplateId for country manuals
           now,
           now
         ],
@@ -739,9 +769,20 @@ async function handleDirectImport(manuals: ParsedManual[]) {
         const linkedMaster = ingredientLinks.get(ing.name);
         const ingredientId = linkedMaster?.id || null;
         
+        // Get price info if this is a country upload and ingredient is linked
+        let unitPrice = null;
+        let baseQuantity = null;
+        if (isCountryUpload && ingredientId) {
+          const priceInfo = priceTemplateItems.get(ingredientId);
+          if (priceInfo) {
+            unitPrice = priceInfo.unitPrice;
+            baseQuantity = priceInfo.baseQuantity;
+          }
+        }
+        
         await db.execute({
-          sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, createdAt, updatedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             ingId,
             manualId,
@@ -752,6 +793,8 @@ async function handleDirectImport(manuals: ParsedManual[]) {
             ing.unit || 'g',
             idx,
             ing.purchase || null,
+            unitPrice,
+            baseQuantity,
             now,
             now
           ],
