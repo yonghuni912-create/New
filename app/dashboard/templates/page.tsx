@@ -2261,9 +2261,9 @@ export default function TemplatesPage() {
       
       // 템플릿에 해당하는 원재료 목록 로드
       // 마스터인 경우 전체 원재료, 국가 템플릿인 경우 해당 템플릿 아이템
-      let ingredientsUrl = '/api/ingredients';
+      let ingredientsUrl = '/api/ingredients?limit=500';
       if (!isMaster && currentTemplateId) {
-        ingredientsUrl = `/api/ingredients?priceTemplateId=${currentTemplateId}`;
+        ingredientsUrl = `/api/ingredients?priceTemplateId=${currentTemplateId}&limit=500`;
       }
       
       const ingredientsRes = await fetch(ingredientsUrl);
@@ -3222,23 +3222,8 @@ export default function TemplatesPage() {
             {/* Country Manuals 탭 전용 UI */}
             {activeTab === 'countryManuals' ? (
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Country Filter */}
-                <div className="min-w-[150px]">
-                  <select
-                    value={countryFilterTemplateId}
-                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
-                  >
-                    <option value="__select__">-- Select Country --</option>
-                    <option value="">All Countries</option>
-                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
-                      <option key={t.id} value={t.id}>{t.country}</option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* Search */}
-                <div className="min-w-[200px]">
+                <div className="min-w-[180px]">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
@@ -3251,18 +3236,20 @@ export default function TemplatesPage() {
                   </div>
                 </div>
 
-                {/* Bulk Download */}
-                <button
-                  onClick={toggleMultiSelectMode}
-                  className={`px-4 py-2 rounded-lg flex items-center text-sm ${
-                    isMultiSelectMode 
-                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <CheckCheck className="w-4 h-4 mr-2" />
-                  {isMultiSelectMode ? '선택 모드 ON' : '일괄 다운로드'}
-                </button>
+                {/* Country Filter */}
+                <div className="min-w-[140px]">
+                  <select
+                    value={countryFilterTemplateId}
+                    onChange={(e) => setCountryFilterTemplateId(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="__select__">모든 국가</option>
+                    <option value="">All Countries</option>
+                    {priceTemplates.filter(t => t.name !== "Master Template").map(t => (
+                      <option key={t.id} value={t.id}>{t.country}</option>
+                    ))}
+                  </select>
+                </div>
 
                 {/* 식재료 수정 (Linking Review) */}
                 <button
@@ -5289,8 +5276,8 @@ export default function TemplatesPage() {
                                   ? masterIngredientsList.filter(m => 
                                       m.englishName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                       m.koreanName?.toLowerCase().includes(searchQuery.toLowerCase())
-                                    ).slice(0, 10)
-                                  : masterIngredientsList.slice(0, 10);
+                                    ).slice(0, 20)
+                                  : masterIngredientsList.slice(0, 20);
                                 
                                 return (
                                   <tr key={ingIdx} className={`border-t ${!isLinked ? 'bg-red-50' : hasEdit ? 'bg-blue-50' : ''}`}>
