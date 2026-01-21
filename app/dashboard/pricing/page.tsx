@@ -85,6 +85,7 @@ export default function PricingPage() {
   const [templateItems, setTemplateItems] = useState<PriceTemplateItem[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['All']));
   const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('All'); // 템플릿 탭 카테고리 필터
+  const [templateSearchTerm, setTemplateSearchTerm] = useState(''); // 템플릿 탭 검색어
   
   // Modals
   const [showAddIngredient, setShowAddIngredient] = useState(false);
@@ -806,6 +807,17 @@ export default function PricingPage() {
             </div>
             
             <div className="flex items-center gap-2">
+              {/* 검색창 */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="식재료 검색..."
+                  value={templateSearchTerm}
+                  onChange={(e) => setTemplateSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 py-2 border rounded-lg w-48 text-sm"
+                />
+              </div>
               <span className="text-sm font-medium text-gray-700">카테고리:</span>
               <select
                 value={templateCategoryFilter}
@@ -865,9 +877,21 @@ export default function PricingPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {(() => {
-                      const filtered = templateCategoryFilter === 'All' 
+                      // 카테고리 필터
+                      let filtered = templateCategoryFilter === 'All' 
                         ? templateItems 
                         : templateItems.filter(item => item.category === templateCategoryFilter);
+                      
+                      // 검색어 필터
+                      if (templateSearchTerm.trim()) {
+                        const query = templateSearchTerm.toLowerCase();
+                        filtered = filtered.filter(item => 
+                          (item.koreanName?.toLowerCase().includes(query)) ||
+                          (item.englishName?.toLowerCase().includes(query)) ||
+                          (item.localEnglishName?.toLowerCase().includes(query)) ||
+                          (item.localKoreanName?.toLowerCase().includes(query))
+                        );
+                      }
                       
                       if (filtered.length === 0) {
                         return (
@@ -946,9 +970,30 @@ export default function PricingPage() {
                 </table>
               </div>
               <div className="p-3 bg-gray-50 border-t text-sm text-gray-500">
-                {templateCategoryFilter === 'All' 
-                  ? `총 ${templateItems.length}개 아이템`
-                  : `${templateCategoryFilter}: ${templateItems.filter(i => i.category === templateCategoryFilter).length}개 / 전체 ${templateItems.length}개`}
+                {(() => {
+                  let count = templateCategoryFilter === 'All' 
+                    ? templateItems.length 
+                    : templateItems.filter(i => i.category === templateCategoryFilter).length;
+                  
+                  if (templateSearchTerm.trim()) {
+                    const query = templateSearchTerm.toLowerCase();
+                    let filtered = templateCategoryFilter === 'All' 
+                      ? templateItems 
+                      : templateItems.filter(i => i.category === templateCategoryFilter);
+                    count = filtered.filter(item => 
+                      (item.koreanName?.toLowerCase().includes(query)) ||
+                      (item.englishName?.toLowerCase().includes(query)) ||
+                      (item.localEnglishName?.toLowerCase().includes(query)) ||
+                      (item.localKoreanName?.toLowerCase().includes(query))
+                    ).length;
+                  }
+                  
+                  return templateSearchTerm.trim()
+                    ? `검색 결과: ${count}개 / 전체 ${templateItems.length}개`
+                    : templateCategoryFilter === 'All' 
+                      ? `총 ${templateItems.length}개 아이템`
+                      : `${templateCategoryFilter}: ${count}개 / 전체 ${templateItems.length}개`;
+                })()}
               </div>
             </div>
           ) : (
