@@ -130,7 +130,8 @@ export async function POST(
         const korSim = similarity(ingName, item.koreanName as string || '');
         const maxSim = Math.max(engSim, korSim);
 
-        if (maxSim >= 0.6 && maxSim > bestSim) {
+        // 0.8 이상일 때만 링킹 (0.6에서 상향 - 더 엄격한 매칭)
+        if (maxSim >= 0.8 && maxSim > bestSim) {
           bestSim = maxSim;
           bestMatch = {
             id: item.id as string,

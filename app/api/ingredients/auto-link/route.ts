@@ -184,15 +184,16 @@ export async function POST(request: NextRequest) {
       const topMatch = scored[0];
       const alternatives = scored.slice(1, 4).map(s => s.master);
       
-      // Determine confidence level
+      // Determine confidence level - 더 엄격한 기준으로 수정
       let confidence: 'high' | 'medium' | 'low' | 'none' = 'none';
-      if (topMatch.similarity >= 0.85) {
+      if (topMatch.similarity >= 0.9) {
         confidence = 'high';
-      } else if (topMatch.similarity >= 0.65) {
+      } else if (topMatch.similarity >= 0.8) {
         confidence = 'medium';
-      } else if (topMatch.similarity >= 0.4) {
+      } else if (topMatch.similarity >= 0.7) {
         confidence = 'low';
       }
+      // 0.7 미만은 아예 링킹하지 않음 (confidence = 'none')
       
       results.push({
         inputName,

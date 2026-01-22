@@ -716,7 +716,8 @@ async function autoLinkIngredients(
         const korSim = similarity(inputName, master.koreanName as string || '');
         const maxSim = Math.max(engSim, korSim);
         
-        if (maxSim >= 0.6 && (!bestMatch || maxSim > bestMatch.similarity)) {
+        // 0.8 이상일 때만 링킹 (0.6에서 상향 - 더 엄격한 매칭)
+        if (maxSim >= 0.8 && (!bestMatch || maxSim > bestMatch.similarity)) {
           bestMatch = { 
             id: master.id as string, 
             similarity: maxSim,

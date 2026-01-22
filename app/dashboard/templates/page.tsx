@@ -503,6 +503,13 @@ export default function TemplatesPage() {
   const [linkingSearchQueries, setLinkingSearchQueries] = useState<Map<string, string>>(new Map()); // editKey -> 검색어
   const [linkingSearchOpen, setLinkingSearchOpen] = useState<string | null>(null); // 열려있는 검색 드롭다운 editKey
 
+  // 일괄 링킹 기능 (같은 이름 식재료 한번에 링킹)
+  const [bulkLinkSearchTerm, setBulkLinkSearchTerm] = useState(''); // 일괄 링킹 검색어
+  const [bulkLinkSelectedItems, setBulkLinkSelectedItems] = useState<Set<string>>(new Set()); // 선택된 아이템 editKey
+  const [showBulkLinkMasterSelect, setShowBulkLinkMasterSelect] = useState(false); // 마스터 선택 드롭다운
+  const [bulkLinkMasterSearchTerm, setBulkLinkMasterSearchTerm] = useState(''); // 마스터 검색어
+  const [bulkLinkTargetMaster, setBulkLinkTargetMaster] = useState<any>(null); // 선택된 마스터
+
   // 판매가 일괄 수정 모달
   const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
   const [bulkPriceEdits, setBulkPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
@@ -5183,34 +5190,165 @@ export default function TemplatesPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">🔗 식재료 링킹 리뷰</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {(() => {
-                    const isMaster = !editorTemplateId || editorTemplateId === 'master' || editorTemplateId === '';
-                    const templateName = isMaster 
-                      ? 'Master' 
-                      : priceTemplates.find(t => t.id === editorTemplateId)?.name || editorTemplateId;
-                    return (
-                      <>
-                        <span className="font-medium text-blue-600">[{templateName}]</span> 템플릿의 {linkingReviewManuals.length}개 매뉴얼 식재료 링킹 상태
-                      </>
-                    );
-                  })()}
-                </p>
+            <div className="px-6 py-4 border-b">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">🔗 식재료 링킹 리뷰</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {(() => {
+                      const isMaster = !editorTemplateId || editorTemplateId === 'master' || editorTemplateId === '';
+                      const templateName = isMaster 
+                        ? 'Master' 
+                        : priceTemplates.find(t => t.id === editorTemplateId)?.name || editorTemplateId;
+                      return (
+                        <>
+                          <span className="font-medium text-blue-600">[{templateName}]</span> 템플릿의 {linkingReviewManuals.length}개 매뉴얼 식재료 링킹 상태
+                        </>
+                      );
+                    })()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {/* 일괄 링킹 검색 UI */}
+                  <div className="relative flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="식재료명으로 검색하여 일괄 링킹..."
+                        value={bulkLinkSearchTerm}
+                        onChange={(e) => {
+                          setBulkLinkSearchTerm(e.target.value);
+                          setBulkLinkSelectedItems(new Set());
+                          setShowBulkLinkMasterSelect(false);
+                          setBulkLinkTargetMaster(null);
+                        }}
+                        className="pl-9 pr-3 py-2 w-72 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+                    {/* 검색 결과 표시 및 체크박스 */}
+                    {bulkLinkSearchTerm.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          // 검색어로 매뉴얼 식재료 필터링
+                          const matchingItems: { editKey: string; ing: any; manualName: string }[] = [];
+                          linkingReviewManuals.forEach((manual) => {
+                            (manual.ingredients || []).forEach((ing: any, ingIdx: number) => {
+                              const editKey = `${manual.id}_${ingIdx}`;
+                              const ingName = (ing.name || '').toLowerCase();
+                              const ingKorName = (ing.koreanName || '').toLowerCase();
+                              const searchLower = bulkLinkSearchTerm.toLowerCase();
+                              if (ingName.includes(searchLower) || ingKorName.includes(searchLower)) {
+                                matchingItems.push({ editKey, ing, manualName: manual.name });
+                              }
+                            });
+                          });
+                          
+                          if (matchingItems.length === 0) {
+                            return <span className="text-sm text-gray-400">일치하는 식재료 없음</span>;
+                          }
+                          
+                          const allSelected = matchingItems.every(item => bulkLinkSelectedItems.has(item.editKey));
+                          
+                          return (
+                            <>
+                              <span className="text-sm text-gray-600">
+                                {matchingItems.length}개 발견
+                              </span>
+                              <button
+                                onClick={() => {
+                                  if (allSelected) {
+                                    setBulkLinkSelectedItems(new Set());
+                                  } else {
+                                    setBulkLinkSelectedItems(new Set(matchingItems.map(item => item.editKey)));
+                                  }
+                                }}
+                                className={`px-3 py-1.5 text-sm rounded-lg ${allSelected ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'} hover:bg-blue-200`}
+                              >
+                                {allSelected ? '선택 해제' : '모두 선택'}
+                              </button>
+                              {bulkLinkSelectedItems.size > 0 && (
+                                <div className="relative">
+                                  <button
+                                    onClick={() => setShowBulkLinkMasterSelect(!showBulkLinkMasterSelect)}
+                                    className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-1"
+                                  >
+                                    <CheckCheck className="w-4 h-4" />
+                                    {bulkLinkSelectedItems.size}개 일괄 링킹
+                                  </button>
+                                  {/* 마스터 식재료 선택 드롭다운 */}
+                                  {showBulkLinkMasterSelect && (
+                                    <div className="absolute top-full right-0 mt-1 w-80 bg-white border rounded-lg shadow-lg z-50 max-h-72 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                                      <div className="p-2 border-b">
+                                        <input
+                                          type="text"
+                                          placeholder="마스터 식재료 검색..."
+                                          value={bulkLinkMasterSearchTerm}
+                                          onChange={(e) => setBulkLinkMasterSearchTerm(e.target.value)}
+                                          className="w-full px-3 py-1.5 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-green-400"
+                                          autoFocus
+                                        />
+                                      </div>
+                                      <div className="overflow-y-auto flex-1 max-h-48">
+                                        {masterIngredientsList
+                                          .filter(m => 
+                                            !bulkLinkMasterSearchTerm ||
+                                            m.englishName?.toLowerCase().includes(bulkLinkMasterSearchTerm.toLowerCase()) ||
+                                            m.koreanName?.toLowerCase().includes(bulkLinkMasterSearchTerm.toLowerCase())
+                                          )
+                                          .slice(0, 30)
+                                          .map(master => (
+                                            <button
+                                              key={master.id}
+                                              onClick={() => {
+                                                // 선택된 모든 아이템에 이 마스터를 링킹
+                                                setLinkingReviewEdits(prev => {
+                                                  const newMap = new Map(prev);
+                                                  bulkLinkSelectedItems.forEach(editKey => {
+                                                    newMap.set(editKey, master.id);
+                                                  });
+                                                  return newMap;
+                                                });
+                                                // 초기화
+                                                setBulkLinkSearchTerm('');
+                                                setBulkLinkSelectedItems(new Set());
+                                                setShowBulkLinkMasterSelect(false);
+                                                setBulkLinkMasterSearchTerm('');
+                                              }}
+                                              className="w-full px-3 py-2 text-left hover:bg-green-50 text-sm border-b"
+                                            >
+                                              <div className="font-medium text-gray-900">{master.englishName}</div>
+                                              {master.koreanName && (
+                                                <div className="text-xs text-gray-500">{master.koreanName}</div>
+                                              )}
+                                            </button>
+                                          ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setShowLinkingReviewModal(false);
+                      setLinkingSearchOpen(null);
+                      setLinkingSearchQueries(new Map());
+                      setBulkLinkSearchTerm('');
+                      setBulkLinkSelectedItems(new Set());
+                    }} 
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium"
+                  >
+                    <X className="w-5 h-5" />
+                    나가기
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={() => {
-                  setShowLinkingReviewModal(false);
-                  setLinkingSearchOpen(null);
-                  setLinkingSearchQueries(new Map());
-                }} 
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium"
-              >
-                <X className="w-5 h-5" />
-                나가기
-              </button>
             </div>
 
             {/* Content */}
@@ -5282,6 +5420,7 @@ export default function TemplatesPage() {
                           <table className="w-full text-sm" style={{ overflow: 'visible' }}>
                             <thead className="bg-gray-100">
                               <tr>
+                                {bulkLinkSearchTerm.length > 0 && <th className="px-2 py-2 w-8"></th>}
                                 <th className="px-3 py-2 text-left w-10">#</th>
                                 <th className="px-3 py-2 text-left w-48">매뉴얼상 식재료명</th>
                                 <th className="px-3 py-2 text-left w-48">링킹된 식재료명</th>
@@ -5297,6 +5436,14 @@ export default function TemplatesPage() {
                                 const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
                                 const isLinked = hasEdit ? !!currentLinkId : !!ing.ingredientId;
                                 const linkedMaster = currentLinkId ? masterIngredientsList.find(m => m.id === currentLinkId) : null;
+                                
+                                // 일괄 링킹 검색 매칭 확인
+                                const ingName = (ing.name || '').toLowerCase();
+                                const ingKorName = (ing.koreanName || '').toLowerCase();
+                                const searchLower = bulkLinkSearchTerm.toLowerCase();
+                                const matchesBulkSearch = bulkLinkSearchTerm.length > 0 && 
+                                  (ingName.includes(searchLower) || ingKorName.includes(searchLower));
+                                const isSelectedForBulk = bulkLinkSelectedItems.has(editKey);
                                 
                                 // 사용량 수정 여부 확인
                                 const hasQuantityEdit = linkingReviewQuantityEdits.has(editKey);
@@ -5326,11 +5473,42 @@ export default function TemplatesPage() {
                                     ).slice(0, 20)
                                   : masterIngredientsList.slice(0, 20);
                                 
+                                // 일괄 검색 매칭 시 행 숨기지 않고 하이라이트만 표시
+                                const rowClasses = `border-t ${
+                                  isSelectedForBulk ? 'bg-yellow-100 ring-2 ring-yellow-400' :
+                                  matchesBulkSearch ? 'bg-yellow-50' :
+                                  !isLinked ? 'bg-red-50' : 
+                                  hasEdit ? 'bg-blue-50' : ''
+                                }`;
+                                
                                 return (
-                                  <tr key={ingIdx} className={`border-t ${!isLinked ? 'bg-red-50' : hasEdit ? 'bg-blue-50' : ''}`}>
+                                  <tr key={ingIdx} className={rowClasses}>
+                                    {/* 일괄 링킹 검색 중일 때 체크박스 표시 */}
+                                    {bulkLinkSearchTerm.length > 0 && (
+                                      <td className="px-2 py-2">
+                                        {matchesBulkSearch && (
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelectedForBulk}
+                                            onChange={(e) => {
+                                              setBulkLinkSelectedItems(prev => {
+                                                const newSet = new Set(prev);
+                                                if (e.target.checked) {
+                                                  newSet.add(editKey);
+                                                } else {
+                                                  newSet.delete(editKey);
+                                                }
+                                                return newSet;
+                                              });
+                                            }}
+                                            className="w-4 h-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-400"
+                                          />
+                                        )}
+                                      </td>
+                                    )}
                                     <td className="px-3 py-2 text-gray-500">{ingIdx + 1}</td>
                                     <td className="px-3 py-2">
-                                      <div className="font-medium">{ing.name}</div>
+                                      <div className={`font-medium ${matchesBulkSearch ? 'text-yellow-700' : ''}`}>{ing.name}</div>
                                       {ing.koreanName && ing.koreanName !== ing.name && (
                                         <div className="text-xs text-gray-500">{ing.koreanName}</div>
                                       )}
