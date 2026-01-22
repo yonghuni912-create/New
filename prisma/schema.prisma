@@ -285,6 +285,7 @@ model MenuManual {
   id              String             @id @default(cuid())
   name            String
   koreanName      String?
+  category        String?                             // 메뉴 카테고리 (치킨, 사이드, 음료 등)
   imageUrl        String?
   shelfLife       String?
   yield           Float?

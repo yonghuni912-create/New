@@ -481,6 +481,17 @@ export default function TemplatesPage() {
   const [trashSearch, setTrashSearch] = useState('');
   const [archiveSearch, setArchiveSearch] = useState('');
 
+  // Category filter state
+  const [categories, setCategories] = useState<string[]>(['치킨', '사이드', '음료', '소스', '기타']);
+  const [masterCategoryFilter, setMasterCategoryFilter] = useState<string>('');
+  const [countryCategoryFilter, setCountryCategoryFilter] = useState<string>('');
+  const [costTableCategoryFilter, setCostTableCategoryFilter] = useState<string>('');
+  
+  // Bulk category assignment (Country Manuals)
+  const [selectedManualsForCategory, setSelectedManualsForCategory] = useState<Set<string>>(new Set());
+  const [showCategoryAssignModal, setShowCategoryAssignModal] = useState(false);
+  const [categoryAssignValue, setCategoryAssignValue] = useState('');
+
   // Cost Table expanded card state
   const [expandedCostManualId, setExpandedCostManualId] = useState<string | null>(null);
 
@@ -584,10 +595,48 @@ export default function TemplatesPage() {
           setEditorTemplateId(templates[0].id);
         }
       }
+      
+      // Load categories
+      const categoriesRes = await fetch('/api/manuals/category', { cache: 'no-store' });
+      if (categoriesRes.ok) {
+        const cats = await categoriesRes.json();
+        setCategories(cats);
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Bulk assign category to selected manuals
+  const handleBulkCategoryAssign = async () => {
+    if (selectedManualsForCategory.size === 0) {
+      alert('카테고리를 설정할 매뉴얼을 선택해주세요.');
+      return;
+    }
+    
+    try {
+      const res = await fetch('/api/manuals/category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manualIds: Array.from(selectedManualsForCategory),
+          category: categoryAssignValue || null
+        })
+      });
+      
+      if (res.ok) {
+        const result = await res.json();
+        alert(`${result.updated}개 매뉴얼의 카테고리가 설정되었습니다.`);
+        setSelectedManualsForCategory(new Set());
+        setShowCategoryAssignModal(false);
+        setCategoryAssignValue('');
+        fetchData(); // Refresh
+      }
+    } catch (error) {
+      console.error('Failed to assign category:', error);
+      alert('카테고리 설정 실패');
     }
   };
 
@@ -2546,6 +2595,10 @@ export default function TemplatesPage() {
           m.koreanName?.toLowerCase().includes(countrySearch.toLowerCase())
         );
       }
+      // Apply category filter
+      if (countryCategoryFilter) {
+        filtered = filtered.filter(m => (m as any).category === countryCategoryFilter);
+      }
     } else {
       // Show active (not deleted, not archived) manuals - for manuals tab, show only masters
       // isActive must be true (or 1) AND isArchived must be false (or 0)
@@ -2566,6 +2619,10 @@ export default function TemplatesPage() {
             m.name?.toLowerCase().includes(masterSearch.toLowerCase()) ||
             m.koreanName?.toLowerCase().includes(masterSearch.toLowerCase())
           );
+        }
+        // Apply category filter
+        if (masterCategoryFilter) {
+          filtered = filtered.filter(m => (m as any).category === masterCategoryFilter);
         }
       }
     }
@@ -2657,7 +2714,7 @@ export default function TemplatesPage() {
   // Reset page when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, linkingFilter, countryFilterTemplateId]);
+  }, [activeTab, linkingFilter, countryFilterTemplateId, masterCategoryFilter, countryCategoryFilter, costTableCategoryFilter]);
   
   // Handle column header click for sorting
   const handleSort = (field: typeof sortField) => {
@@ -3299,6 +3356,20 @@ export default function TemplatesPage() {
                   </select>
                 </div>
 
+                {/* Category Filter */}
+                <div className="min-w-[120px]">
+                  <select
+                    value={countryCategoryFilter}
+                    onChange={(e) => setCountryCategoryFilter(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">모든 카테고리</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* 식재료 수정 (Linking Review) */}
                 <button
                   onClick={() => openLinkingReviewModal()}
@@ -3315,6 +3386,22 @@ export default function TemplatesPage() {
                 >
                   <DollarSign className="w-4 h-4 mr-2" />
                   판매가 수정
+                </button>
+
+                {/* 카테고리 일괄 설정 */}
+                <button
+                  onClick={() => {
+                    if (selectedManualsForCategory.size === 0) {
+                      alert('먼저 매뉴얼을 선택해주세요 (체크박스)');
+                      return;
+                    }
+                    setShowCategoryAssignModal(true);
+                  }}
+                  disabled={selectedManualsForCategory.size === 0}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center text-sm"
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  카테고리 설정 ({selectedManualsForCategory.size})
                 </button>
 
                 {/* Spacer */}
@@ -3391,6 +3478,23 @@ export default function TemplatesPage() {
                   />
                 </div>
               </div>
+
+              {/* Category Filter (for manuals tab) */}
+              {activeTab === 'manuals' && (
+                <div className="min-w-[120px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">카테고리</label>
+                  <select
+                    value={masterCategoryFilter}
+                    onChange={(e) => setMasterCategoryFilter(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">전체</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Excel Upload Button (for manuals tab) */}
               {activeTab === 'manuals' && (
@@ -3587,6 +3691,11 @@ export default function TemplatesPage() {
                       국가 <SortIcon field="country" />
                     </th>
                   )}
+                  {activeTab === 'countryManuals' && (
+                    <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">
+                      카테고리
+                    </th>
+                  )}
                   <th onClick={() => handleSort('sellingPrice')} className="px-3 py-2 text-right text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100">
                     판매가 <SortIcon field="sellingPrice" />
                   </th>
@@ -3682,6 +3791,34 @@ export default function TemplatesPage() {
                             <Globe className="w-3 h-3 mr-1" />
                             {(manual as any).priceTemplate?.country || '국가 미지정'}
                           </span>
+                        </td>
+                      )}
+                      {activeTab === 'countryManuals' && (
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedManualsForCategory.has(manual.id)}
+                              onChange={() => {
+                                const newSet = new Set(selectedManualsForCategory);
+                                if (newSet.has(manual.id)) {
+                                  newSet.delete(manual.id);
+                                } else {
+                                  newSet.add(manual.id);
+                                }
+                                setSelectedManualsForCategory(newSet);
+                              }}
+                              className="w-3 h-3 rounded border-purple-300 text-purple-500 focus:ring-purple-500"
+                              title="카테고리 설정용 선택"
+                            />
+                            {(manual as any).category ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                                {(manual as any).category}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">미설정</span>
+                            )}
+                          </div>
                         </td>
                       )}
                       <td className="px-3 py-2 text-right">
@@ -3950,6 +4087,19 @@ export default function TemplatesPage() {
                     ))}
                   </select>
                 </div>
+                {/* Category Filter */}
+                <div>
+                  <select
+                    value={costTableCategoryFilter}
+                    onChange={(e) => setCostTableCategoryFilter(e.target.value)}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  >
+                    <option value="">모든 카테고리</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
                 {/* Bulk Download Button */}
                 <button
                   onClick={toggleMultiSelectMode}
@@ -4040,16 +4190,17 @@ export default function TemplatesPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {(() => {
-                  // Filter to show only country manuals (non-master, matching country filter, matching search)
+                  // Filter to show only country manuals (non-master, matching country filter, matching search, matching category)
                   const filteredManuals = savedManuals.filter(m => {
                     const isActive = (m as any).isActive;
                     const matchesCountry = countryFilterTemplateId === '__select__' ? false : (!countryFilterTemplateId || (m as any).priceTemplateId === countryFilterTemplateId);
                     const matchesSearch = !costTableSearch || 
                       (m.name?.toLowerCase().includes(costTableSearch.toLowerCase()) ||
                        m.koreanName?.toLowerCase().includes(costTableSearch.toLowerCase()));
+                    const matchesCategory = !costTableCategoryFilter || (m as any).category === costTableCategoryFilter;
                     return (isActive === true || isActive === 1 || isActive === undefined) && 
                            ((m as any).isMaster === false || (m as any).isMaster === 0) &&
-                           matchesCountry && matchesSearch;
+                           matchesCountry && matchesSearch && matchesCategory;
                   });
                   
                   if (filteredManuals.length === 0) {
@@ -4065,9 +4216,9 @@ export default function TemplatesPage() {
                   return filteredManuals.map(manual => {
                     // Calculate food cost from ingredients: (사용량 / 기준수량) × 단가
                     const ingredientCount = manual.ingredients?.length || 0;
-                    // 링킹된 식재료 수 계산 (ingredientId가 있고 unitPrice > 0인 경우)
+                    // 링킹된 식재료 수 계산 (ingredientId가 있으면 링킹됨)
                     const linkedIngredientCount = manual.ingredients?.filter((ing: any) => 
-                      ing.ingredientId && ing.unitPrice !== null && ing.unitPrice !== undefined && ing.unitPrice > 0
+                      ing.ingredientId
                     ).length || 0;
                     
                     // Food cost: 투고용기가 아닌 식재료만 계산
@@ -6038,6 +6189,98 @@ export default function TemplatesPage() {
                 >
                   <Save className="w-4 h-4" />
                   저장 ({bulkPriceEdits.size}개)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 카테고리 일괄 설정 모달 */}
+      {showCategoryAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">📁 카테고리 설정</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {selectedManualsForCategory.size}개 매뉴얼에 카테고리를 설정합니다.
+                </p>
+              </div>
+              <button onClick={() => setShowCategoryAssignModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">카테고리 선택</label>
+                <select
+                  value={categoryAssignValue}
+                  onChange={(e) => setCategoryAssignValue(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                >
+                  <option value="">카테고리 선택...</option>
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">또는 새 카테고리 입력</label>
+                <input
+                  type="text"
+                  value={categoryAssignValue}
+                  onChange={(e) => setCategoryAssignValue(e.target.value)}
+                  placeholder="새 카테고리 이름..."
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              <div className="text-xs text-gray-500 bg-gray-50 rounded p-3">
+                <p className="font-medium mb-1">선택된 매뉴얼:</p>
+                <p className="text-gray-600">
+                  {savedManuals
+                    .filter(m => selectedManualsForCategory.has(m.id))
+                    .slice(0, 5)
+                    .map(m => m.koreanName || m.name)
+                    .join(', ')}
+                  {selectedManualsForCategory.size > 5 && ` 외 ${selectedManualsForCategory.size - 5}개`}
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setCategoryAssignValue('');
+                  handleBulkCategoryAssign(); // 카테고리 해제
+                }}
+                className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
+              >
+                카테고리 해제
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCategoryAssignModal(false);
+                    setCategoryAssignValue('');
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleBulkCategoryAssign}
+                  disabled={!categoryAssignValue}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  설정
                 </button>
               </div>
             </div>

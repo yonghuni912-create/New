@@ -76,17 +76,10 @@ export async function GET(request: NextRequest) {
     // Add linking stats to each manual
     const manualsWithStats = manuals.map(manual => {
       const totalIngredients = manual.ingredients?.length || 0;
-      const isMaster = (manual as any).isMaster === true || (manual as any).isMaster === 1;
       
-      // For master manuals: check only ingredientId
-      // For country manuals: check ingredientId AND unitPrice > 0 (price must exist)
+      // 링킹 여부는 ingredientId만 있으면 됨 (가격은 PriceTemplateItem에서 동적 조회)
       const linkedIngredients = manual.ingredients?.filter(ing => {
-        if (!ing.ingredientId) return false;
-        // For country manuals, also check that price is set
-        if (!isMaster) {
-          return (ing.unitPrice !== null && ing.unitPrice !== undefined && ing.unitPrice > 0);
-        }
-        return true;
+        return ing.ingredientId !== null && ing.ingredientId !== undefined && ing.ingredientId !== '';
       }).length || 0;
       const unlinkedIngredients = totalIngredients - linkedIngredients;
       
