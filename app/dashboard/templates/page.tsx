@@ -1057,7 +1057,10 @@ export default function TemplatesPage() {
       const res = await fetch(`/api/manuals/${manual.id}`, { method: 'DELETE' });
       if (res.ok) {
         alert('매뉴얼이 휴지통으로 이동되었습니다.');
-        fetchData();
+        // 즉시 UI에서 제거
+        setSavedManuals(prev => prev.filter(m => m.id !== manual.id));
+        // 백그라운드에서 데이터 새로고침
+        await fetchData();
       } else {
         alert('삭제 실패');
       }
@@ -2001,11 +2004,8 @@ export default function TemplatesPage() {
     };
   };
 
-  // Excel file upload - client-side parsing for large files
-  const handleExcelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+  // Process Excel file - shared logic for file select and drag & drop
+  const processExcelFile = async (file: File) => {
     const fileSizeMB = file.size / (1024 * 1024);
     console.log(`📂 Selected file: ${file.name} (${fileSizeMB.toFixed(1)}MB)`);
     
@@ -2092,6 +2092,46 @@ export default function TemplatesPage() {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // Excel file upload - for input element
+  const handleExcelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processExcelFile(file);
+  };
+
+  // Drag and drop state
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+    
+    const file = files[0];
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      alert('엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.');
+      return;
+    }
+    
+    await processExcelFile(file);
   };
 
   // Upload manuals in chunks
@@ -4804,12 +4844,25 @@ export default function TemplatesPage() {
                 )}
               </div>
 
-              {/* File Input */}
+              {/* File Input with Drag & Drop */}
               {!excelPreviewData && (
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                  <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-600 mb-4">엑셀 파일(.xlsx)을 선택해주세요</p>
-                  <label className="cursor-pointer bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600">
+                <div 
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                    isDragging 
+                      ? 'border-orange-500 bg-orange-50' 
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragging ? 'text-orange-500' : 'text-gray-400'}`} />
+                  <p className="text-gray-600 mb-4">
+                    {isDragging 
+                      ? '여기에 파일을 놓으세요!' 
+                      : '엑셀 파일(.xlsx)을 드래그하거나 선택해주세요'}
+                  </p>
+                  <label className="cursor-pointer bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600 inline-block">
                     파일 선택
                     <input
                       type="file"
