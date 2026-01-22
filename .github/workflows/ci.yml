@@ -29,6 +29,9 @@ jobs:
     - name: Lint
       run: npm run lint
     
+    - name: Type Check
+      run: npx tsc --noEmit
+    
     - name: Generate Prisma Client
       run: npx prisma generate
     
