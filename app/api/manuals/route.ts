@@ -50,14 +50,28 @@ export async function GET(request: NextRequest) {
           orderBy: [
             { sortOrder: 'asc' }
           ],
-          include: includeIngredients ? {
+          include: {
             ingredientMaster: true
-          } : undefined
+          }
         },
         priceTemplate: true
       },
       orderBy: { name: 'asc' }
     });
+
+    // PriceTemplateItem을 가져와서 올바른 baseQuantity와 unitPrice를 조회
+    const allPriceTemplateItems = await prisma.priceTemplateItem.findMany({
+      include: {
+        ingredientMaster: true
+      }
+    });
+    
+    // ingredientMasterId + priceTemplateId → PriceTemplateItem 맵 생성
+    const priceTemplateItemMap = new Map<string, any>();
+    for (const item of allPriceTemplateItems) {
+      const key = `${item.priceTemplateId}_${item.ingredientMasterId}`;
+      priceTemplateItemMap.set(key, item);
+    }
 
     // Add linking stats to each manual
     const manualsWithStats = manuals.map(manual => {
@@ -105,8 +119,23 @@ export async function GET(request: NextRequest) {
       
       return {
         ...manual,
-        // Always include ingredients for cost table and linking stats
-        ingredients: manual.ingredients,
+        // 식재료에 올바른 baseQuantity와 unitPrice 추가
+        ingredients: manual.ingredients.map(ing => {
+          // 국가 매뉴얼인 경우, PriceTemplateItem에서 올바른 가격/수량 조회
+          if (manual.priceTemplateId && ing.ingredientId) {
+            const itemKey = `${manual.priceTemplateId}_${ing.ingredientId}`;
+            const templateItem = priceTemplateItemMap.get(itemKey);
+            if (templateItem) {
+              return {
+                ...ing,
+                // PriceTemplateItem의 값으로 덮어쓰기 (더 정확한 값)
+                unitPrice: templateItem.unitPrice ?? ing.unitPrice,
+                baseQuantity: templateItem.localQuantity ?? templateItem.ingredientMaster?.quantity ?? ing.baseQuantity ?? 1
+              };
+            }
+          }
+          return ing;
+        }),
         // Always include linking stats
         linkingStats: {
           total: totalIngredients,
