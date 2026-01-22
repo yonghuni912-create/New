@@ -4,9 +4,9 @@
 
 Next.js 14 App Router application for BBQ Chicken franchise management. Key patterns:
 
-- **Dual Database**: SQLite (dev) → Turso (prod) via `@prisma/adapter-libsql` (see `../lib/prisma.ts`)
-- **RBAC**: 5 roles: `MASTER_ADMIN`, `ADMIN`, `PM`, `CONTRIBUTOR`, `VIEWER` (see `../lib/rbac.ts`)
-- **Observability**: OpenTelemetry tracing via `../lib/tracing.ts` and `../instrumentation.ts`
+- **Dual Database**: SQLite (dev) → Turso (prod) via `@prisma/adapter-libsql` (see `lib/prisma.ts`)
+- **RBAC**: 5 roles: `MASTER_ADMIN`, `ADMIN`, `PM`, `CONTRIBUTOR`, `VIEWER` (see `lib/rbac.ts`)
+- **Observability**: OpenTelemetry tracing via `lib/tracing.ts` and `instrumentation.ts`
 
 ## Required API Route Pattern
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 - `isPackage: true` on `IngredientMaster` → Packaging item (투고용기), excluded from food cost
 
 ### Audit Logging (Required for mutations)
-See `../lib/auditLog.ts` for implementation.
+See `lib/auditLog.ts` for implementation.
 ```typescript
 await createAuditLog({
   userId: session.user.id,
@@ -56,7 +56,7 @@ await createAuditLog({
 
 ## Database Schema Essentials
 
-See `../prisma/schema.prisma` for full schema.
+See `prisma/schema.prisma` for full schema.
 
 | Model | Key Fields | Notes |
 |-------|------------|-------|
@@ -80,8 +80,8 @@ npm run build        # Production build (validates types)
 1. **Bilingual Fields**: `name` (English) + `koreanName` (Korean) on most entities
 2. **JSON Storage**: `cookingMethod` stored as `JSON.stringify([{process, manual, translatedManual}])`
 3. **Soft Delete**: Use `isArchived: true`, `deletedAt`, `deletedBy` - never hard delete manuals
-4. **File Structure**: API routes in `../app/api/`, UI primitives in `../components/ui/`, feature components in `../components/`
-5. **Excel Parsing**: Uses `xlsx` (SheetJS) - see `../app/dashboard/templates/page.tsx`
+4. **File Structure**: API routes in `app/api/`, UI primitives in `components/ui/`, feature components in `components/`
+5. **Excel Parsing**: Uses `xlsx` (SheetJS) - see `app/dashboard/templates/page.tsx`
 
 ## Environment Variables
 
@@ -101,8 +101,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_TRACES_ENABLED
 
 ## Deployment
 
-See `../DEPLOYMENT.md` for production deployment instructions.
+See `DEPLOYMENT.md` for production deployment instructions.
 
 ## Storage
 
-File storage uses an adapter pattern - see `../lib/storage/` for local/S3 implementations.
+File storage uses an adapter pattern - see `lib/storage/` for local/S3 implementations.
