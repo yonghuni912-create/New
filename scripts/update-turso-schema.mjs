@@ -71,6 +71,43 @@ async function updateSchema() {
       console.log('ManualVersion table already exists');
     }
 
+    // Check if IngredientMaster has isCompound column
+    const imTable = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='IngredientMaster'");
+    if (imTable.rows[0]) {
+      const tableSql = String(imTable.rows[0].sql);
+      if (!tableSql.includes('"isCompound"') && !tableSql.includes('isCompound')) {
+        console.log('Adding isCompound column to IngredientMaster table...');
+        await client.execute("ALTER TABLE IngredientMaster ADD COLUMN isCompound INTEGER NOT NULL DEFAULT 0");
+        console.log('isCompound column added!');
+      } else {
+        console.log('isCompound column already exists in IngredientMaster');
+      }
+    }
+
+    // Create CompoundIngredientItem table if not exists
+    const ciTable = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='CompoundIngredientItem'");
+    if (!ciTable.rows[0]) {
+      console.log('Creating CompoundIngredientItem table...');
+      await client.execute(`
+        CREATE TABLE CompoundIngredientItem (
+          id TEXT PRIMARY KEY NOT NULL,
+          compoundIngredientId TEXT NOT NULL,
+          subIngredientId TEXT NOT NULL,
+          quantity REAL NOT NULL DEFAULT 0,
+          unit TEXT NOT NULL DEFAULT 'g',
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (compoundIngredientId) REFERENCES IngredientMaster(id) ON DELETE CASCADE,
+          FOREIGN KEY (subIngredientId) REFERENCES IngredientMaster(id) ON DELETE CASCADE
+        )
+      `);
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_compound_ingredient_id ON CompoundIngredientItem(compoundIngredientId)");
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_sub_ingredient_id ON CompoundIngredientItem(subIngredientId)");
+      console.log('CompoundIngredientItem table created!');
+    } else {
+      console.log('CompoundIngredientItem table already exists');
+    }
+
     // Check current Store table structure
     const tables = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='Store'");
     console.log('Current Store table:', tables.rows[0]?.sql || 'NOT FOUND');
