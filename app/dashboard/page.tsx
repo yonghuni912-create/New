@@ -60,7 +60,7 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">
-          Welcome back, {session?.user?.name}!
+          Welcome back, {session?.user?.name}님!
         </h1>
         <p className="text-gray-600 mt-2">
           Here's what's happening with your store launches

@@ -173,8 +173,10 @@ export default function PricingPage() {
     ingredientName: string;
     quantity: number;
     unit: string;
+    unitPrice?: number;
   }[]>([]);
   const [compoundSearchQuery, setCompoundSearchQuery] = useState('');
+  const [compoundSelectedTemplateId, setCompoundSelectedTemplateId] = useState<string>(''); // 혼합 식재료 추가시 선택된 템플릿
 
   // Pagination state
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -551,19 +553,33 @@ export default function PricingPage() {
     ).slice(0, 20); // 상위 20개만 표시
   }, [ingredients, templateItems, addItemSearchQuery]);
 
-  // 혼합 식재료용 검색 결과 (비혼합 식재료만)
+  // 혼합 식재료용 검색 결과 (비혼합 식재료만) - 템플릿 선택시 가격 정보 포함
   const availableIngredientsForCompound = useMemo(() => {
     if (!compoundSearchQuery.trim()) return [];
     const query = compoundSearchQuery.toLowerCase();
     const selectedIds = new Set(compoundSubIngredients.map(s => s.ingredientId));
+    
+    // 선택된 템플릿의 아이템 가격 맵 생성
+    const selectedTemplateItems = compoundSelectedTemplateId 
+      ? templateItems.filter(() => selectedTemplate?.id === compoundSelectedTemplateId)
+      : [];
+    const priceMap = new Map<string, number>();
+    for (const item of (compoundSelectedTemplateId && selectedTemplate?.id === compoundSelectedTemplateId ? templateItems : [])) {
+      if (item.ingredientMasterId && item.unitPrice !== undefined) {
+        priceMap.set(item.ingredientMasterId, item.unitPrice);
+      }
+    }
     
     return ingredients.filter(ing => 
       !ing.isCompound &&  // 혼합 식재료는 제외
       !selectedIds.has(ing.id) &&
       (ing.koreanName.toLowerCase().includes(query) ||
        ing.englishName.toLowerCase().includes(query))
-    ).slice(0, 15);
-  }, [ingredients, compoundSearchQuery, compoundSubIngredients]);
+    ).map(ing => ({
+      ...ing,
+      unitPrice: priceMap.get(ing.id)
+    })).slice(0, 15);
+  }, [ingredients, compoundSearchQuery, compoundSubIngredients, compoundSelectedTemplateId, templateItems, selectedTemplate]);
 
   const resetCompoundForm = () => {
     setCompoundForm({
@@ -577,6 +593,7 @@ export default function PricingPage() {
     });
     setCompoundSubIngredients([]);
     setCompoundSearchQuery('');
+    setCompoundSelectedTemplateId('');
   };
 
   // 혼합 식재료 생성 핸들러
@@ -1751,8 +1768,31 @@ export default function PricingPage() {
             </div>
             <div className="p-4 space-y-4">
               <div className="p-3 bg-purple-50 rounded-lg text-sm text-purple-700">
-                💡 혼합 식재료는 여러 기본 식재료를 조합하여 만든 식재료입니다.<br/>
-                예: 양념장, 배터믹스, 마리네이드 등
+                💡 혼합 식재료는 여러 식재료를 조합하여 만든 식재료를 등록할 때 사용하시면 됩니다.<br/>
+                예: 김치 베이스, 스파이시 그릴 소스 등
+              </div>
+              
+              {/* 가격 템플릿 선택 */}
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <label className="block text-sm font-medium mb-2 text-blue-700">가격 템플릿 선택 (가격 정보 연동)</label>
+                <select
+                  value={compoundSelectedTemplateId}
+                  onChange={(e) => {
+                    setCompoundSelectedTemplateId(e.target.value);
+                    // 템플릿 변경시 하위 식재료 초기화
+                    setCompoundSubIngredients([]);
+                    setCompoundSearchQuery('');
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg bg-white"
+                >
+                  <option value="">마스터 (가격 없음)</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} ({t.country})</option>
+                  ))}
+                </select>
+                {compoundSelectedTemplateId && (
+                  <p className="text-xs text-blue-600 mt-1">선택한 템플릿의 가격으로 원가가 계산됩니다.</p>
+                )}
               </div>
               
               {/* 기본 정보 */}
@@ -1793,12 +1833,12 @@ export default function PricingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">기본 수량</label>
+                  <label className="block text-sm font-medium mb-1">기본 수량 (자동계산)</label>
                   <input
                     type="number"
-                    value={compoundForm.quantity}
-                    onChange={(e) => setCompoundForm({ ...compoundForm, quantity: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border rounded-lg"
+                    value={compoundSubIngredients.reduce((sum, sub) => sum + (sub.quantity || 0), 0)}
+                    readOnly
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-700"
                   />
                 </div>
                 <div>
@@ -1852,15 +1892,23 @@ export default function PricingPage() {
                               ingredientId: ing.id,
                               ingredientName: `${ing.koreanName} (${ing.englishName})`,
                               quantity: 0,
-                              unit: ing.unit
+                              unit: ing.unit,
+                              unitPrice: (ing as any).unitPrice
                             }
                           ]);
                           setCompoundSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-b-0"
                       >
-                        <div className="font-medium">{ing.koreanName}</div>
-                        <div className="text-xs text-gray-500">{ing.englishName} • {ing.category}</div>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{ing.koreanName}</div>
+                            <div className="text-xs text-gray-500">{ing.englishName} • {ing.category}</div>
+                          </div>
+                          {(ing as any).unitPrice !== undefined && (
+                            <span className="text-xs text-green-600 font-medium">${(ing as any).unitPrice.toFixed(2)}/{ing.unit}</span>
+                          )}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -1869,44 +1917,64 @@ export default function PricingPage() {
                 {/* 선택된 하위 식재료 목록 */}
                 {compoundSubIngredients.length > 0 ? (
                   <div className="space-y-2">
-                    {compoundSubIngredients.map((sub, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                        <span className="flex-1 text-sm font-medium">{sub.ingredientName}</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={sub.quantity}
-                          onChange={(e) => {
-                            const updated = [...compoundSubIngredients];
-                            updated[idx].quantity = parseFloat(e.target.value) || 0;
-                            setCompoundSubIngredients(updated);
-                          }}
-                          className="w-20 px-2 py-1 border rounded text-sm text-right"
-                          placeholder="수량"
-                        />
-                        <select
-                          value={sub.unit}
-                          onChange={(e) => {
-                            const updated = [...compoundSubIngredients];
-                            updated[idx].unit = e.target.value;
-                            setCompoundSubIngredients(updated);
-                          }}
-                          className="w-16 px-1 py-1 border rounded text-sm"
-                        >
-                          {UNITS.map(u => (
-                            <option key={u} value={u}>{u}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => {
-                            setCompoundSubIngredients(compoundSubIngredients.filter((_, i) => i !== idx));
-                          }}
-                          className="p-1 text-red-500 hover:bg-red-50 rounded"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                    {compoundSubIngredients.map((sub, idx) => {
+                      const subCost = sub.unitPrice && sub.quantity ? (sub.unitPrice * sub.quantity / 1000).toFixed(3) : null;
+                      return (
+                        <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                          <span className="flex-1 text-sm font-medium">{sub.ingredientName}</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={sub.quantity}
+                            onChange={(e) => {
+                              const updated = [...compoundSubIngredients];
+                              updated[idx].quantity = parseFloat(e.target.value) || 0;
+                              setCompoundSubIngredients(updated);
+                            }}
+                            className="w-20 px-2 py-1 border rounded text-sm text-right"
+                            placeholder="수량"
+                          />
+                          <select
+                            value={sub.unit}
+                            onChange={(e) => {
+                              const updated = [...compoundSubIngredients];
+                              updated[idx].unit = e.target.value;
+                              setCompoundSubIngredients(updated);
+                            }}
+                            className="w-16 px-1 py-1 border rounded text-sm"
+                          >
+                            {UNITS.map(u => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                          {subCost && (
+                            <span className="w-16 text-xs text-green-600 font-medium text-right">${subCost}</span>
+                          )}
+                          <button
+                            onClick={() => {
+                              setCompoundSubIngredients(compoundSubIngredients.filter((_, i) => i !== idx));
+                            }}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {/* 합계 표시 */}
+                    {compoundSelectedTemplateId && (
+                      <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span className="text-sm font-medium text-green-700">혼합 식재료 총 원가</span>
+                        <span className="text-sm font-bold text-green-700">
+                          ${compoundSubIngredients.reduce((sum, sub) => {
+                            if (sub.unitPrice && sub.quantity) {
+                              return sum + (sub.unitPrice * sub.quantity / 1000);
+                            }
+                            return sum;
+                          }, 0).toFixed(3)} / {compoundSubIngredients.reduce((sum, sub) => sum + (sub.quantity || 0), 0)}{compoundForm.unit}
+                        </span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 ) : (
                   <div className="text-center text-gray-400 py-4 border rounded-lg">
