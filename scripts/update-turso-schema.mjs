@@ -10,6 +10,24 @@ async function updateSchema() {
   console.log('Connecting to Turso...');
   
   try {
+    // Check current ManualIngredient table structure
+    const miTable = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='ManualIngredient'");
+    console.log('Current ManualIngredient table:', miTable.rows[0]?.sql || 'NOT FOUND');
+    
+    // If ManualIngredient table doesn't have isPackage column, add it
+    if (miTable.rows[0]) {
+      const tableSql = String(miTable.rows[0].sql);
+      if (!tableSql.includes('"isPackage"') && !tableSql.includes('isPackage')) {
+        console.log('Adding isPackage column to ManualIngredient table...');
+        await client.execute("ALTER TABLE ManualIngredient ADD COLUMN isPackage INTEGER NOT NULL DEFAULT 0");
+        console.log('isPackage column added!');
+      } else {
+        console.log('isPackage column already exists');
+      }
+    } else {
+      console.log('ManualIngredient table not found, you may need to run full migration');
+    }
+
     // Check current Store table structure
     const tables = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='Store'");
     console.log('Current Store table:', tables.rows[0]?.sql || 'NOT FOUND');
