@@ -333,6 +333,7 @@ model ManualIngredient {
   // 원가 계산용 필드
   unitPrice        Float?            // pricing 템플릿의 가격
   baseQuantity     Float?            // pricing 템플릿의 기준 수량
+  isPackage        Boolean           @default(false) // 투고용기 여부 (true면 packageCost에 포함)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   manual           MenuManual        @relation(fields: [manualId], references: [id], onDelete: Cascade)

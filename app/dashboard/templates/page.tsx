@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, FileSpreadsheet, DollarSign } from 'lucide-react';
+import { FileText, Download, Plus, Trash2, Eye, Save, RefreshCw, Settings, Table, Search, X, Edit, ChevronDown, ChevronLeft, ChevronRight, Upload, Image, ChevronUp, Archive, History, Globe, Copy, Check, CheckCheck, FileSpreadsheet, DollarSign, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { extractShapeTextsFromExcel, ShapeTextInfo } from '@/lib/excelShapeParser';
@@ -4069,7 +4069,10 @@ export default function TemplatesPage() {
                     const linkedIngredientCount = manual.ingredients?.filter((ing: any) => 
                       ing.ingredientId && ing.unitPrice !== null && ing.unitPrice !== undefined && ing.unitPrice > 0
                     ).length || 0;
+                    
+                    // Food cost: 투고용기가 아닌 식재료만 계산
                     const foodCost = manual.ingredients?.reduce((sum: number, ing: any) => {
+                      if (ing.isPackage) return sum; // 투고용기는 제외
                       const usageQty = ing.quantity || 0;
                       const baseQty = ing.baseQuantity || 1;
                       const price = ing.unitPrice || 0;
@@ -4077,8 +4080,16 @@ export default function TemplatesPage() {
                       return sum + cost;
                     }, 0) || 0;
                     
-                    // Package cost (assuming 10% of food cost as placeholder - can be customized)
-                    const packageCost = foodCost * 0.10;
+                    // Package cost: 투고용기로 설정된 식재료만 계산
+                    const packageCost = manual.ingredients?.reduce((sum: number, ing: any) => {
+                      if (!ing.isPackage) return sum; // 식재료는 제외
+                      const usageQty = ing.quantity || 0;
+                      const baseQty = ing.baseQuantity || 1;
+                      const price = ing.unitPrice || 0;
+                      const cost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                      return sum + cost;
+                    }, 0) || 0;
+                    
                     const totalCost = foodCost + packageCost;
                     const sellingPrice = manual.sellingPrice || 0;
                     const foodCostRate = sellingPrice > 0 ? ((foodCost / sellingPrice) * 100) : 0;
@@ -4146,10 +4157,12 @@ export default function TemplatesPage() {
                                           <th className="px-2 py-1 text-right">Unit Price</th>
                                           <th className="px-2 py-1 text-right">Cost</th>
                                           <th className="px-2 py-1 text-right">%</th>
+                                          <th className="px-2 py-1 text-center">📦</th>
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {manual.ingredients?.map((ing: any, i: number) => {
+                                        {/* Food ingredients (not package) */}
+                                        {manual.ingredients?.filter((ing: any) => !ing.isPackage).map((ing: any, i: number) => {
                                           const usageQty = ing.quantity || 0;
                                           const baseQty = ing.baseQuantity || 1;
                                           const price = ing.unitPrice || 0;
@@ -4162,6 +4175,25 @@ export default function TemplatesPage() {
                                               <td className="px-2 py-1 text-right">${price.toFixed(3)}</td>
                                               <td className="px-2 py-1 text-right font-mono">${ingCost.toFixed(2)}</td>
                                               <td className="px-2 py-1 text-right">{portion.toFixed(1)}%</td>
+                                              <td className="px-2 py-1 text-center">
+                                                <button
+                                                  onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    try {
+                                                      await fetch('/api/ingredients/package', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ ingredientIds: [ing.id], isPackage: true })
+                                                      });
+                                                      fetchData();
+                                                    } catch (err) { console.error(err); }
+                                                  }}
+                                                  className="text-gray-400 hover:text-orange-500"
+                                                  title="투고용기로 설정"
+                                                >
+                                                  <Package className="w-3 h-3" />
+                                                </button>
+                                              </td>
                                             </tr>
                                           );
                                         })}
@@ -4169,9 +4201,70 @@ export default function TemplatesPage() {
                                           <td className="px-2 py-1" colSpan={3}>Food Total</td>
                                           <td className="px-2 py-1 text-right font-mono">${foodCost.toFixed(2)}</td>
                                           <td className="px-2 py-1 text-right">100%</td>
+                                          <td></td>
                                         </tr>
                                       </tbody>
                                     </table>
+                                    
+                                    {/* Package Items Section */}
+                                    {manual.ingredients?.some((ing: any) => ing.isPackage) && (
+                                      <div className="mt-4">
+                                        <h4 className="font-bold text-sm mb-2 text-gray-800 flex items-center gap-1">
+                                          <Package className="w-4 h-4 text-blue-500" /> 투고용기 (Package Items)
+                                        </h4>
+                                        <table className="w-full text-xs">
+                                          <thead className="bg-blue-100">
+                                            <tr>
+                                              <th className="px-2 py-1 text-left">Item</th>
+                                              <th className="px-2 py-1 text-right">Qty</th>
+                                              <th className="px-2 py-1 text-right">Unit Price</th>
+                                              <th className="px-2 py-1 text-right">Cost</th>
+                                              <th className="px-2 py-1 text-center">❌</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {manual.ingredients?.filter((ing: any) => ing.isPackage).map((ing: any, i: number) => {
+                                              const usageQty = ing.quantity || 0;
+                                              const baseQty = ing.baseQuantity || 1;
+                                              const price = ing.unitPrice || 0;
+                                              const ingCost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                                              return (
+                                                <tr key={i} className="border-b border-blue-100">
+                                                  <td className="px-2 py-1">{ing.name || ing.koreanName}</td>
+                                                  <td className="px-2 py-1 text-right">{usageQty} {ing.unit}</td>
+                                                  <td className="px-2 py-1 text-right">${price.toFixed(3)}</td>
+                                                  <td className="px-2 py-1 text-right font-mono">${ingCost.toFixed(2)}</td>
+                                                  <td className="px-2 py-1 text-center">
+                                                    <button
+                                                      onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                          await fetch('/api/ingredients/package', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ ingredientIds: [ing.id], isPackage: false })
+                                                          });
+                                                          fetchData();
+                                                        } catch (err) { console.error(err); }
+                                                      }}
+                                                      className="text-gray-400 hover:text-red-500"
+                                                      title="식재료로 되돌리기"
+                                                    >
+                                                      <X className="w-3 h-3" />
+                                                    </button>
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                            <tr className="bg-blue-50 font-bold">
+                                              <td className="px-2 py-1" colSpan={3}>Package Total</td>
+                                              <td className="px-2 py-1 text-right font-mono">${packageCost.toFixed(2)}</td>
+                                              <td></td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    )}
                                   </div>
                                   
                                   {/* Right: Summary */}
@@ -4185,7 +4278,9 @@ export default function TemplatesPage() {
                                         <span className="font-mono font-medium">${foodCost.toFixed(2)}</span>
                                       </div>
                                       <div className="flex justify-between py-2 border-b">
-                                        <span className="text-gray-600">Package Cost (10%)</span>
+                                        <span className="text-gray-600 flex items-center gap-1">
+                                          <Package className="w-3 h-3 text-blue-500" /> Package Cost
+                                        </span>
                                         <span className="font-mono">${packageCost.toFixed(2)}</span>
                                       </div>
                                       <div className="flex justify-between py-2 border-b bg-yellow-50 -mx-2 px-2">
