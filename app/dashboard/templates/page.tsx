@@ -532,6 +532,10 @@ export default function TemplatesPage() {
   const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
   const [bulkPriceEdits, setBulkPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
   const [bulkPriceLoading, setBulkPriceLoading] = useState(false);
+  
+  // Cost Table inline 판매가 수정
+  const [inlineEditingPriceId, setInlineEditingPriceId] = useState<string | null>(null);
+  const [inlineEditPriceValue, setInlineEditPriceValue] = useState<string>('');
 
   // Upload target template selection (for uploading directly to a country)
   const [uploadTargetTemplateId, setUploadTargetTemplateId] = useState<string>('master'); // 'master' or template ID
@@ -2671,6 +2675,31 @@ export default function TemplatesPage() {
     }
   };
 
+  // Cost Table inline 판매가 저장
+  const saveInlinePrice = async (manualId: string, newPrice: number) => {
+    try {
+      const res = await fetch(`/api/manuals/${manualId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sellingPrice: newPrice })
+      });
+      
+      if (res.ok) {
+        // Update local state without full refetch
+        setSavedManuals(prev => prev.map(m => 
+          m.id === manualId ? { ...m, sellingPrice: newPrice } : m
+        ));
+        setInlineEditingPriceId(null);
+        setInlineEditPriceValue('');
+      } else {
+        alert('판매가 저장 실패');
+      }
+    } catch (error) {
+      console.error('Failed to save inline price:', error);
+      alert('판매가 저장 중 오류가 발생했습니다.');
+    }
+  };
+
   // Toggle manual selection
   const toggleManualSelection = (manualId: string) => {
     setSelectedManualIds(prev => {
@@ -4471,7 +4500,45 @@ export default function TemplatesPage() {
                           <td className="px-4 py-3 text-right font-mono">${foodCost.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-mono text-gray-500">${packageCost.toFixed(2)}</td>
                           <td className="px-4 py-3 text-right font-mono font-bold">${totalCost.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-right font-mono">${sellingPrice.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right">
+                            {inlineEditingPriceId === manual.id ? (
+                              <div className="flex items-center gap-1 justify-end">
+                                <span className="text-gray-500">$</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={inlineEditPriceValue}
+                                  onChange={(e) => setInlineEditPriceValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const newPrice = parseFloat(inlineEditPriceValue) || 0;
+                                      saveInlinePrice(manual.id, newPrice);
+                                    } else if (e.key === 'Escape') {
+                                      setInlineEditingPriceId(null);
+                                      setInlineEditPriceValue('');
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    const newPrice = parseFloat(inlineEditPriceValue) || 0;
+                                    saveInlinePrice(manual.id, newPrice);
+                                  }}
+                                  className="w-20 px-2 py-1 border border-green-400 rounded text-right font-mono text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                  autoFocus
+                                />
+                              </div>
+                            ) : (
+                              <span
+                                onClick={() => {
+                                  setInlineEditingPriceId(manual.id);
+                                  setInlineEditPriceValue(sellingPrice.toFixed(2));
+                                }}
+                                className={`font-mono cursor-pointer hover:bg-green-100 px-2 py-1 rounded ${sellingPrice === 0 ? 'text-red-500' : ''}`}
+                                title="클릭하여 판매가 수정"
+                              >
+                                ${sellingPrice.toFixed(2)}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <span className={`font-medium ${totalCostRate > 35 ? 'text-red-600' : 'text-green-600'}`}>
                               {totalCostRate.toFixed(1)}%
