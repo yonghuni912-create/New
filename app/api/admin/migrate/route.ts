@@ -56,6 +56,14 @@ export async function POST(request: NextRequest) {
       name: 'Add version to MenuManual',
       sql: `ALTER TABLE MenuManual ADD COLUMN version INTEGER DEFAULT 1`,
     },
+    {
+      name: 'Add isPackage to ManualIngredient',
+      sql: `ALTER TABLE ManualIngredient ADD COLUMN isPackage INTEGER DEFAULT 0`,
+    },
+    {
+      name: 'Add category to MenuManual',
+      sql: `ALTER TABLE MenuManual ADD COLUMN category TEXT`,
+    },
   ];
 
   for (const migration of migrations) {
