@@ -5270,11 +5270,14 @@ export default function TemplatesPage() {
                                 const isLinked = hasEdit ? !!currentLinkId : !!ing.ingredientId;
                                 const linkedMaster = currentLinkId ? masterIngredientsList.find(m => m.id === currentLinkId) : null;
                                 
-                                // 원가 계산: (사용량 / 기준수량) × 단가
-                                const quantity = parseFloat(ing.quantity) || 0;
-                                const baseQuantity = linkedMaster?.baseQuantity || ing.baseQuantity || 1;
-                                const unitPrice = linkedMaster?.unitPrice || ing.unitPrice || 0;
-                                const costPerUsage = baseQuantity > 0 ? (quantity / baseQuantity) * unitPrice : 0;
+                                // 원가 계산: (매뉴얼 사용량 / Pricing 기준수량) × Pricing 단가
+                                // 예: Pricing에서 1000g에 $10 설정, 매뉴얼에서 100g 사용 → (100/1000) × $10 = $1
+                                const usageQuantity = parseFloat(ing.quantity) || 0; // 매뉴얼에서 사용하는 용량
+                                const baseQuantity = linkedMaster?.baseQuantity || linkedMaster?.quantity || 1; // Pricing에서 설정한 기준 용량
+                                const unitPrice = linkedMaster?.unitPrice || 0; // Pricing에서 설정한 단가
+                                const costPerUsage = baseQuantity > 0 && unitPrice > 0 
+                                  ? (usageQuantity / baseQuantity) * unitPrice 
+                                  : 0;
                                 
                                 // 검색 관련
                                 const searchQuery = linkingSearchQueries.get(editKey) || '';
@@ -5310,9 +5313,17 @@ export default function TemplatesPage() {
                                     <td className="px-3 py-2 text-gray-600">
                                       {ing.quantity || '-'} {ing.unit || ''}
                                     </td>
-                                    <td className="px-3 py-2 text-right font-mono">
+                                    <td className="px-3 py-2 text-right font-mono group relative">
                                       {isLinked && unitPrice > 0 ? (
-                                        <span className="text-gray-700">${costPerUsage.toFixed(2)}</span>
+                                        <>
+                                          <span className="text-gray-700 cursor-help">${costPerUsage.toFixed(2)}</span>
+                                          {/* 원가 계산 툴팁 */}
+                                          <div className="absolute right-0 top-full mt-1 bg-gray-800 text-white text-xs px-3 py-2 rounded shadow-lg z-50 hidden group-hover:block whitespace-nowrap">
+                                            ({usageQuantity}{ing.unit || ''} / {baseQuantity}{linkedMaster?.unit || ''}) × ${unitPrice.toFixed(2)} = ${costPerUsage.toFixed(2)}
+                                          </div>
+                                        </>
+                                      ) : isLinked && unitPrice === 0 ? (
+                                        <span className="text-orange-500 text-xs" title="Pricing에서 단가를 설정하세요">가격미설정</span>
                                       ) : (
                                         <span className="text-gray-400">-</span>
                                       )}

@@ -57,6 +57,8 @@ export async function GET(request: NextRequest) {
         unit: item.localUnit || item.ingredientMaster.unit,
         yieldRate: item.localYieldRate || item.ingredientMaster.yieldRate,
         unitPrice: item.unitPrice,
+        // 원가 계산용 기준 수량 (Pricing에서 설정한 용량)
+        baseQuantity: item.localQuantity || item.ingredientMaster.quantity,
         packagingUnit: item.packagingUnit,
         packagingQty: item.packagingQty,
         priceTemplateItemId: item.id,
@@ -64,6 +66,7 @@ export async function GET(request: NextRequest) {
         master: {
           koreanName: item.ingredientMaster.koreanName,
           englishName: item.ingredientMaster.englishName,
+          quantity: item.ingredientMaster.quantity,
         }
       }));
 
@@ -94,7 +97,14 @@ export async function GET(request: NextRequest) {
       ]
     });
 
-    return NextResponse.json(ingredients);
+    // 마스터 식재료에도 baseQuantity 추가 (원가 계산용)
+    const ingredientsWithBaseQuantity = ingredients.map(ing => ({
+      ...ing,
+      baseQuantity: ing.quantity, // 기준 수량 = quantity
+      unitPrice: 0 // 마스터에는 가격 없음
+    }));
+
+    return NextResponse.json(ingredientsWithBaseQuantity);
   } catch (error: any) {
     console.error('Error fetching ingredients:', error);
     return NextResponse.json({ 
