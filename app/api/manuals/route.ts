@@ -105,8 +105,8 @@ export async function GET(request: NextRequest) {
       
       return {
         ...manual,
-        // Include ingredients only if requested
-        ingredients: includeIngredients ? manual.ingredients : undefined,
+        // Always include ingredients for cost table and linking stats
+        ingredients: manual.ingredients,
         // Always include linking stats
         linkingStats: {
           total: totalIngredients,

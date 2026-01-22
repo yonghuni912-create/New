@@ -509,6 +509,10 @@ export default function TemplatesPage() {
   const [showBulkLinkMasterSelect, setShowBulkLinkMasterSelect] = useState(false); // 마스터 선택 드롭다운
   const [bulkLinkMasterSearchTerm, setBulkLinkMasterSearchTerm] = useState(''); // 마스터 검색어
   const [bulkLinkTargetMaster, setBulkLinkTargetMaster] = useState<any>(null); // 선택된 마스터
+  
+  // 일괄 판매가 설정 (모달 내)
+  const [showBulkPriceInput, setShowBulkPriceInput] = useState(false); // 판매가 입력 드롭다운
+  const [bulkPriceValue, setBulkPriceValue] = useState(''); // 일괄 설정할 판매가
 
   // 판매가 일괄 수정 모달
   const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
@@ -2313,12 +2317,19 @@ export default function TemplatesPage() {
           const ingredient = manual.ingredients?.[ingredientIndex];
           if (!ingredient) continue;
 
+          // 마스터 식재료의 가격 정보 가져오기
+          const linkedMaster = newMasterId ? masterIngredientsList.find(m => m.id === newMasterId) : null;
+          const unitPrice = linkedMaster?.unitPrice || null;
+          const baseQuantity = linkedMaster?.baseQuantity || linkedMaster?.quantity || null;
+
           const res = await fetch(`/api/ingredients/auto-link`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               manualIngredientId: ingredient.id,
-              newIngredientMasterId: newMasterId || null
+              newIngredientMasterId: newMasterId || null,
+              unitPrice,
+              baseQuantity
             })
           });
 
@@ -5328,6 +5339,79 @@ export default function TemplatesPage() {
                                   )}
                                 </div>
                               )}
+                              {/* 판매가 일괄 설정 버튼 */}
+                              {bulkLinkSelectedItems.size > 0 && (
+                                <div className="relative">
+                                  <button
+                                    onClick={() => setShowBulkPriceInput(!showBulkPriceInput)}
+                                    className="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center gap-1"
+                                  >
+                                    <DollarSign className="w-4 h-4" />
+                                    판매가 설정
+                                  </button>
+                                  {/* 판매가 입력 드롭다운 */}
+                                  {showBulkPriceInput && (
+                                    <div className="absolute top-full right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-50 p-3" onClick={(e) => e.stopPropagation()}>
+                                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        선택된 매뉴얼의 판매가 설정
+                                      </label>
+                                      <div className="flex gap-2">
+                                        <div className="flex-1 flex items-center border rounded-lg overflow-hidden">
+                                          <span className="px-2 bg-gray-50 text-gray-500">$</span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            value={bulkPriceValue}
+                                            onChange={(e) => setBulkPriceValue(e.target.value)}
+                                            className="flex-1 px-2 py-1.5 text-sm focus:outline-none"
+                                            autoFocus
+                                          />
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            const price = parseFloat(bulkPriceValue);
+                                            if (!isNaN(price) && price >= 0) {
+                                              // 선택된 아이템의 manualId 추출하여 판매가 설정
+                                              const manualIds = new Set<string>();
+                                              bulkLinkSelectedItems.forEach(editKey => {
+                                                const [manualId] = editKey.split('_');
+                                                manualIds.add(manualId);
+                                              });
+                                              setLinkingReviewPriceEdits(prev => {
+                                                const newMap = new Map(prev);
+                                                manualIds.forEach(manualId => {
+                                                  newMap.set(manualId, price);
+                                                });
+                                                return newMap;
+                                              });
+                                              // 초기화
+                                              setShowBulkPriceInput(false);
+                                              setBulkPriceValue('');
+                                              setBulkLinkSearchTerm('');
+                                              setBulkLinkSelectedItems(new Set());
+                                            }
+                                          }}
+                                          disabled={!bulkPriceValue || isNaN(parseFloat(bulkPriceValue))}
+                                          className="px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                        >
+                                          적용
+                                        </button>
+                                      </div>
+                                      <p className="text-xs text-gray-500 mt-2">
+                                        {(() => {
+                                          const manualIds = new Set<string>();
+                                          bulkLinkSelectedItems.forEach(editKey => {
+                                            const [manualId] = editKey.split('_');
+                                            manualIds.add(manualId);
+                                          });
+                                          return `${manualIds.size}개 매뉴얼에 적용됩니다`;
+                                        })()}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </>
                           );
                         })()}
@@ -5341,6 +5425,8 @@ export default function TemplatesPage() {
                       setLinkingSearchQueries(new Map());
                       setBulkLinkSearchTerm('');
                       setBulkLinkSelectedItems(new Set());
+                      setShowBulkPriceInput(false);
+                      setBulkPriceValue('');
                     }} 
                     className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium"
                   >
