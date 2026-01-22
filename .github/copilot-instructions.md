@@ -2,75 +2,95 @@
 
 ## Architecture Overview
 
-This is a **Next.js 14 App Router** application for managing BBQ Chicken franchise store openings. Key architectural decisions:
+Next.js 14 App Router application for BBQ Chicken franchise management. Key patterns:
 
-- **Dual Database Strategy**: SQLite for local development, Turso (edge SQLite) for production. The [lib/prisma.ts](lib/prisma.ts) handles this automatically via `@prisma/adapter-libsql`.
-- **API Routes**: All use `export const dynamic = 'force-dynamic'` to ensure fresh data (required for Turso compatibility).
-- **Role-Based Access Control**: 4 roles (`ADMIN`, `PM`, `CONTRIBUTOR`, `VIEWER`) defined in [lib/rbac.ts](lib/rbac.ts).
+- **Dual Database**: SQLite (dev) → Turso (prod) via `lib/prisma.ts` with `@prisma/adapter-libsql`
+- **RBAC**: 5 roles in `lib/rbac.ts`: `MASTER_ADMIN`, `ADMIN`, `PM`, `CONTRIBUTOR`, `VIEWER`
+- **Observability**: OpenTelemetry tracing via `lib/tracing.ts` and `instrumentation.ts`
 
-## Critical Patterns
+## Required API Route Pattern
 
-### API Route Pattern
+**Every API route MUST follow this pattern:**
+
 ```typescript
-// Always include these at the top of API routes
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createAuditLog } from '@/lib/auditLog';
 
-export const dynamic = 'force-dynamic';  // Required for all API routes
+export const dynamic = 'force-dynamic';  // REQUIRED for Turso
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  // ... implementation
+  // implementation
 }
 ```
 
-### Audit Logging
-All mutations must create audit logs using `createAuditLog()` from [lib/auditLog.ts](lib/auditLog.ts). Actions are typed (`MANUAL_CREATE`, `STORE_UPDATE`, etc.).
+## Critical Domain Patterns
 
-### Storage Adapter
-File storage uses an adapter pattern ([lib/storage/](lib/storage/)) supporting both local filesystem and S3.
+### Master/Copy Manual System
+- `isMaster: true` → Original recipe (마스터)
+- `isMaster: false` → Country-specific copy linked via `priceTemplateId`
+- `masterManualId` → Reference to original master
 
-## Database Schema Notes
+### Ingredient Linking
+- `ingredientId` on `ManualIngredient` → Links to `IngredientMaster`
+- Linking status = `ingredientId !== null` (price comes from `PriceTemplateItem`)
+- `isPackage: true` on `IngredientMaster` → Packaging item (투고용기), excluded from food cost
 
-- **MenuManual**: Core entity with `isMaster` flag (master manuals vs template copies), `isActive`/`isArchived` for soft-delete.
-- **ManualIngredient**: Links manuals to ingredients with `ingredientId` for master ingredient linking.
-- **PriceTemplate**: Country-specific pricing with currency support.
-
-Schema location: [prisma/schema.prisma](prisma/schema.prisma)
-
-## Key Developer Commands
-
-```bash
-npm run dev          # Start dev server with SQLite
-npm run db:push      # Push schema to database
-npm run db:seed      # Seed with demo data
-npm run db:studio    # Open Prisma Studio GUI
-npm run test         # Run Vitest unit tests
-npm run test:e2e     # Run Playwright tests
+### Audit Logging (Required for mutations)
+```typescript
+await createAuditLog({
+  userId: session.user.id,
+  action: 'MANUAL_UPDATE',  // See AuditAction type in lib/auditLog.ts
+  entityType: 'MenuManual',
+  entityId: manual.id,
+  oldValue: { name: oldName },
+  newValue: { name: newName }
+});
 ```
 
-## Project-Specific Conventions
+## Database Schema Essentials
 
-1. **Korean/English Naming**: Many entities have both `koreanName` and English `name` fields for bilingual support.
-2. **Cooking Method Storage**: Stored as JSON string array of `{process, manual, translatedManual}` steps.
-3. **Component Location**: UI primitives in [components/ui/](components/ui/), feature components in [components/](components/).
-4. **Excel Parsing**: Uses `xlsx` (SheetJS) for Excel import in [app/dashboard/templates/page.tsx](app/dashboard/templates/page.tsx).
+| Model | Key Fields | Notes |
+|-------|------------|-------|
+| `MenuManual` | `isMaster`, `priceTemplateId`, `category` | Soft-delete via `isArchived` |
+| `ManualIngredient` | `ingredientId`, `quantity`, `unit` | `sortOrder` for display |
+| `PriceTemplate` | `country`, `currency` | One per country |
+| `PriceTemplateItem` | `unitPrice`, `localQuantity` | Country-specific pricing |
+| `IngredientMaster` | `category`, `isPackage` | Master ingredient list |
 
-## Demo Accounts (after seeding)
+## Key Commands
 
-- Admin: `admin@bbq.com` / `admin123`
-- PM: `pm@bbq.com` / `pm123`
-- User: `user@bbq.com` / `user123`
+```bash
+npm run dev          # Dev server (SQLite)
+npm run db:push      # Push schema changes
+npm run db:seed      # Seed demo data
+npm run build        # Production build (validates types)
+```
 
-## Deployment
+## Conventions
 
-Production deploys to Vercel. Environment variables required:
-- `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` - Database
-- `NEXTAUTH_SECRET`, `NEXTAUTH_URL` - Authentication
+1. **Bilingual Fields**: `name` (English) + `koreanName` (Korean) on most entities
+2. **JSON Storage**: `cookingMethod` stored as `JSON.stringify([{process, manual, translatedManual}])`
+3. **Soft Delete**: Use `isArchived: true`, `deletedAt`, `deletedBy` - never hard delete manuals
+4. **File Structure**: API routes in `app/api/`, UI components in `components/ui/`
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions.
+## Environment Variables
+
+```bash
+# Required
+DATABASE_URL="file:./prisma/dev.db"     # Local only
+TURSO_DATABASE_URL, TURSO_AUTH_TOKEN    # Production
+NEXTAUTH_SECRET, NEXTAUTH_URL           # Auth
+
+# Optional (Tracing)
+OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_TRACES_ENABLED
+```
+
+## Demo Accounts
+
+`admin@bbq.com`/`admin123`, `pm@bbq.com`/`pm123`, `user@bbq.com`/`user123`
