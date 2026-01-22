@@ -36,36 +36,42 @@ A comprehensive platform for managing BBQ Chicken franchise store openings, buil
 ### Installation
 
 1. Clone the repository:
-```bash
-git clone <repository-url>
-cd New
-```
+
+   ```bash
+   git clone <repository-url>
+   cd New
+   ```
 
 2. Install dependencies:
-```bash
-npm install
-```
+
+   ```bash
+   npm install
+   ```
 
 3. Set up environment variables:
-```bash
-cp .env.example .env
-```
 
-Edit `.env` and configure:
-- `DATABASE_URL`: SQLite database path (default: `file:./prisma/dev.db`)
-- `NEXTAUTH_SECRET`: Random string for NextAuth (generate with `openssl rand -base64 32`)
-- `NEXTAUTH_URL`: Your app URL (default: `http://localhost:3000`)
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env` and configure:
+
+   - `DATABASE_URL`: SQLite database path (default: `file:./prisma/dev.db`)
+   - `NEXTAUTH_SECRET`: Random string for NextAuth (generate with `openssl rand -base64 32`)
+   - `NEXTAUTH_URL`: Your app URL (default: `http://localhost:3000`)
 
 4. Initialize the database:
-```bash
-npm run db:push
-npm run db:seed
-```
+
+   ```bash
+   npm run db:push
+   npm run db:seed
+   ```
 
 5. Run the development server:
-```bash
-npm run dev
-```
+
+   ```bash
+   npm run dev
+   ```
 
 6. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
@@ -79,7 +85,7 @@ After seeding, you can log in with these accounts:
 
 ## Project Structure
 
-```
+```text
 ├── app/                    # Next.js App Router
 │   ├── api/               # API routes
 │   │   ├── auth/          # NextAuth
@@ -136,10 +142,12 @@ The platform includes comprehensive models for:
 ## API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/signin` - Login
 - `POST /api/auth/signout` - Logout
 
 ### Stores
+
 - `GET /api/stores` - List all stores
 - `POST /api/stores` - Create new store
 - `GET /api/stores/[id]` - Get store details
@@ -148,17 +156,21 @@ The platform includes comprehensive models for:
 - `POST /api/stores/[id]/tasks` - Create task
 
 ### Tasks
+
 - `PATCH /api/tasks/[id]` - Update task (with cascade options)
 - `DELETE /api/tasks/[id]` - Delete task
 
 ### Notifications
+
 - `GET /api/notifications` - List notifications
 - `PATCH /api/notifications` - Mark as read
 
 ### Search
+
 - `GET /api/search?q=query` - Global search
 
 ### Health
+
 - `GET /api/health` - Health check
 
 ## Role-Based Access Control
@@ -188,28 +200,32 @@ The platform implements RBAC with four roles:
 Turso is automatically used when both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables are set. Otherwise, the app falls back to SQLite.
 
 1. Create a Turso database:
-```bash
-turso db create bbq-franchise
-turso db show bbq-franchise
-```
+
+   ```bash
+   turso db create bbq-franchise
+   turso db show bbq-franchise
+   ```
 
 2. Get connection details:
-```bash
-turso db show bbq-franchise --url
-turso db tokens create bbq-franchise
-```
+
+   ```bash
+   turso db show bbq-franchise --url
+   turso db tokens create bbq-franchise
+   ```
 
 3. Update `.env`:
-```
-TURSO_DATABASE_URL=libsql://your-database.turso.io
-TURSO_AUTH_TOKEN=your-auth-token
-```
+
+   ```text
+   TURSO_DATABASE_URL=libsql://your-database.turso.io
+   TURSO_AUTH_TOKEN=your-auth-token
+   ```
 
 4. Push schema and seed:
-```bash
-npm run db:push
-npm run db:seed
-```
+
+   ```bash
+   npm run db:push
+   npm run db:seed
+   ```
 
 ## Task Cascade Policies
 
@@ -233,6 +249,55 @@ The platform supports two storage adapters:
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+## Observability
+
+### OpenTelemetry Tracing
+
+The platform includes built-in distributed tracing via OpenTelemetry. Traces are automatically captured for HTTP requests and can be exported to any OTLP-compatible backend (Jaeger, Zipkin, Honeycomb, etc.).
+
+**Configuration:**
+
+Set these environment variables to enable tracing:
+
+```bash
+OTEL_SERVICE_NAME=bbq-franchise-platform     # Service name in traces
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318  # OTLP collector endpoint
+OTEL_TRACES_ENABLED=true                     # Enable/disable tracing
+```
+
+**Manual Tracing in Code:**
+
+Use the helper functions in `lib/tracing.ts`:
+
+```typescript
+import { traceApiRoute, traceDbOperation, withTrace } from '@/lib/tracing';
+
+// Wrap an API route
+export async function GET(request: NextRequest) {
+  return traceApiRoute('GET', '/api/my-endpoint', async (span) => {
+    span.setAttribute('custom.attribute', 'value');
+    // ... your logic
+    return NextResponse.json({ data });
+  });
+}
+
+// Wrap a database operation
+const result = await traceDbOperation('SELECT', 'users', async (span) => {
+  return prisma.user.findMany();
+});
+```
+
+**Running a Local Collector (Jaeger):**
+
+```bash
+docker run -d --name jaeger \
+  -p 16686:16686 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+Access Jaeger UI at <http://localhost:16686>
 
 ## License
 
