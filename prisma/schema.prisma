@@ -234,11 +234,32 @@ model IngredientMaster {
   unit         String
   yieldRate    Float                    @default(100)
   imageUrl     String?                  // 제품 이미지 URL
+  isCompound   Boolean                  @default(false)  // 혼합 식재료 여부
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
   manualIngredients ManualIngredient[]  @relation("MasterToManualIngredient")
   inventoryItems    InventoryItem[]     @relation("IngredientToInventory")
   priceItems        PriceTemplateItem[] @relation("MasterToPriceItem")
+  // 혼합 식재료 관계
+  subIngredients    CompoundIngredientItem[] @relation("CompoundParent")
+  usedInCompounds   CompoundIngredientItem[] @relation("CompoundChild")
+}
+
+// 혼합 식재료 하위 아이템 (마스터 레벨)
+model CompoundIngredientItem {
+  id                   String           @id @default(cuid())
+  compoundIngredientId String           // 혼합 식재료 ID (부모)
+  subIngredientId      String           // 하위 식재료 ID
+  quantity             Float            // 하위 식재료 사용량
+  unit                 String           // 단위
+  sortOrder            Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  compoundIngredient   IngredientMaster @relation("CompoundParent", fields: [compoundIngredientId], references: [id], onDelete: Cascade)
+  subIngredient        IngredientMaster @relation("CompoundChild", fields: [subIngredientId], references: [id], onDelete: Cascade)
+  
+  @@unique([compoundIngredientId, subIngredientId])
+  @@index([compoundIngredientId])
 }
 
 // 가격 템플릿 (국가/지역별)

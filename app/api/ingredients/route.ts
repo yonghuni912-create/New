@@ -91,6 +91,14 @@ export async function GET(request: NextRequest) {
     const ingredients = await prisma.ingredientMaster.findMany({
       where,
       take: limit,
+      include: {
+        subIngredients: {
+          include: {
+            subIngredient: true
+          },
+          orderBy: { sortOrder: 'asc' }
+        }
+      },
       orderBy: [
         { category: 'asc' },
         { koreanName: 'asc' }
@@ -114,7 +122,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new ingredient
+// POST - Create new ingredient (일반 또는 혼합 식재료)
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -130,7 +138,9 @@ export async function POST(request: NextRequest) {
       quantity,
       unit, 
       yieldRate,
-      imageUrl
+      imageUrl,
+      isCompound,
+      subIngredients // 혼합 식재료인 경우: [{ ingredientId, quantity, unit }]
     } = body;
 
     if (!koreanName || !englishName || !unit) {
@@ -139,6 +149,40 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // 혼합 식재료 생성
+    if (isCompound && Array.isArray(subIngredients) && subIngredients.length > 0) {
+      const ingredient = await prisma.ingredientMaster.create({
+        data: {
+          category: category || 'Produced',
+          koreanName,
+          englishName,
+          quantity: quantity || 0,
+          unit,
+          yieldRate: yieldRate || 100,
+          imageUrl: imageUrl || null,
+          isCompound: true,
+          subIngredients: {
+            create: subIngredients.map((sub: { ingredientId: string; quantity: number; unit: string }, idx: number) => ({
+              subIngredientId: sub.ingredientId,
+              quantity: sub.quantity,
+              unit: sub.unit,
+              sortOrder: idx
+            }))
+          }
+        },
+        include: {
+          subIngredients: {
+            include: {
+              subIngredient: true
+            }
+          }
+        }
+      });
+
+      return NextResponse.json(ingredient, { status: 201 });
+    }
+
+    // 일반 식재료 생성
     const ingredient = await prisma.ingredientMaster.create({
       data: {
         category: category || 'Others',
@@ -147,7 +191,8 @@ export async function POST(request: NextRequest) {
         quantity: quantity || 0,
         unit,
         yieldRate: yieldRate || 100,
-        imageUrl: imageUrl || null
+        imageUrl: imageUrl || null,
+        isCompound: false
       }
     });
 
