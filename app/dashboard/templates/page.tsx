@@ -1637,7 +1637,12 @@ export default function TemplatesPage() {
       processLabelsFromShapes.map(p => `${p.originalText} → ${p.matchedProcess} (${p.matchMethod})`));
     
     // === Step 1: 모든 마커 위치 찾기 ===
-    interface Marker { row: number; type: string; col?: number; }
+   interface Marker { 
+     row: number; 
+     type: string; 
+     col?: number; 
+     columnMap?: { noCol: number; ingredientCol: number; weightCol: number; unitCol: number; purchaseCol: number; };
+   }
     const markers: Marker[] = [];
     
     for (let r = 0; r < data.length; r++) {
@@ -1685,10 +1690,24 @@ export default function TemplatesPage() {
         }
       }
       
-      // INGREDIENT_HEADER: NO + Weight + Unit 가 있는 행
+      // INGREDIENT_HEADER: NO + Weight + Unit 가 있는 행 (열 위치 동적 감지)
       if (rowText.includes('no') && rowText.includes('weight') && rowText.includes('unit')) {
         if (!markers.some(m => m.type === 'INGREDIENT_HEADER')) {
-          markers.push({ row: r, type: 'INGREDIENT_HEADER' });
+          // 각 열의 실제 위치를 감지
+          let noCol = -1, ingredientCol = -1, weightCol = -1, unitCol = -1, purchaseCol = -1;
+          for (let c = 0; c < row.length; c++) {
+            const cellText = String(row[c] ?? '').toLowerCase().trim();
+            if (cellText === 'no' && noCol === -1) noCol = c;
+            else if (cellText === 'ingredients' && ingredientCol === -1) ingredientCol = c;
+            else if (cellText === 'weight' && weightCol === -1) weightCol = c;
+            else if (cellText === 'unit' && unitCol === -1) unitCol = c;
+            else if (cellText === 'purchase' && purchaseCol === -1) purchaseCol = c;
+          }
+          markers.push({ 
+            row: r, 
+            type: 'INGREDIENT_HEADER',
+            columnMap: { noCol, ingredientCol, weightCol, unitCol, purchaseCol }
+          });
         }
       }
       
@@ -1723,7 +1742,9 @@ export default function TemplatesPage() {
     const pictureMarker = markers.find(m => m.type === 'PICTURE');
     const itemListMarker = markers.find(m => m.type === 'ITEM_LIST');
     const ingredientCompMarker = markers.find(m => m.type === 'INGREDIENTS_COMPOSITION');
-    const ingredientHeaderRow = markers.find(m => m.type === 'INGREDIENT_HEADER')?.row ?? -1;
+    const ingredientHeaderMarker = markers.find(m => m.type === 'INGREDIENT_HEADER');
+    const ingredientHeaderRow = ingredientHeaderMarker?.row ?? -1;
+    const ingredientColumnMap = ingredientHeaderMarker?.columnMap ?? { noCol: -1, ingredientCol: -1, weightCol: -1, unitCol: -1, purchaseCol: -1 };
     const bbqCanadaRows = markers.filter(m => m.type === 'BBQ_CANADA').map(m => m.row);
     const cookingMethodRows = markers.filter(m => m.type === 'COOKING_METHOD').map(m => m.row);
     const processManualRows = markers.filter(m => m.type === 'PROCESS_MANUAL').map(m => m.row);
@@ -1803,39 +1824,43 @@ export default function TemplatesPage() {
       const startRow = ingredientHeaderRow + 1;
       const endRow = firstBbqCanada - 1;
       
+      // 동적으로 감지된 열 위치 사용, 없으면 기본값 사용
+      const { noCol: detectedNoCol, ingredientCol: detectedIngredientCol, weightCol: detectedWeightCol, unitCol: detectedUnitCol, purchaseCol: detectedPurchaseCol } = ingredientColumnMap;
+      
       for (let r = startRow; r <= endRow; r++) {
         const row = data[r] || [];
         
-        // NO 열 (기준: col 1 + colOffset)
-        const noCol = 1 + colOffset;
+        // NO 열 (동적 감지 또는 기본값)
+        const noCol = detectedNoCol >= 0 ? detectedNoCol : 1 + colOffset;
         const no = row[noCol];
         if (no === undefined || no === null || no === '') continue;
         
-        // Ingredients 열 (기준: col 2 + colOffset)
-        const nameCol = 2 + colOffset;
+        // Ingredients 열 (동적 감지 또는 기본값)
+        const nameCol = detectedIngredientCol >= 0 ? detectedIngredientCol : 2 + colOffset;
         let ingredientName = String(row[nameCol] ?? '').trim();
+        // Ingredients 열이 비어있으면 다음 열 시도
         if (!ingredientName && row[nameCol + 1]) ingredientName = String(row[nameCol + 1]).trim();
         if (!ingredientName) continue;
         if (ingredientName.toLowerCase() === 'ingredients') continue;
         
-        // Weight 열 (기준: col 4 + colOffset)
-        const weightCol = 4 + colOffset;
+        // Weight 열 (동적 감지 또는 기본값)
+        const weightCol = detectedWeightCol >= 0 ? detectedWeightCol : 4 + colOffset;
         const weightVal = row[weightCol];
         let weight = typeof weightVal === 'number' ? weightVal : parseFloat(String(weightVal ?? '').replace(/[^0-9.]/g, ''));
         if (isNaN(weight)) weight = 0;
         
-        // Unit 열 (기준: col 5 + colOffset)
-        const unitCol = 5 + colOffset;
+        // Unit 열 (동적 감지 또는 기본값)
+        const unitCol = detectedUnitCol >= 0 ? detectedUnitCol : 5 + colOffset;
         let unit = String(row[unitCol] ?? 'g').trim();
         if (!unit || unit.toLowerCase() === 'null') unit = 'g';
         
-        // Purchase 열 (기준: col 6 + colOffset)
-        const purchaseCol = 6 + colOffset;
+        // Purchase 열 (동적 감지 또는 기본값)
+        const purchaseCol = detectedPurchaseCol >= 0 ? detectedPurchaseCol : 6 + colOffset;
         let purchase = String(row[purchaseCol] ?? 'Local').trim();
         if (!purchase) purchase = 'Local';
         
-        // Others 열 (기준: col 7 + colOffset)
-        const othersCol = 7 + colOffset;
+        // Others 열 (Purchase 다음 열)
+        const othersCol = purchaseCol + 1;
         const others = String(row[othersCol] ?? '').trim();
         
         ingredients.push({
