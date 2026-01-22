@@ -2378,6 +2378,53 @@ export default function TemplatesPage() {
     }
   };
 
+  // 선택된 매뉴얼만 링킹 리뷰 모달에 표시
+  const openLinkingReviewModalWithSelected = async (manualIds: string[]) => {
+    setLinkingReviewLoading(true);
+    setShowLinkingReviewModal(true);
+    
+    try {
+      console.log('🔗 Opening linking review modal for selected manuals:', manualIds.length);
+      
+      // 선택된 매뉴얼의 상세 정보 가져오기
+      const manualsWithIngredients = [];
+      
+      for (const manualId of manualIds) {
+        try {
+          const res = await fetch(`/api/manuals/${manualId}`);
+          if (res.ok) {
+            const data = await res.json();
+            manualsWithIngredients.push(data);
+          }
+        } catch (err) {
+          console.warn(`Failed to load manual ${manualId}`);
+        }
+      }
+      
+      console.log('🔗 Loaded selected manuals with ingredients:', manualsWithIngredients.length);
+      setLinkingReviewManuals(manualsWithIngredients);
+      
+      // 현재 템플릿의 원재료 목록 로드
+      const currentTemplateId = countryFilterTemplateId;
+      const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '' || currentTemplateId === '__select__';
+      
+      let ingredientsUrl = '/api/ingredients?limit=500';
+      if (!isMaster && currentTemplateId) {
+        ingredientsUrl = `/api/ingredients?priceTemplateId=${currentTemplateId}&limit=500`;
+      }
+      
+      const ingredientsRes = await fetch(ingredientsUrl);
+      if (ingredientsRes.ok) {
+        const ingredients = await ingredientsRes.json();
+        setMasterIngredientsList(ingredients);
+      }
+    } catch (error) {
+      console.error('Failed to load linking review data:', error);
+    } finally {
+      setLinkingReviewLoading(false);
+    }
+  };
+
   // 링킹 변경사항 저장
   const saveLinkingReviewChanges = async () => {
     // 새 식재료 수 계산
@@ -3443,11 +3490,18 @@ export default function TemplatesPage() {
 
                 {/* 식재료 수정 (Linking Review) */}
                 <button
-                  onClick={() => openLinkingReviewModal()}
+                  onClick={() => {
+                    // 선택된 매뉴얼이 있으면 그것만, 없으면 전체
+                    if (selectedManualIds.size > 0) {
+                      openLinkingReviewModalWithSelected(Array.from(selectedManualIds));
+                    } else {
+                      openLinkingReviewModal();
+                    }
+                  }}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center text-sm"
                 >
                   <Edit className="w-4 h-4 mr-2" />
-                  식재료 수정
+                  식재료 수정 {selectedManualIds.size > 0 ? `(${selectedManualIds.size}개)` : ''}
                 </button>
 
                 {/* 판매가 수정 (Bulk Price Edit) */}
