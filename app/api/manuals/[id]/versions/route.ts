@@ -187,8 +187,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     for (const ing of restoredIngredients) {
       const ingredientId = `ing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       await db.execute({
-        sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO ManualIngredient (id, manualId, ingredientId, name, koreanName, quantity, unit, sortOrder, notes, unitPrice, baseQuantity, isPackage)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           ingredientId,
           id,
@@ -200,7 +200,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           ing.sortOrder || 0,
           ing.notes || null,
           ing.unitPrice || null,
-          ing.baseQuantity || null
+          ing.baseQuantity || null,
+          ing.isPackage ? 1 : 0
         ],
       });
     }

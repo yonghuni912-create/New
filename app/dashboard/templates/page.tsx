@@ -513,6 +513,9 @@ export default function TemplatesPage() {
   const [masterIngredientsList, setMasterIngredientsList] = useState<any[]>([]); // 마스터 원재료 목록
   const [linkingSearchQueries, setLinkingSearchQueries] = useState<Map<string, string>>(new Map()); // editKey -> 검색어
   const [linkingSearchOpen, setLinkingSearchOpen] = useState<string | null>(null); // 열려있는 검색 드롭다운 editKey
+  const [linkingReviewViewFilter, setLinkingReviewViewFilter] = useState<'all' | 'linked' | 'unlinked'>('all'); // 뷰 필터
+  const [linkingReviewNewIngredients, setLinkingReviewNewIngredients] = useState<Map<string, any[]>>(new Map()); // manualId -> 추가된 새 식재료들
+  const [showAddIngredientForManual, setShowAddIngredientForManual] = useState<string | null>(null); // 식재료 추가 드롭다운을 열어둘 manualId
 
   // 일괄 링킹 기능 (같은 이름 식재료 한번에 링킹)
   const [bulkLinkSearchTerm, setBulkLinkSearchTerm] = useState(''); // 일괄 링킹 검색어
@@ -2281,12 +2284,14 @@ export default function TemplatesPage() {
         
         if (openReview) {
           // 업로드된 템플릿 ID로 editorTemplateId 설정 후 모달 열기
+          // 상태 설정과 동시에 인자로 직접 전달하여 상태 업데이트 지연 문제 방지
+          const templateIdForModal = uploadedTemplateId !== 'master' ? uploadedTemplateId : '';
           if (uploadedTemplateId !== 'master') {
             setEditorTemplateId(uploadedTemplateId);
           } else {
             setEditorTemplateId('');
           }
-          await openLinkingReviewModal();
+          await openLinkingReviewModal(templateIdForModal);
         }
       } else {
         const firstErrors = errors.slice(0, 3).join('\n');
@@ -2303,14 +2308,25 @@ export default function TemplatesPage() {
   };
 
   // 링킹 리뷰 모달 열기 - 선택된 템플릿의 매뉴얼과 식재료 로드
-  const openLinkingReviewModal = async () => {
+  // overrideTemplateId: 업로드 직후처럼 상태가 아직 업데이트되지 않았을 때 템플릿 ID를 직접 전달
+  const openLinkingReviewModal = async (overrideTemplateId?: string) => {
     setLinkingReviewLoading(true);
     setShowLinkingReviewModal(true);
     
     try {
-      // Country Manuals 탭에서는 countryFilterTemplateId 사용, 그 외에는 editorTemplateId 사용
-      const currentTemplateId = activeTab === 'countryManuals' ? countryFilterTemplateId : editorTemplateId;
+      // 인자로 받은 템플릿 ID가 있으면 사용, 없으면 현재 상태에서 결정
+      let currentTemplateId: string;
+      if (overrideTemplateId !== undefined) {
+        currentTemplateId = overrideTemplateId;
+      } else if (activeTab === 'countryManuals') {
+        currentTemplateId = countryFilterTemplateId;
+      } else {
+        currentTemplateId = editorTemplateId;
+      }
+      
       const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '' || currentTemplateId === '__select__';
+      
+      console.log('🔗 Opening linking review modal, templateId:', currentTemplateId, 'isMaster:', isMaster);
       
       // 선택된 템플릿의 매뉴얼만 필터링
       const filteredManuals = savedManuals.filter(manual => {
@@ -2322,6 +2338,8 @@ export default function TemplatesPage() {
           return (manual as any).priceTemplateId === currentTemplateId;
         }
       });
+      
+      console.log('🔗 Filtered manuals count:', filteredManuals.length, 'of total:', savedManuals.length);
       
       // 필터링된 매뉴얼의 상세 정보 가져오기
       const manualsWithIngredients = [];
@@ -2338,6 +2356,7 @@ export default function TemplatesPage() {
         }
       }
       
+      console.log('🔗 Loaded manuals with ingredients:', manualsWithIngredients.length);
       setLinkingReviewManuals(manualsWithIngredients);
       
       // 템플릿에 해당하는 원재료 목록 로드
@@ -2361,7 +2380,11 @@ export default function TemplatesPage() {
 
   // 링킹 변경사항 저장
   const saveLinkingReviewChanges = async () => {
-    if (linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0 && linkingReviewQuantityEdits.size === 0) {
+    // 새 식재료 수 계산
+    let newIngCount = 0;
+    linkingReviewNewIngredients.forEach(arr => { newIngCount += arr.length; });
+    
+    if (linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0 && linkingReviewQuantityEdits.size === 0 && newIngCount === 0) {
       setShowLinkingReviewModal(false);
       return;
     }
@@ -2373,6 +2396,8 @@ export default function TemplatesPage() {
     let priceErrorCount = 0;
     let quantitySuccessCount = 0;
     let quantityErrorCount = 0;
+    let newIngSuccessCount = 0;
+    let newIngErrorCount = 0;
 
     try {
       // 1. 링킹 변경사항 저장
@@ -2446,17 +2471,43 @@ export default function TemplatesPage() {
         }
       }
 
+      // 4. 새 식재료 추가
+      for (const [manualId, newIngs] of linkingReviewNewIngredients) {
+        for (const newIng of newIngs) {
+          try {
+            const res = await fetch(`/api/manuals/${manualId}/ingredients`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: newIng.name,
+                koreanName: newIng.koreanName,
+                quantity: newIng.quantity,
+                unit: newIng.unit,
+                ingredientId: newIng.ingredientId || null
+              })
+            });
+
+            if (res.ok) newIngSuccessCount++;
+            else newIngErrorCount++;
+          } catch (err) {
+            newIngErrorCount++;
+          }
+        }
+      }
+
       const linkMsg = linkSuccessCount > 0 ? `🔗 ${linkSuccessCount}개 링킹` : '';
       const priceMsg = priceSuccessCount > 0 ? `💰 ${priceSuccessCount}개 판매가` : '';
       const quantityMsg = quantitySuccessCount > 0 ? `📦 ${quantitySuccessCount}개 사용량` : '';
-      const allMsgs = [linkMsg, priceMsg, quantityMsg].filter(m => m).join(', ');
-      const totalErrors = linkErrorCount + priceErrorCount + quantityErrorCount;
+      const newIngMsg = newIngSuccessCount > 0 ? `➕ ${newIngSuccessCount}개 새 식재료` : '';
+      const allMsgs = [linkMsg, priceMsg, quantityMsg, newIngMsg].filter(m => m).join(', ');
+      const totalErrors = linkErrorCount + priceErrorCount + quantityErrorCount + newIngErrorCount;
       const errorMsg = totalErrors > 0 ? ` (${totalErrors}개 실패)` : '';
       
       alert(`✅ 저장 완료!\n${allMsgs} 업데이트${errorMsg}`);
       setLinkingReviewEdits(new Map());
       setLinkingReviewPriceEdits(new Map());
       setLinkingReviewQuantityEdits(new Map());
+      setLinkingReviewNewIngredients(new Map());
       
       // 데이터 새로고침 (모달은 닫지 않음)
       await openLinkingReviewModal();
@@ -5477,15 +5528,61 @@ export default function TemplatesPage() {
                       const templateName = isMaster 
                         ? 'Master' 
                         : priceTemplates.find(t => t.id === editorTemplateId)?.name || editorTemplateId;
+                      
+                      // 통계 계산
+                      let totalIngredients = 0;
+                      let linkedCount = 0;
+                      let unlinkedCount = 0;
+                      let noPriceCount = 0;
+                      
+                      linkingReviewManuals.forEach(manual => {
+                        (manual.ingredients || []).forEach((ing: any, ingIdx: number) => {
+                          totalIngredients++;
+                          const editKey = `${manual.id}_${ingIdx}`;
+                          const hasEdit = linkingReviewEdits.has(editKey);
+                          const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
+                          const isLinked = !!currentLinkId;
+                          
+                          if (isLinked) {
+                            linkedCount++;
+                            // 가격 확인
+                            const linkedMaster = masterIngredientsList.find(m => m.id === currentLinkId);
+                            if (!linkedMaster?.unitPrice || linkedMaster.unitPrice === 0) {
+                              noPriceCount++;
+                            }
+                          } else {
+                            unlinkedCount++;
+                          }
+                        });
+                      });
+                      
                       return (
                         <>
-                          <span className="font-medium text-blue-600">[{templateName}]</span> 템플릿의 {linkingReviewManuals.length}개 매뉴얼 식재료 링킹 상태
+                          <span className="font-medium text-blue-600">[{templateName}]</span> 템플릿의 {linkingReviewManuals.length}개 매뉴얼
+                          {totalIngredients > 0 && (
+                            <span className="ml-2">
+                              | 총 {totalIngredients}개 식재료
+                              {unlinkedCount > 0 && <span className="text-red-600 font-medium ml-1">({unlinkedCount}개 미링킹)</span>}
+                              {noPriceCount > 0 && <span className="text-orange-500 font-medium ml-1">({noPriceCount}개 미가격)</span>}
+                            </span>
+                          )}
                         </>
                       );
                     })()}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
+                  {/* 뷰 필터 드롭다운 */}
+                  <select
+                    value={linkingReviewViewFilter}
+                    onChange={(e) => setLinkingReviewViewFilter(e.target.value as 'all' | 'linked' | 'unlinked')}
+                    className="px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    <option value="all">전체보기</option>
+                    <option value="linked">링킹 완료만</option>
+                    <option value="unlinked">미링킹/미가격만</option>
+                  </select>
+                  
                   {/* 일괄 링킹 검색 UI */}
                   <div className="relative flex items-center gap-2">
                     <div className="relative">
@@ -5693,6 +5790,9 @@ export default function TemplatesPage() {
                       setBulkLinkSelectedItems(new Set());
                       setShowBulkPriceInput(false);
                       setBulkPriceValue('');
+                      setLinkingReviewViewFilter('all');
+                      setLinkingReviewNewIngredients(new Map());
+                      setShowAddIngredientForManual(null);
                     }} 
                     className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium"
                   >
@@ -5712,12 +5812,41 @@ export default function TemplatesPage() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {linkingReviewManuals.map((manual, manualIdx) => {
+                  {linkingReviewManuals
+                    // 뷰 필터 적용: 매뉴얼 레벨
+                    .filter(manual => {
+                      if (linkingReviewViewFilter === 'all') return true;
+                      
+                      const ings = manual.ingredients || [];
+                      const hasUnlinkedOrNoPrice = ings.some((ing: any, ingIdx: number) => {
+                        const editKey = `${manual.id}_${ingIdx}`;
+                        const hasEdit = linkingReviewEdits.has(editKey);
+                        const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
+                        const isLinked = !!currentLinkId;
+                        if (!isLinked) return true;
+                        const linkedMaster = masterIngredientsList.find(m => m.id === currentLinkId);
+                        if (!linkedMaster?.unitPrice || linkedMaster.unitPrice === 0) return true;
+                        return false;
+                      });
+                      
+                      if (linkingReviewViewFilter === 'linked') {
+                        // 링킹 완료된 것만 보기: 모든 식재료가 링킹되고 가격 있는 매뉴얼
+                        return !hasUnlinkedOrNoPrice && ings.length > 0;
+                      } else if (linkingReviewViewFilter === 'unlinked') {
+                        // 미링킹/미가격만 보기: 하나라도 미링킹 또는 미가격인 매뉴얼
+                        return hasUnlinkedOrNoPrice;
+                      }
+                      return true;
+                    })
+                    .map((manual, manualIdx) => {
                     const linkedCount = (manual.ingredients || []).filter((ing: any) => ing.ingredientId).length;
                     const totalCount = (manual.ingredients || []).length;
                     const isFullyLinked = linkedCount === totalCount && totalCount > 0;
                     const hasPriceEdit = linkingReviewPriceEdits.has(manual.id);
                     const currentPrice = hasPriceEdit ? linkingReviewPriceEdits.get(manual.id) : (manual.sellingPrice || 0);
+                    
+                    // 새로 추가된 식재료
+                    const newIngredientsForManual = linkingReviewNewIngredients.get(manual.id) || [];
                     
                     return (
                       <div key={manual.id} className="border rounded-lg" style={{ overflow: 'visible' }}>
@@ -5731,6 +5860,95 @@ export default function TemplatesPage() {
                               <h3 className="font-bold text-gray-900">{manual.name}</h3>
                               {manual.koreanName && manual.koreanName !== manual.name && (
                                 <p className="text-sm text-gray-500">{manual.koreanName}</p>
+                              )}
+                            </div>
+                            {/* 식재료 추가 버튼 */}
+                            <div className="relative">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAddIngredientForManual(showAddIngredientForManual === manual.id ? null : manual.id);
+                                }}
+                                className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-1"
+                              >
+                                <Plus className="w-3 h-3" />
+                                식재료 추가
+                              </button>
+                              {showAddIngredientForManual === manual.id && (
+                                <div className="absolute left-0 top-full mt-1 w-80 bg-white border rounded-lg shadow-lg z-50 p-3" onClick={(e) => e.stopPropagation()}>
+                                  <div className="text-sm font-medium text-gray-700 mb-2">새 식재료 추가</div>
+                                  <div className="space-y-2">
+                                    <input
+                                      type="text"
+                                      placeholder="매뉴얼상 식재료명 (수기 입력)"
+                                      id={`new-ing-name-${manual.id}`}
+                                      className="w-full px-2 py-1.5 text-sm border rounded"
+                                    />
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="number"
+                                        placeholder="사용량"
+                                        id={`new-ing-qty-${manual.id}`}
+                                        className="w-20 px-2 py-1.5 text-sm border rounded"
+                                      />
+                                      <input
+                                        type="text"
+                                        placeholder="단위"
+                                        id={`new-ing-unit-${manual.id}`}
+                                        defaultValue="g"
+                                        className="w-16 px-2 py-1.5 text-sm border rounded"
+                                      />
+                                    </div>
+                                    <select
+                                      id={`new-ing-master-${manual.id}`}
+                                      className="w-full px-2 py-1.5 text-sm border rounded"
+                                    >
+                                      <option value="">마스터 식재료 선택 (선택사항)</option>
+                                      {masterIngredientsList.slice(0, 50).map(master => (
+                                        <option key={master.id} value={master.id}>
+                                          {master.englishName} {master.koreanName ? `(${master.koreanName})` : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      onClick={() => {
+                                        const nameEl = document.getElementById(`new-ing-name-${manual.id}`) as HTMLInputElement;
+                                        const qtyEl = document.getElementById(`new-ing-qty-${manual.id}`) as HTMLInputElement;
+                                        const unitEl = document.getElementById(`new-ing-unit-${manual.id}`) as HTMLInputElement;
+                                        const masterEl = document.getElementById(`new-ing-master-${manual.id}`) as HTMLSelectElement;
+                                        
+                                        if (!nameEl.value) {
+                                          alert('식재료명을 입력해주세요.');
+                                          return;
+                                        }
+                                        
+                                        const newIng = {
+                                          tempId: `temp_${Date.now()}`,
+                                          name: nameEl.value,
+                                          koreanName: nameEl.value,
+                                          quantity: parseFloat(qtyEl.value) || 0,
+                                          unit: unitEl.value || 'g',
+                                          ingredientId: masterEl.value || null
+                                        };
+                                        
+                                        setLinkingReviewNewIngredients(prev => {
+                                          const newMap = new Map(prev);
+                                          const existing = newMap.get(manual.id) || [];
+                                          newMap.set(manual.id, [...existing, newIng]);
+                                          return newMap;
+                                        });
+                                        
+                                        // 입력 초기화
+                                        nameEl.value = '';
+                                        qtyEl.value = '';
+                                        setShowAddIngredientForManual(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-sm bg-green-500 text-white rounded hover:bg-green-600"
+                                    >
+                                      추가
+                                    </button>
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -5767,7 +5985,7 @@ export default function TemplatesPage() {
                         </div>
 
                         {/* 식재료 테이블 */}
-                        {manual.ingredients && manual.ingredients.length > 0 && (
+                        {((manual.ingredients && manual.ingredients.length > 0) || newIngredientsForManual.length > 0) && (
                           <div className="overflow-visible">
                           <table className="w-full text-sm" style={{ overflow: 'visible' }}>
                             <thead className="bg-gray-100">
@@ -5782,7 +6000,27 @@ export default function TemplatesPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {manual.ingredients.map((ing: any, ingIdx: number) => {
+                              {/* 기존 식재료 */}
+                              {(manual.ingredients || [])
+                                // 뷰 필터 적용: 식재료 레벨
+                                .filter((ing: any, ingIdx: number) => {
+                                  if (linkingReviewViewFilter === 'all') return true;
+                                  
+                                  const editKey = `${manual.id}_${ingIdx}`;
+                                  const hasEdit = linkingReviewEdits.has(editKey);
+                                  const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
+                                  const isLinked = !!currentLinkId;
+                                  const linkedMaster = currentLinkId ? masterIngredientsList.find(m => m.id === currentLinkId) : null;
+                                  const hasPrice = linkedMaster?.unitPrice && linkedMaster.unitPrice > 0;
+                                  
+                                  if (linkingReviewViewFilter === 'linked') {
+                                    return isLinked && hasPrice;
+                                  } else if (linkingReviewViewFilter === 'unlinked') {
+                                    return !isLinked || !hasPrice;
+                                  }
+                                  return true;
+                                })
+                                .map((ing: any, ingIdx: number) => {
                                 const editKey = `${manual.id}_${ingIdx}`;
                                 const hasEdit = linkingReviewEdits.has(editKey);
                                 const currentLinkId = hasEdit ? linkingReviewEdits.get(editKey) : ing.ingredientId;
@@ -6045,12 +6283,50 @@ export default function TemplatesPage() {
                                   </tr>
                                 );
                               })}
+                              {/* 새로 추가된 식재료 */}
+                              {newIngredientsForManual.map((newIng, newIdx) => {
+                                const linkedMaster = newIng.ingredientId ? masterIngredientsList.find(m => m.id === newIng.ingredientId) : null;
+                                return (
+                                  <tr key={newIng.tempId} className="border-t bg-blue-50">
+                                    {bulkLinkSearchTerm.length > 0 && <td className="px-2 py-2"></td>}
+                                    <td className="px-3 py-2 text-blue-500 font-medium">+</td>
+                                    <td className="px-3 py-2">
+                                      <div className="font-medium text-blue-700">{newIng.name}</div>
+                                      <div className="text-xs text-blue-500">새로 추가됨</div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {linkedMaster ? (
+                                        <div className="text-green-700 font-medium">{linkedMaster.englishName}</div>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2">{newIng.quantity} {newIng.unit}</td>
+                                    <td className="px-3 py-2 text-right text-gray-400">-</td>
+                                    <td className="px-3 py-2">
+                                      <button
+                                        onClick={() => {
+                                          setLinkingReviewNewIngredients(prev => {
+                                            const newMap = new Map(prev);
+                                            const existing = newMap.get(manual.id) || [];
+                                            newMap.set(manual.id, existing.filter(i => i.tempId !== newIng.tempId));
+                                            return newMap;
+                                          });
+                                        }}
+                                        className="text-red-500 hover:text-red-700 text-xs"
+                                      >
+                                        삭제
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                           </div>
                         )}
 
-                        {(!manual.ingredients || manual.ingredients.length === 0) && (
+                        {(!manual.ingredients || manual.ingredients.length === 0) && newIngredientsForManual.length === 0 && (
                           <div className="px-4 py-3 text-gray-500 text-sm">
                             식재료 없음
                           </div>
@@ -6086,7 +6362,16 @@ export default function TemplatesPage() {
                     📦 {linkingReviewQuantityEdits.size}개 사용량
                   </span>
                 )}
-                {(linkingReviewEdits.size > 0 || linkingReviewPriceEdits.size > 0 || linkingReviewQuantityEdits.size > 0) && (
+                {(() => {
+                  let newIngCount = 0;
+                  linkingReviewNewIngredients.forEach(arr => { newIngCount += arr.length; });
+                  return newIngCount > 0 ? (
+                    <span className="text-cyan-600 font-medium">
+                      ➕ {newIngCount}개 새 식재료
+                    </span>
+                  ) : null;
+                })()}
+                {(linkingReviewEdits.size > 0 || linkingReviewPriceEdits.size > 0 || linkingReviewQuantityEdits.size > 0 || (() => { let c = 0; linkingReviewNewIngredients.forEach(a => c += a.length); return c; })() > 0) && (
                   <span className="text-orange-500 text-xs">
                     ⚠️ 저장하지 않고 나가면 변경사항이 사라집니다
                   </span>
