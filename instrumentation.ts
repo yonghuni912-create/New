@@ -2,7 +2,7 @@
  * OpenTelemetry Instrumentation for Next.js
  * 
  * This file is automatically loaded by Next.js 13.4+ for instrumentation.
- * It initializes OpenTelemetry SDK with auto-instrumentation.
+ * It initializes OpenTelemetry SDK with manual instrumentation selection.
  * 
  * @see https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
@@ -10,11 +10,11 @@
 export async function register() {
   // Only register in Node.js runtime (server-side)
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Check if tracing is explicitly enabled (default to disabled for stability)
+    // Check if tracing is enabled (default: disabled)
     const tracingEnabled = process.env.OTEL_TRACES_ENABLED === 'true';
     
     if (!tracingEnabled) {
-      console.log('📊 OpenTelemetry tracing is disabled (set OTEL_TRACES_ENABLED=true to enable)');
+      // Silently skip - don't log to avoid noise in production
       return;
     }
 
@@ -23,13 +23,13 @@ export async function register() {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { NodeSDK } = require('@opentelemetry/sdk-node');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { Resource } = require('@opentelemetry/resources');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } = require('@opentelemetry/semantic-conventions');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
 
       const serviceName = process.env.OTEL_SERVICE_NAME || 'bbq-franchise-platform';
       const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
@@ -39,7 +39,7 @@ export async function register() {
         url: `${otlpEndpoint}/v1/traces`,
       });
 
-      // Initialize the SDK
+      // Initialize the SDK with minimal instrumentations
       const sdk = new NodeSDK({
         resource: new Resource({
           [ATTR_SERVICE_NAME]: serviceName,
@@ -48,26 +48,12 @@ export async function register() {
         }),
         traceExporter,
         instrumentations: [
-          getNodeAutoInstrumentations({
-            // Disable instrumentations that may cause issues with Next.js
-            '@opentelemetry/instrumentation-fs': { enabled: false },
-            '@opentelemetry/instrumentation-dns': { enabled: false },
-            '@opentelemetry/instrumentation-net': { enabled: false },
-            '@opentelemetry/instrumentation-winston': { enabled: false }, // Disable to avoid missing dependency error
-            // Enable HTTP instrumentation for API routes
-            '@opentelemetry/instrumentation-http': {
-              enabled: true,
-              ignoreIncomingPaths: [
-                // Ignore Next.js internal routes
-                /^\/_next\/.*/,
-                /^\/favicon\.ico/,
-                /^\/api\/health$/,
-              ],
-            },
-            // Enable fetch instrumentation for external API calls
-            '@opentelemetry/instrumentation-fetch': {
-              enabled: true,
-            },
+          new HttpInstrumentation({
+            ignoreIncomingPaths: [
+              /^\/_next\/.*/,
+              /^\/favicon\.ico/,
+              /^\/api\/health$/,
+            ],
           }),
         ],
       });
@@ -76,7 +62,6 @@ export async function register() {
       sdk.start();
 
       console.log(`📊 OpenTelemetry initialized for ${serviceName}`);
-      console.log(`   Exporting traces to: ${otlpEndpoint}`);
 
       // Graceful shutdown
       process.on('SIGTERM', () => {
@@ -86,8 +71,7 @@ export async function register() {
           .finally(() => process.exit(0));
       });
     } catch (error) {
-      console.error('📊 Failed to initialize OpenTelemetry:', error);
-      // Don't crash the application if OpenTelemetry fails to initialize
+      console.error('Failed to initialize OpenTelemetry:', error);
     }
   }
 }
