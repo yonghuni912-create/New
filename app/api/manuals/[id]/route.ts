@@ -364,3 +364,82 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     );
   }
 }
+
+// PATCH /api/manuals/[id] - Partial update (e.g., just sellingPrice)
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const userRole = (session.user as any)?.role;
+  if (!hasPermission(userRole, 'canEdit')) {
+    return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
+  }
+
+  const { id } = await params;
+  
+  try {
+    const body = await request.json();
+    console.log('📝 PATCH /api/manuals/[id] - Received body:', JSON.stringify(body, null, 2));
+    
+    const db = getDb();
+    
+    // Check if manual exists
+    const existingResult = await db.execute({
+      sql: `SELECT id FROM MenuManual WHERE id = ?`,
+      args: [id],
+    });
+    
+    if (existingResult.rows.length === 0) {
+      return NextResponse.json({ error: 'Manual not found' }, { status: 404 });
+    }
+    
+    // Build update query dynamically - only update fields that are provided
+    const updateFields: string[] = [];
+    const updateArgs: any[] = [];
+    
+    if (body.sellingPrice !== undefined) { 
+      updateFields.push('sellingPrice = ?'); 
+      updateArgs.push(body.sellingPrice !== null ? parseFloat(body.sellingPrice) : null); 
+    }
+    if (body.name !== undefined) { updateFields.push('name = ?'); updateArgs.push(body.name); }
+    if (body.koreanName !== undefined) { updateFields.push('koreanName = ?'); updateArgs.push(body.koreanName); }
+    if (body.isActive !== undefined) { updateFields.push('isActive = ?'); updateArgs.push(body.isActive ? 1 : 0); }
+    if (body.isArchived !== undefined) { updateFields.push('isArchived = ?'); updateArgs.push(body.isArchived ? 1 : 0); }
+    if (body.groupId !== undefined) { updateFields.push('groupId = ?'); updateArgs.push(body.groupId || null); }
+    
+    // Always update updatedAt
+    updateFields.push('updatedAt = ?');
+    updateArgs.push(new Date().toISOString());
+    updateArgs.push(id);
+    
+    if (updateFields.length > 1) {
+      await db.execute({
+        sql: `UPDATE MenuManual SET ${updateFields.join(', ')} WHERE id = ?`,
+        args: updateArgs,
+      });
+      console.log('✅ Manual patched successfully:', id, 'fields:', updateFields.slice(0, -1).join(', '));
+    }
+    
+    // Fetch and return updated manual
+    const updatedResult = await db.execute({
+      sql: `SELECT * FROM MenuManual WHERE id = ?`,
+      args: [id],
+    });
+    
+    const manual = updatedResult.rows[0];
+    
+    return NextResponse.json({
+      ...manual,
+      isActive: manual.isActive === 1 || Boolean(manual.isActive),
+      isArchived: manual.isArchived === 1 || Boolean(manual.isArchived),
+    });
+  } catch (error: any) {
+    console.error('❌ Error patching manual:', error);
+    return NextResponse.json(
+      { error: 'Failed to patch manual', details: error?.message || String(error) },
+      { status: 500 }
+    );
+  }
+}
