@@ -2342,7 +2342,9 @@ export default function TemplatesPage() {
       alert(`✅ 저장 완료!\n${linkMsg}${linkMsg && priceMsg ? ', ' : ''}${priceMsg} 업데이트${errorMsg}`);
       setLinkingReviewEdits(new Map());
       setLinkingReviewPriceEdits(new Map());
-      setShowLinkingReviewModal(false);
+      
+      // 데이터 새로고침 (모달은 닫지 않음)
+      await openLinkingReviewModal();
       fetchData();
     } catch (error) {
       console.error('Failed to save changes:', error);
@@ -5170,12 +5172,16 @@ export default function TemplatesPage() {
                   })()}
                 </p>
               </div>
-              <button onClick={() => {
-                setShowLinkingReviewModal(false);
-                setLinkingSearchOpen(null);
-                setLinkingSearchQueries(new Map());
-              }} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-6 h-6" />
+              <button 
+                onClick={() => {
+                  setShowLinkingReviewModal(false);
+                  setLinkingSearchOpen(null);
+                  setLinkingSearchQueries(new Map());
+                }} 
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium"
+              >
+                <X className="w-5 h-5" />
+                나가기
               </button>
             </div>
 
@@ -5439,27 +5445,20 @@ export default function TemplatesPage() {
                     💰 {linkingReviewPriceEdits.size}개 판매가
                   </span>
                 )}
+                {(linkingReviewEdits.size > 0 || linkingReviewPriceEdits.size > 0) && (
+                  <span className="text-orange-500 text-xs">
+                    ⚠️ 저장하지 않고 나가면 변경사항이 사라집니다
+                  </span>
+                )}
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setLinkingReviewEdits(new Map());
-                    setLinkingReviewPriceEdits(new Map());
-                    setLinkingSearchQueries(new Map());
-                    setLinkingSearchOpen(null);
-                    setShowLinkingReviewModal(false);
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  취소
-                </button>
                 <button
                   onClick={saveLinkingReviewChanges}
                   disabled={(linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0) || linkingReviewLoading}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  저장 ({linkingReviewEdits.size + linkingReviewPriceEdits.size}개)
+                  {linkingReviewLoading ? '저장 중...' : `저장 (${linkingReviewEdits.size + linkingReviewPriceEdits.size}개)`}
                 </button>
               </div>
             </div>
