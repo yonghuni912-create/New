@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square, ChevronLeft } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Save, X, Globe, DollarSign, ChevronDown, ChevronRight, Copy, Image, CheckSquare, Square, ChevronLeft, Layers } from 'lucide-react';
 import { useItemsPerPage, getItemsPerPageLabel, ITEMS_PER_PAGE_OPTIONS } from '@/lib/useItemsPerPage';
 
 interface IngredientMaster {
@@ -16,6 +16,14 @@ interface IngredientMaster {
   unit: string;
   yieldRate: number;
   imageUrl?: string;
+  isCompound?: boolean;
+  subIngredients?: {
+    id: string;
+    subIngredientId: string;
+    quantity: number;
+    unit: string;
+    subIngredient: IngredientMaster;
+  }[];
 }
 
 interface PriceTemplate {
@@ -148,6 +156,25 @@ export default function PricingPage() {
   // 마스터→템플릿 복제 모달 상태
   const [showCopyToTemplateModal, setShowCopyToTemplateModal] = useState(false);
   const [copyTargetTemplateId, setCopyTargetTemplateId] = useState<string>('');
+
+  // 혼합 식재료 추가 모달 상태
+  const [showAddCompound, setShowAddCompound] = useState(false);
+  const [compoundForm, setCompoundForm] = useState({
+    category: 'Produced',
+    koreanName: '',
+    englishName: '',
+    quantity: 0,
+    unit: 'g',
+    yieldRate: 100,
+    imageUrl: ''
+  });
+  const [compoundSubIngredients, setCompoundSubIngredients] = useState<{
+    ingredientId: string;
+    ingredientName: string;
+    quantity: number;
+    unit: string;
+  }[]>([]);
+  const [compoundSearchQuery, setCompoundSearchQuery] = useState('');
 
   // Pagination state
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -524,6 +551,75 @@ export default function PricingPage() {
     ).slice(0, 20); // 상위 20개만 표시
   }, [ingredients, templateItems, addItemSearchQuery]);
 
+  // 혼합 식재료용 검색 결과 (비혼합 식재료만)
+  const availableIngredientsForCompound = useMemo(() => {
+    if (!compoundSearchQuery.trim()) return [];
+    const query = compoundSearchQuery.toLowerCase();
+    const selectedIds = new Set(compoundSubIngredients.map(s => s.ingredientId));
+    
+    return ingredients.filter(ing => 
+      !ing.isCompound &&  // 혼합 식재료는 제외
+      !selectedIds.has(ing.id) &&
+      (ing.koreanName.toLowerCase().includes(query) ||
+       ing.englishName.toLowerCase().includes(query))
+    ).slice(0, 15);
+  }, [ingredients, compoundSearchQuery, compoundSubIngredients]);
+
+  const resetCompoundForm = () => {
+    setCompoundForm({
+      category: 'Produced',
+      koreanName: '',
+      englishName: '',
+      quantity: 0,
+      unit: 'g',
+      yieldRate: 100,
+      imageUrl: ''
+    });
+    setCompoundSubIngredients([]);
+    setCompoundSearchQuery('');
+  };
+
+  // 혼합 식재료 생성 핸들러
+  const handleAddCompoundIngredient = async () => {
+    if (!compoundForm.koreanName || !compoundForm.englishName) {
+      alert('혼합 식재료명을 입력하세요');
+      return;
+    }
+    if (compoundSubIngredients.length === 0) {
+      alert('최소 1개 이상의 하위 식재료를 추가하세요');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/ingredients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...compoundForm,
+          isCompound: true,
+          subIngredients: compoundSubIngredients.map(sub => ({
+            ingredientId: sub.ingredientId,
+            quantity: sub.quantity,
+            unit: sub.unit
+          }))
+        })
+      });
+
+      if (res.ok) {
+        alert('혼합 식재료가 추가되었습니다!');
+        setShowAddCompound(false);
+        resetCompoundForm();
+        loadIngredients();
+      } else {
+        const error = await res.json();
+        alert(`오류: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Compound ingredient error:', error);
+      alert('혼합 식재료 추가에 실패했습니다.');
+    }
+  };
+
   const toggleCategory = (cat: string) => {
     const newExpanded = new Set(expandedCategories);
     if (newExpanded.has(cat)) {
@@ -661,6 +757,13 @@ export default function PricingPage() {
                 </button>
               )}
               <button
+                onClick={() => { setShowAddCompound(true); resetCompoundForm(); }}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+              >
+                <Plus className="w-4 h-4" />
+                혼합 식재료 추가
+              </button>
+              <button
                 onClick={() => { setShowAddIngredient(true); setEditingIngredient(null); resetIngredientForm(); }}
                 className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
               >
@@ -719,7 +822,15 @@ export default function PricingPage() {
                       />
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className="px-2 py-1 bg-gray-100 rounded text-gray-700">{ing.category}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="px-2 py-1 bg-gray-100 rounded text-gray-700">{ing.category}</span>
+                        {ing.isCompound && (
+                          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs flex items-center gap-1" title="혼합 식재료">
+                            <Layers className="w-3 h-3" />
+                            혼합
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-medium relative group">
                       <span 
@@ -728,6 +839,11 @@ export default function PricingPage() {
                       >
                         {ing.koreanName}
                       </span>
+                      {ing.isCompound && ing.subIngredients && ing.subIngredients.length > 0 && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          구성: {ing.subIngredients.map(s => s.subIngredient?.koreanName || '').join(', ')}
+                        </div>
+                      )}
                       {ing.imageUrl && (
                         <div className="absolute z-50 left-0 top-full hidden group-hover:block bg-white border shadow-xl rounded-lg p-2 w-48">
                           <img src={ing.imageUrl} alt={ing.koreanName} className="w-full h-auto rounded" />
@@ -1614,6 +1730,204 @@ export default function PricingPage() {
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
               >
                 복제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 혼합 식재료 추가 모달 */}
+      {showAddCompound && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-white">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Layers className="w-5 h-5 text-purple-500" />
+                혼합 식재료 추가
+              </h3>
+              <button onClick={() => { setShowAddCompound(false); resetCompoundForm(); }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="p-3 bg-purple-50 rounded-lg text-sm text-purple-700">
+                💡 혼합 식재료는 여러 기본 식재료를 조합하여 만든 식재료입니다.<br/>
+                예: 양념장, 배터믹스, 마리네이드 등
+              </div>
+              
+              {/* 기본 정보 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">식재료명 (한글) *</label>
+                  <input
+                    type="text"
+                    value={compoundForm.koreanName}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, koreanName: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="예: 시크릿 양념장"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Ingredient Name (EN) *</label>
+                  <input
+                    type="text"
+                    value={compoundForm.englishName}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, englishName: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="e.g. Secret Sauce"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">카테고리</label>
+                  <select
+                    value={compoundForm.category}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, category: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    {CATEGORIES.filter(c => c !== 'All').map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">기본 수량</label>
+                  <input
+                    type="number"
+                    value={compoundForm.quantity}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, quantity: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">단위</label>
+                  <select
+                    value={compoundForm.unit}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, unit: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    {UNITS.map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">수율 (%)</label>
+                  <input
+                    type="number"
+                    value={compoundForm.yieldRate}
+                    onChange={(e) => setCompoundForm({ ...compoundForm, yieldRate: parseFloat(e.target.value) || 100 })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* 하위 식재료 */}
+              <div className="border-t pt-4">
+                <label className="block text-sm font-medium mb-2">하위 식재료 (Sub Ingredients) *</label>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="하위 식재료 검색..."
+                    value={compoundSearchQuery}
+                    onChange={(e) => setCompoundSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                  />
+                </div>
+                
+                {/* 검색 결과 */}
+                {compoundSearchQuery && availableIngredientsForCompound.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border rounded-lg mb-2">
+                    {availableIngredientsForCompound.map(ing => (
+                      <button
+                        key={ing.id}
+                        type="button"
+                        onClick={() => {
+                          setCompoundSubIngredients([
+                            ...compoundSubIngredients,
+                            {
+                              ingredientId: ing.id,
+                              ingredientName: `${ing.koreanName} (${ing.englishName})`,
+                              quantity: 0,
+                              unit: ing.unit
+                            }
+                          ]);
+                          setCompoundSearchQuery('');
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-b-0"
+                      >
+                        <div className="font-medium">{ing.koreanName}</div>
+                        <div className="text-xs text-gray-500">{ing.englishName} • {ing.category}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 선택된 하위 식재료 목록 */}
+                {compoundSubIngredients.length > 0 ? (
+                  <div className="space-y-2">
+                    {compoundSubIngredients.map((sub, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                        <span className="flex-1 text-sm font-medium">{sub.ingredientName}</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={sub.quantity}
+                          onChange={(e) => {
+                            const updated = [...compoundSubIngredients];
+                            updated[idx].quantity = parseFloat(e.target.value) || 0;
+                            setCompoundSubIngredients(updated);
+                          }}
+                          className="w-20 px-2 py-1 border rounded text-sm text-right"
+                          placeholder="수량"
+                        />
+                        <select
+                          value={sub.unit}
+                          onChange={(e) => {
+                            const updated = [...compoundSubIngredients];
+                            updated[idx].unit = e.target.value;
+                            setCompoundSubIngredients(updated);
+                          }}
+                          className="w-16 px-1 py-1 border rounded text-sm"
+                        >
+                          {UNITS.map(u => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            setCompoundSubIngredients(compoundSubIngredients.filter((_, i) => i !== idx));
+                          }}
+                          className="p-1 text-red-500 hover:bg-red-50 rounded"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-400 py-4 border rounded-lg">
+                    검색하여 하위 식재료를 추가하세요
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-white">
+              <button
+                onClick={() => { setShowAddCompound(false); resetCompoundForm(); }}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleAddCompoundIngredient}
+                disabled={!compoundForm.koreanName || !compoundForm.englishName || compoundSubIngredients.length === 0}
+                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:bg-gray-300"
+              >
+                혼합 식재료 추가
               </button>
             </div>
           </div>
