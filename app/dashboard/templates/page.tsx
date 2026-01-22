@@ -1089,16 +1089,25 @@ export default function TemplatesPage() {
 
   // View version history
   const handleViewVersionHistory = async (manual: SavedManual) => {
-    setSelectedVersionManual(manual);
     setIsLoadingVersions(true);
     setShowVersionModal(true);
     
     try {
+      // 현재 매뉴얼의 상세 정보 먼저 가져오기 (ingredients 포함)
+      const manualRes = await fetch(`/api/manuals/${manual.id}?includeIngredients=true`);
+      if (manualRes.ok) {
+        const fullManual = await manualRes.json();
+        setSelectedVersionManual(fullManual);
+      } else {
+        setSelectedVersionManual(manual);
+      }
+      
       const res = await fetch(`/api/manuals/${manual.id}/versions`);
       const data = await res.json();
       setVersionHistory(data);
     } catch (error) {
       console.error('Error loading versions:', error);
+      setSelectedVersionManual(manual);
       setVersionHistory({ versions: [], error: 'Failed to load version history' });
     } finally {
       setIsLoadingVersions(false);
@@ -1123,7 +1132,9 @@ export default function TemplatesPage() {
         setShowVersionModal(false);
         fetchData();
       } else {
-        alert('버전 복구 실패');
+        const errorData = await res.json().catch(() => ({}));
+        console.error('버전 복구 실패:', errorData);
+        alert(`버전 복구 실패: ${errorData.error || errorData.details || res.statusText}`);
       }
     } catch (error) {
       console.error('Restore version error:', error);
@@ -2254,6 +2265,9 @@ export default function TemplatesPage() {
         setExcelPreviewData(null);
         setExcelConfirmedManuals(new Set());
         setExcelPreviewIndex(0);
+        
+        // 업로드에 사용한 템플릿 ID 저장 (리셋 전에)
+        const uploadedTemplateId = uploadTargetTemplateId;
         setUploadTargetTemplateId('master'); // Reset to master
         
         // 데이터 새로고침 후 링킹 리뷰 모달 열기
@@ -2266,6 +2280,12 @@ export default function TemplatesPage() {
         );
         
         if (openReview) {
+          // 업로드된 템플릿 ID로 editorTemplateId 설정 후 모달 열기
+          if (uploadedTemplateId !== 'master') {
+            setEditorTemplateId(uploadedTemplateId);
+          } else {
+            setEditorTemplateId('');
+          }
           await openLinkingReviewModal();
         }
       } else {

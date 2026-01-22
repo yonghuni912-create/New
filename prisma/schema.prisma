@@ -299,6 +299,7 @@ model MenuManual {
   deletedBy       String?
   groupId         String?
   priceTemplateId String?
+  version         Int                @default(1)      // 현재 버전 번호
   // 마스터/복제본 관계 필드
   isMaster        Boolean            @default(true)   // true = 마스터, false = 국가 복제본
   masterManualId  String?                             // 복제본일 경우 원본 마스터 ID
@@ -310,6 +311,7 @@ model MenuManual {
   // Self-relation for master/copy
   masterManual    MenuManual?        @relation("ManualCopies", fields: [masterManualId], references: [id], onDelete: SetNull)
   copies          MenuManual[]       @relation("ManualCopies")
+  versions        ManualVersion[]    @relation("ManualToVersions")
 
   // 자주 쿼리되는 필드에 인덱스 추가
   @@index([priceTemplateId])
@@ -317,6 +319,27 @@ model MenuManual {
   @@index([isActive])
   @@index([isArchived])
   @@index([masterManualId])
+}
+
+// 매뉴얼 버전 히스토리
+model ManualVersion {
+  id            String     @id @default(cuid())
+  manualId      String
+  version       Int
+  name          String
+  koreanName    String?
+  sellingPrice  Float?
+  shelfLife     String?
+  ingredients   String?    // JSON string of ingredients snapshot
+  cookingMethod String?    // JSON string of cooking method snapshot
+  imageUrl      String?
+  changeNote    String?    // 변경 사유/메모
+  changedBy     String?    // 변경한 사용자 ID
+  createdAt     DateTime   @default(now())
+  manual        MenuManual @relation("ManualToVersions", fields: [manualId], references: [id], onDelete: Cascade)
+  
+  @@index([manualId])
+  @@index([manualId, version])
 }
 
 // 매뉴얼 재료
