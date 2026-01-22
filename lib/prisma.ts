@@ -8,8 +8,12 @@ function createPrismaClient(): PrismaClient {
   const isServerRuntime = process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
   
   if (isServerRuntime) {
-    if (!process.env.DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
-      throw new Error('FATAL: DATABASE_URL and TURSO_AUTH_TOKEN must be set in the production environment.');
+    // Support both DATABASE_URL and TURSO_DATABASE_URL for flexibility
+    const databaseUrl = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL;
+    const authToken = process.env.TURSO_AUTH_TOKEN;
+    
+    if (!databaseUrl || !authToken) {
+      throw new Error('FATAL: TURSO_DATABASE_URL (or DATABASE_URL) and TURSO_AUTH_TOKEN must be set in the production environment.');
     }
     
     console.log('Initializing Prisma with Turso adapter for production runtime...');
@@ -18,8 +22,8 @@ function createPrismaClient(): PrismaClient {
       const { PrismaLibSQL } = require('@prisma/adapter-libsql');
       
       const libsql = createClient({
-        url: process.env.DATABASE_URL!,
-        authToken: process.env.TURSO_AUTH_TOKEN!,
+        url: databaseUrl,
+        authToken: authToken,
       });
       
       const adapter = new PrismaLibSQL(libsql);
