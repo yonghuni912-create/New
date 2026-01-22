@@ -497,6 +497,7 @@ export default function TemplatesPage() {
   const [linkingReviewManuals, setLinkingReviewManuals] = useState<any[]>([]);
   const [linkingReviewEdits, setLinkingReviewEdits] = useState<Map<string, string>>(new Map()); // ingredientId -> newIngredientMasterId
   const [linkingReviewPriceEdits, setLinkingReviewPriceEdits] = useState<Map<string, number>>(new Map()); // manualId -> sellingPrice
+  const [linkingReviewQuantityEdits, setLinkingReviewQuantityEdits] = useState<Map<string, { quantity: number; unit: string; manualIngredientId: string }>>(new Map()); // editKey -> quantity info
   const [linkingReviewLoading, setLinkingReviewLoading] = useState(false);
   const [masterIngredientsList, setMasterIngredientsList] = useState<any[]>([]); // 마스터 원재료 목록
   const [linkingSearchQueries, setLinkingSearchQueries] = useState<Map<string, string>>(new Map()); // editKey -> 검색어
@@ -2280,7 +2281,7 @@ export default function TemplatesPage() {
 
   // 링킹 변경사항 저장
   const saveLinkingReviewChanges = async () => {
-    if (linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0) {
+    if (linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0 && linkingReviewQuantityEdits.size === 0) {
       setShowLinkingReviewModal(false);
       return;
     }
@@ -2290,6 +2291,8 @@ export default function TemplatesPage() {
     let linkErrorCount = 0;
     let priceSuccessCount = 0;
     let priceErrorCount = 0;
+    let quantitySuccessCount = 0;
+    let quantityErrorCount = 0;
 
     try {
       // 1. 링킹 변경사항 저장
@@ -2335,13 +2338,38 @@ export default function TemplatesPage() {
         }
       }
 
+      // 3. 사용량 변경사항 저장
+      for (const [editKey, quantityInfo] of linkingReviewQuantityEdits) {
+        try {
+          const res = await fetch(`/api/ingredients/auto-link`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              manualIngredientId: quantityInfo.manualIngredientId,
+              quantity: quantityInfo.quantity,
+              unit: quantityInfo.unit,
+              updateType: 'quantity'
+            })
+          });
+
+          if (res.ok) quantitySuccessCount++;
+          else quantityErrorCount++;
+        } catch (err) {
+          quantityErrorCount++;
+        }
+      }
+
       const linkMsg = linkSuccessCount > 0 ? `🔗 ${linkSuccessCount}개 링킹` : '';
       const priceMsg = priceSuccessCount > 0 ? `💰 ${priceSuccessCount}개 판매가` : '';
-      const errorMsg = (linkErrorCount + priceErrorCount) > 0 ? ` (${linkErrorCount + priceErrorCount}개 실패)` : '';
+      const quantityMsg = quantitySuccessCount > 0 ? `📦 ${quantitySuccessCount}개 사용량` : '';
+      const allMsgs = [linkMsg, priceMsg, quantityMsg].filter(m => m).join(', ');
+      const totalErrors = linkErrorCount + priceErrorCount + quantityErrorCount;
+      const errorMsg = totalErrors > 0 ? ` (${totalErrors}개 실패)` : '';
       
-      alert(`✅ 저장 완료!\n${linkMsg}${linkMsg && priceMsg ? ', ' : ''}${priceMsg} 업데이트${errorMsg}`);
+      alert(`✅ 저장 완료!\n${allMsgs} 업데이트${errorMsg}`);
       setLinkingReviewEdits(new Map());
       setLinkingReviewPriceEdits(new Map());
+      setLinkingReviewQuantityEdits(new Map());
       
       // 데이터 새로고침 (모달은 닫지 않음)
       await openLinkingReviewModal();
@@ -5270,9 +5298,18 @@ export default function TemplatesPage() {
                                 const isLinked = hasEdit ? !!currentLinkId : !!ing.ingredientId;
                                 const linkedMaster = currentLinkId ? masterIngredientsList.find(m => m.id === currentLinkId) : null;
                                 
+                                // 사용량 수정 여부 확인
+                                const hasQuantityEdit = linkingReviewQuantityEdits.has(editKey);
+                                const currentUsageQuantity = hasQuantityEdit 
+                                  ? linkingReviewQuantityEdits.get(editKey)!.quantity 
+                                  : (parseFloat(ing.quantity) || 0);
+                                const currentUsageUnit = hasQuantityEdit 
+                                  ? linkingReviewQuantityEdits.get(editKey)!.unit 
+                                  : (ing.unit || '');
+                                
                                 // 원가 계산: (매뉴얼 사용량 / Pricing 기준수량) × Pricing 단가
                                 // 예: Pricing에서 1000g에 $10 설정, 매뉴얼에서 100g 사용 → (100/1000) × $10 = $1
-                                const usageQuantity = parseFloat(ing.quantity) || 0; // 매뉴얼에서 사용하는 용량
+                                const usageQuantity = currentUsageQuantity; // 수정된 값 또는 원본 값
                                 const baseQuantity = linkedMaster?.baseQuantity || linkedMaster?.quantity || 1; // Pricing에서 설정한 기준 용량
                                 const unitPrice = linkedMaster?.unitPrice || 0; // Pricing에서 설정한 단가
                                 const costPerUsage = baseQuantity > 0 && unitPrice > 0 
@@ -5310,16 +5347,74 @@ export default function TemplatesPage() {
                                         <span className="text-red-500 text-sm">❌ 미링킹</span>
                                       )}
                                     </td>
-                                    <td className="px-3 py-2 text-gray-600">
-                                      {ing.quantity || '-'} {ing.unit || ''}
+                                    <td className="px-3 py-2">
+                                      {/* 사용량 수정 가능 */}
+                                      {(() => {
+                                        const hasQuantityEdit = linkingReviewQuantityEdits.has(editKey);
+                                        const currentQuantity = hasQuantityEdit 
+                                          ? linkingReviewQuantityEdits.get(editKey)!.quantity 
+                                          : (ing.quantity || 0);
+                                        const currentUnit = hasQuantityEdit 
+                                          ? linkingReviewQuantityEdits.get(editKey)!.unit 
+                                          : (ing.unit || '');
+                                        
+                                        return (
+                                          <div className="flex items-center gap-1">
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              value={currentQuantity}
+                                              onChange={(e) => {
+                                                const newQuantity = parseFloat(e.target.value) || 0;
+                                                setLinkingReviewQuantityEdits(prev => {
+                                                  const newMap = new Map(prev);
+                                                  if (newQuantity === (ing.quantity || 0) && currentUnit === (ing.unit || '')) {
+                                                    newMap.delete(editKey);
+                                                  } else {
+                                                    newMap.set(editKey, {
+                                                      quantity: newQuantity,
+                                                      unit: currentUnit,
+                                                      manualIngredientId: ing.id
+                                                    });
+                                                  }
+                                                  return newMap;
+                                                });
+                                              }}
+                                              className={`w-16 px-1.5 py-0.5 text-sm border rounded text-right ${hasQuantityEdit ? 'border-purple-500 bg-purple-50' : 'border-gray-200'} focus:outline-none focus:ring-1 focus:ring-purple-400`}
+                                            />
+                                            <input
+                                              type="text"
+                                              value={currentUnit}
+                                              onChange={(e) => {
+                                                const newUnit = e.target.value;
+                                                setLinkingReviewQuantityEdits(prev => {
+                                                  const newMap = new Map(prev);
+                                                  if (currentQuantity === (ing.quantity || 0) && newUnit === (ing.unit || '')) {
+                                                    newMap.delete(editKey);
+                                                  } else {
+                                                    newMap.set(editKey, {
+                                                      quantity: currentQuantity,
+                                                      unit: newUnit,
+                                                      manualIngredientId: ing.id
+                                                    });
+                                                  }
+                                                  return newMap;
+                                                });
+                                              }}
+                                              className={`w-12 px-1 py-0.5 text-sm border rounded ${hasQuantityEdit ? 'border-purple-500 bg-purple-50' : 'border-gray-200'} focus:outline-none focus:ring-1 focus:ring-purple-400`}
+                                              placeholder="단위"
+                                            />
+                                          </div>
+                                        );
+                                      })()}
                                     </td>
                                     <td className="px-3 py-2 text-right font-mono group relative">
                                       {isLinked && unitPrice > 0 ? (
                                         <>
-                                          <span className="text-gray-700 cursor-help">${costPerUsage.toFixed(2)}</span>
+                                          <span className={`cursor-help ${hasQuantityEdit ? 'text-purple-700' : 'text-gray-700'}`}>${costPerUsage.toFixed(2)}</span>
                                           {/* 원가 계산 툴팁 */}
                                           <div className="absolute right-0 top-full mt-1 bg-gray-800 text-white text-xs px-3 py-2 rounded shadow-lg z-50 hidden group-hover:block whitespace-nowrap">
-                                            ({usageQuantity}{ing.unit || ''} / {baseQuantity}{linkedMaster?.unit || ''}) × ${unitPrice.toFixed(2)} = ${costPerUsage.toFixed(2)}
+                                            ({usageQuantity}{currentUsageUnit || ''} / {baseQuantity}{linkedMaster?.unit || ''}) × ${unitPrice.toFixed(2)} = ${costPerUsage.toFixed(2)}
                                           </div>
                                         </>
                                       ) : isLinked && unitPrice === 0 ? (
@@ -5456,7 +5551,12 @@ export default function TemplatesPage() {
                     💰 {linkingReviewPriceEdits.size}개 판매가
                   </span>
                 )}
-                {(linkingReviewEdits.size > 0 || linkingReviewPriceEdits.size > 0) && (
+                {linkingReviewQuantityEdits.size > 0 && (
+                  <span className="text-purple-600 font-medium">
+                    📦 {linkingReviewQuantityEdits.size}개 사용량
+                  </span>
+                )}
+                {(linkingReviewEdits.size > 0 || linkingReviewPriceEdits.size > 0 || linkingReviewQuantityEdits.size > 0) && (
                   <span className="text-orange-500 text-xs">
                     ⚠️ 저장하지 않고 나가면 변경사항이 사라집니다
                   </span>
@@ -5465,11 +5565,11 @@ export default function TemplatesPage() {
               <div className="flex gap-3">
                 <button
                   onClick={saveLinkingReviewChanges}
-                  disabled={(linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0) || linkingReviewLoading}
+                  disabled={(linkingReviewEdits.size === 0 && linkingReviewPriceEdits.size === 0 && linkingReviewQuantityEdits.size === 0) || linkingReviewLoading}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
-                  {linkingReviewLoading ? '저장 중...' : `저장 (${linkingReviewEdits.size + linkingReviewPriceEdits.size}개)`}
+                  {linkingReviewLoading ? '저장 중...' : `저장 (${linkingReviewEdits.size + linkingReviewPriceEdits.size + linkingReviewQuantityEdits.size}개)`}
                 </button>
               </div>
             </div>

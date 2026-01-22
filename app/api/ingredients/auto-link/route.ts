@@ -219,11 +219,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - 개별 ManualIngredient의 링킹 업데이트
+// PUT - 개별 ManualIngredient의 링킹 또는 사용량 업데이트
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { manualIngredientId, newIngredientMasterId, unitPrice, baseQuantity } = body;
+    const { manualIngredientId, newIngredientMasterId, unitPrice, baseQuantity, quantity, unit, updateType } = body;
     
     if (!manualIngredientId) {
       return NextResponse.json({ error: 'manualIngredientId is required' }, { status: 400 });
@@ -231,6 +231,23 @@ export async function PUT(request: NextRequest) {
     
     const db = getDb();
     const now = new Date().toISOString();
+    
+    // updateType이 'quantity'면 사용량만 업데이트
+    if (updateType === 'quantity') {
+      await db.execute({
+        sql: `UPDATE ManualIngredient 
+              SET quantity = ?, unit = ?, updatedAt = ?
+              WHERE id = ?`,
+        args: [quantity, unit, now, manualIngredientId]
+      });
+      return NextResponse.json({
+        success: true,
+        manualIngredientId,
+        quantity,
+        unit,
+        message: 'Quantity updated successfully'
+      });
+    }
     
     // newIngredientMasterId가 null이면 링킹 해제
     if (!newIngredientMasterId) {
