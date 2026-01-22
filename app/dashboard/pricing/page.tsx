@@ -172,7 +172,7 @@ export default function PricingPage() {
 
   const loadIngredients = async () => {
     try {
-      const res = await fetch('/api/ingredients');
+      const res = await fetch('/api/ingredients?limit=1000');
       if (res.ok) {
         const data = await res.json();
         setIngredients(data);
@@ -635,29 +635,30 @@ export default function PricingPage() {
               </select>
             </div>
             <div className="flex gap-2">
+              {/* 템플릿으로 복제 버튼 - 항상 표시, 선택 없으면 비활성화 */}
+              <button
+                onClick={() => setShowCopyToTemplateModal(true)}
+                disabled={selectedIngredientIds.size === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                title={selectedIngredientIds.size === 0 ? "복제할 식재료를 체크박스로 선택하세요" : `${selectedIngredientIds.size}개 선택됨`}
+              >
+                <Copy className="w-4 h-4" />
+                {selectedIngredientIds.size > 0 ? `${selectedIngredientIds.size}개 템플릿으로 복제` : '템플릿으로 복제'}
+              </button>
               {selectedIngredientIds.size > 0 && (
-                <>
-                  <button
-                    onClick={() => setShowCopyToTemplateModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                  >
-                    <Copy className="w-4 h-4" />
-                    {selectedIngredientIds.size}개 템플릿으로 복제
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`선택된 ${selectedIngredientIds.size}개 식재료를 삭제하시겠습니까?`)) return;
-                      for (const id of selectedIngredientIds) {
-                        await handleDeleteIngredient(id);
-                      }
-                      setSelectedIngredientIds(new Set());
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    {selectedIngredientIds.size}개 삭제
-                  </button>
-                </>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`선택된 ${selectedIngredientIds.size}개 식재료를 삭제하시겠습니까?`)) return;
+                    for (const id of selectedIngredientIds) {
+                      await handleDeleteIngredient(id);
+                    }
+                    setSelectedIngredientIds(new Set());
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {selectedIngredientIds.size}개 삭제
+                </button>
               )}
               <button
                 onClick={() => { setShowAddIngredient(true); setEditingIngredient(null); resetIngredientForm(); }}
