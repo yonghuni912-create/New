@@ -71,7 +71,7 @@ export async function POST(
   try {
     const { id: templateId } = await params;
     const body = await request.json();
-    const { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes } = body;
+    const { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes, localKoreanName, localEnglishName } = body;
 
     if (!ingredientMasterId) {
       return ApiErrors.badRequest('ingredientMasterId is required');
@@ -82,9 +82,9 @@ export async function POST(
     const now = new Date().toISOString();
 
     await db.execute({
-      sql: `INSERT INTO PriceTemplateItem (id, priceTemplateId, ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, templateId, ingredientMasterId, unitPrice || 0, packagingUnit || null, packagingQty || null, notes || null, now, now]
+      sql: `INSERT INTO PriceTemplateItem (id, priceTemplateId, ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes, localKoreanName, localEnglishName, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, templateId, ingredientMasterId, unitPrice || 0, packagingUnit || null, packagingQty || null, notes || null, localKoreanName || null, localEnglishName || null, now, now]
     });
 
     // Audit log
@@ -94,7 +94,7 @@ export async function POST(
       entityType: 'PriceTemplateItem',
       entityId: id,
       oldValue: null,
-      newValue: { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes } as any,
+      newValue: { ingredientMasterId, unitPrice, packagingUnit, packagingQty, notes, localKoreanName, localEnglishName } as any,
     });
 
     return NextResponse.json({ id, message: 'Item added successfully' });

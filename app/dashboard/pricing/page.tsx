@@ -139,9 +139,15 @@ export default function PricingPage() {
     unitPrice: 0,
     packagingUnit: 'g',
     packagingQty: 1,
-    notes: ''
+    notes: '',
+    localKoreanName: '',
+    localEnglishName: ''
   });
   const [addItemSearchQuery, setAddItemSearchQuery] = useState('');
+  
+  // 마스터→템플릿 복제 모달 상태
+  const [showCopyToTemplateModal, setShowCopyToTemplateModal] = useState(false);
+  const [copyTargetTemplateId, setCopyTargetTemplateId] = useState<string>('');
 
   // Pagination state
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -419,7 +425,9 @@ export default function PricingPage() {
           unitPrice: addTemplateItemForm.unitPrice,
           packagingUnit: addTemplateItemForm.packagingUnit,
           packagingQty: addTemplateItemForm.packagingQty,
-          notes: addTemplateItemForm.notes
+          notes: addTemplateItemForm.notes,
+          localKoreanName: addTemplateItemForm.localKoreanName || null,
+          localEnglishName: addTemplateItemForm.localEnglishName || null
         })
       });
 
@@ -431,7 +439,9 @@ export default function PricingPage() {
           unitPrice: 0,
           packagingUnit: 'g',
           packagingQty: 1,
-          notes: ''
+          notes: '',
+          localKoreanName: '',
+          localEnglishName: ''
         });
         setAddItemSearchQuery('');
         loadTemplateItems(selectedTemplate.id);
@@ -442,6 +452,60 @@ export default function PricingPage() {
     } catch (error) {
       console.error('Add template item error:', error);
       alert('아이템 추가에 실패했습니다.');
+    }
+  };
+
+  // 마스터에서 선택된 식재료를 템플릿으로 복제하는 핸들러
+  const handleCopyToTemplate = async () => {
+    if (!copyTargetTemplateId) {
+      alert('복제할 템플릿을 선택해주세요.');
+      return;
+    }
+    if (selectedIngredientIds.size === 0) {
+      alert('복제할 식재료를 선택해주세요.');
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      let skipCount = 0;
+      
+      for (const ingredientId of selectedIngredientIds) {
+        const res = await fetch(`/api/price-templates/${copyTargetTemplateId}/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ingredientMasterId: ingredientId,
+            unitPrice: 0,
+            packagingUnit: 'g',
+            packagingQty: 1
+          })
+        });
+
+        if (res.ok) {
+          successCount++;
+        } else {
+          const data = await res.json();
+          if (data.error?.includes('already exists') || data.error?.includes('이미')) {
+            skipCount++;
+          }
+        }
+      }
+
+      const targetTemplate = templates.find(t => t.id === copyTargetTemplateId);
+      alert(`${targetTemplate?.name || '템플릿'}으로 복제 완료!\n성공: ${successCount}개${skipCount > 0 ? `\n중복으로 건너뜀: ${skipCount}개` : ''}`);
+      
+      setShowCopyToTemplateModal(false);
+      setCopyTargetTemplateId('');
+      setSelectedIngredientIds(new Set());
+      
+      // 선택된 템플릿이 복제 대상이면 새로고침
+      if (selectedTemplate?.id === copyTargetTemplateId) {
+        loadTemplateItems(copyTargetTemplateId);
+      }
+    } catch (error) {
+      console.error('Copy to template error:', error);
+      alert('복제 중 오류가 발생했습니다.');
     }
   };
 
@@ -572,19 +636,28 @@ export default function PricingPage() {
             </div>
             <div className="flex gap-2">
               {selectedIngredientIds.size > 0 && (
-                <button
-                  onClick={async () => {
-                    if (!confirm(`선택된 ${selectedIngredientIds.size}개 식재료를 삭제하시겠습니까?`)) return;
-                    for (const id of selectedIngredientIds) {
-                      await handleDeleteIngredient(id);
-                    }
-                    setSelectedIngredientIds(new Set());
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {selectedIngredientIds.size}개 삭제
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowCopyToTemplateModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                  >
+                    <Copy className="w-4 h-4" />
+                    {selectedIngredientIds.size}개 템플릿으로 복제
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`선택된 ${selectedIngredientIds.size}개 식재료를 삭제하시겠습니까?`)) return;
+                      for (const id of selectedIngredientIds) {
+                        await handleDeleteIngredient(id);
+                      }
+                      setSelectedIngredientIds(new Set());
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {selectedIngredientIds.size}개 삭제
+                  </button>
+                </>
               )}
               <button
                 onClick={() => { setShowAddIngredient(true); setEditingIngredient(null); resetIngredientForm(); }}
@@ -1293,7 +1366,9 @@ export default function PricingPage() {
                     unitPrice: 0,
                     packagingUnit: 'g',
                     packagingQty: 1,
-                    notes: ''
+                    notes: '',
+                    localKoreanName: '',
+                    localEnglishName: ''
                   });
                 }}
               >
@@ -1355,6 +1430,40 @@ export default function PricingPage() {
                     ✓ 식재료가 선택되었습니다
                   </div>
                 )}
+              </div>
+
+              {/* Local Names (optional - for country-specific naming) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    현지 한글명 <span className="text-gray-400 font-normal">(선택)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addTemplateItemForm.localKoreanName}
+                    onChange={(e) => setAddTemplateItemForm({
+                      ...addTemplateItemForm,
+                      localKoreanName: e.target.value
+                    })}
+                    placeholder="마스터와 다른 경우 입력"
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    현지 영문명 <span className="text-gray-400 font-normal">(선택)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addTemplateItemForm.localEnglishName}
+                    onChange={(e) => setAddTemplateItemForm({
+                      ...addTemplateItemForm,
+                      localEnglishName: e.target.value
+                    })}
+                    placeholder="마스터와 다른 경우 입력"
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                  />
+                </div>
               </div>
 
               {/* Unit Price */}
@@ -1443,6 +1552,67 @@ export default function PricingPage() {
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
               >
                 추가
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copy to Template Modal */}
+      {showCopyToTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-semibold">템플릿으로 복제</h3>
+              <button onClick={() => { setShowCopyToTemplateModal(false); setCopyTargetTemplateId(''); }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-700">
+                  <strong>{selectedIngredientIds.size}개</strong>의 마스터 식재료를 선택된 템플릿으로 복제합니다.
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  복제할 템플릿 선택 *
+                </label>
+                <select
+                  value={copyTargetTemplateId}
+                  onChange={(e) => setCopyTargetTemplateId(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                >
+                  <option value="">템플릿 선택...</option>
+                  {templates.map(tmpl => (
+                    <option key={tmpl.id} value={tmpl.id}>
+                      {tmpl.name} ({tmpl.country} • {tmpl.currency})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <p className="text-xs text-gray-500">
+                💡 이미 템플릿에 있는 식재료는 자동으로 건너뜁니다.<br/>
+                복제 후 가격은 0으로 설정되며, 템플릿에서 수정할 수 있습니다.
+              </p>
+            </div>
+
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button
+                onClick={() => { setShowCopyToTemplateModal(false); setCopyTargetTemplateId(''); }}
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleCopyToTemplate}
+                disabled={!copyTargetTemplateId}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300"
+              >
+                복제
               </button>
             </div>
           </div>
