@@ -14,6 +14,8 @@ import {
   Eye,
   Loader2,
   AlertCircle,
+  X,
+  ChevronDown,
 } from 'lucide-react';
 
 interface EmailReportSummary {
@@ -52,6 +54,7 @@ export default function SalesReportsClient() {
   const [selectedReport, setSelectedReport] = useState<ReportDetail | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -284,15 +287,15 @@ export default function SalesReportsClient() {
       {/* 리포트 상세 모달 */}
       {showModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div className="flex items-center justify-center min-h-screen p-2 sm:p-4">
             {/* 백드롭 */}
             <div
               className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
               onClick={closeModal}
             />
 
-            {/* 모달 컨텐츠 */}
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full">
+            {/* 모달 컨텐츠 - 더 넓은 가로 너비 */}
+            <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all w-full max-w-[95vw] xl:max-w-[1400px]">
               {modalLoading ? (
                 <div className="flex items-center justify-center h-96">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
@@ -300,40 +303,62 @@ export default function SalesReportsClient() {
                 </div>
               ) : selectedReport ? (
                 <>
-                  {/* 모달 헤더 */}
-                  <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {selectedReport.report.subject}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        {format(new Date(selectedReport.report.report_date), 'MMMM dd, yyyy')}
-                      </p>
+                  {/* 모달 헤더 - 간소화된 슬림한 디자인 */}
+                  <div className="bg-white px-4 py-2 border-b flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-5 w-5 text-red-500" />
+                      <span className="font-semibold text-gray-900">
+                        [BBQ Brand Pulse] {selectedReport.report.report_date} Sales Report
+                      </span>
+                      
+                      {/* 날짜 선택 드롭다운 */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowDateDropdown(!showDateDropdown)}
+                          className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700"
+                        >
+                          <Calendar className="h-4 w-4" />
+                          {format(new Date(selectedReport.report.report_date), 'yyyy-MM-dd')}
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                        
+                        {showDateDropdown && (
+                          <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto min-w-[160px]">
+                            {reports.map((r) => (
+                              <button
+                                key={r.id}
+                                onClick={() => {
+                                  setShowDateDropdown(false);
+                                  openReportDetail(r.id);
+                                }}
+                                className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
+                                  r.report_date === selectedReport.report.report_date
+                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                    : 'text-gray-700'
+                                }`}
+                              >
+                                {format(new Date(r.report_date), 'yyyy-MM-dd')}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    
                     <button
                       onClick={closeModal}
-                      className="text-gray-400 hover:text-gray-500"
+                      className="text-gray-400 hover:text-gray-600 p-1"
                     >
-                      <XCircle className="h-6 w-6" />
+                      <X className="h-5 w-5" />
                     </button>
                   </div>
 
-                  {/* 이메일 HTML 내용 */}
-                  <div className="p-6 max-h-[70vh] overflow-y-auto">
+                  {/* 이메일 HTML 내용 - 더 넓은 뷰 영역 */}
+                  <div className="p-4 max-h-[85vh] overflow-y-auto bg-gray-50">
                     <div
-                      className="email-content"
+                      className="email-content bg-white rounded-lg shadow-sm p-4"
                       dangerouslySetInnerHTML={{ __html: selectedReport.report.html_content }}
                     />
-                  </div>
-
-                  {/* 모달 푸터 */}
-                  <div className="bg-gray-50 px-6 py-3 flex justify-end border-t">
-                    <button
-                      onClick={closeModal}
-                      className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-                    >
-                      Close
-                    </button>
                   </div>
                 </>
               ) : null}
