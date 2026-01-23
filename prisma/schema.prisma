@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"]
 }
 
@@ -8,7 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 사용자 & 인증
 model User {
   id            String         @id @default(cuid())
   email         String         @unique
@@ -17,13 +16,12 @@ model User {
   role          String         @default("VIEWER")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  assignedTasks Task[]         @relation("TaskAssignee")
-  notifications Notification[]
-  taskComments  TaskComment[]
   auditLogs     AuditLog[]
+  notifications Notification[]
+  assignedTasks Task[]         @relation("TaskAssignee")
+  taskComments  TaskComment[]
 }
 
-// 국가 설정
 model Country {
   id        String   @id @default(cuid())
   code      String   @unique
@@ -33,11 +31,10 @@ model Country {
   timezone  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  stores    Store[]
   fxRates   FXRate[]
+  stores    Store[]
 }
 
-// 환율
 model FXRate {
   id            String   @id @default(cuid())
   countryId     String
@@ -49,13 +46,12 @@ model FXRate {
   country       Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
 }
 
-// 매장
 model Store {
-  id                String    @id @default(cuid())
-  storeCode         String    @unique
+  id                String      @id @default(cuid())
+  storeCode         String      @unique
   storeName         String
   countryId         String
-  country           String    @default("CA")
+  country           String      @default("CA")
   address           String?
   city              String?
   state             String?
@@ -65,20 +61,19 @@ model Store {
   franchiseeEmail   String?
   franchiseeName    String?
   franchiseePhone   String?
-  status            String    @default("PLANNING")
+  status            String      @default("PLANNING")
   plannedOpenDate   DateTime?
   actualOpenDate    DateTime?
   estimatedRevenue  Float?
   initialInvestment Float?
   notes             String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  countryRef        Country   @relation(fields: [countryId], references: [id])
-  tasks             Task[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  countryRef        Country     @relation(fields: [countryId], references: [id])
   files             StoreFile[]
+  tasks             Task[]
 }
 
-// 템플릿
 model Template {
   id          String          @id @default(cuid())
   name        String          @unique
@@ -98,9 +93,9 @@ model TemplatePhase {
   durationDays Int            @default(7)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+  storeTasks   Task[]
   template     Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
   tasks        TemplateTask[]
-  storeTasks   Task[]
 }
 
 model TemplateTask {
@@ -113,36 +108,34 @@ model TemplateTask {
   priority            String        @default("MEDIUM")
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
-  phase               TemplatePhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   tasks               Task[]
+  phase               TemplatePhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 }
 
-// 태스크
 model Task {
-  id              String           @id @default(cuid())
-  storeId         String
-  phaseId         String?
-  templateTaskId  String?
-  title           String
-  description     String?
-  status          String           @default("TODO")
-  priority        String           @default("MEDIUM")
-  assigneeId      String?
-  dueDate         DateTime?
-  completedAt     DateTime?
-  orderIndex      Int              @default(0)
-  blockedReason   String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  phase           TemplatePhase?   @relation(fields: [phaseId], references: [id])
-  templateTask    TemplateTask?    @relation(fields: [templateTaskId], references: [id])
-  assignee        User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  dependencies    TaskDependency[] @relation("DependentTask")
-  dependents      TaskDependency[] @relation("DependencyTask")
-  comments        TaskComment[]
+  id             String           @id @default(cuid())
+  storeId        String
+  phaseId        String?
+  templateTaskId String?
+  title          String
+  description    String?
+  status         String           @default("TODO")
+  priority       String           @default("MEDIUM")
+  assigneeId     String?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  orderIndex     Int              @default(0)
+  blockedReason  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  assignee       User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  templateTask   TemplateTask?    @relation(fields: [templateTaskId], references: [id])
+  phase          TemplatePhase?   @relation(fields: [phaseId], references: [id])
+  store          Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  comments       TaskComment[]
+  dependents     TaskDependency[] @relation("DependencyTask")
+  dependencies   TaskDependency[] @relation("DependentTask")
 
-  // 자주 쿼리되는 필드에 인덱스 추가
   @@index([storeId])
   @@index([assigneeId])
   @@index([status])
@@ -156,8 +149,8 @@ model TaskComment {
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model TaskDependency {
@@ -165,11 +158,10 @@ model TaskDependency {
   taskId      String
   dependsOnId String
   createdAt   DateTime @default(now())
-  task        Task     @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
   dependsOn   Task     @relation("DependencyTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  task        Task     @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
 }
 
-// 파일
 model StoreFile {
   id           String   @id @default(cuid())
   storeId      String
@@ -186,7 +178,6 @@ model StoreFile {
   store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
 
-// 감사 로그
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String?
@@ -200,14 +191,12 @@ model AuditLog {
   createdAt  DateTime @default(now())
   user       User?    @relation(fields: [userId], references: [id])
 
-  // 자주 쿼리되는 필드에 인덱스 추가
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
   @@index([action])
 }
 
-// 알림
 model Notification {
   id        String   @id @default(cuid())
   userId    String
@@ -224,61 +213,56 @@ model Notification {
   @@index([createdAt])
 }
 
-// 식재료 마스터 (가격 없이 기본 정보만)
 model IngredientMaster {
-  id           String                   @id @default(cuid())
-  category     String
-  koreanName   String
-  englishName  String
-  quantity     Float                    @default(0)
-  unit         String
-  yieldRate    Float                    @default(100)
-  imageUrl     String?                  // 제품 이미지 URL
-  isCompound   Boolean                  @default(false)  // 혼합 식재료 여부
-  createdAt    DateTime                 @default(now())
-  updatedAt    DateTime                 @updatedAt
-  manualIngredients ManualIngredient[]  @relation("MasterToManualIngredient")
+  id                String              @id @default(cuid())
+  category          String
+  koreanName        String
+  englishName       String
+  quantity          Float               @default(0)
+  unit              String
+  yieldRate         Float               @default(100)
+  isCompound        Boolean             @default(false)  // 혼합 식재료 여부
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  imageUrl          String?
   inventoryItems    InventoryItem[]     @relation("IngredientToInventory")
+  manualIngredients ManualIngredient[]  @relation("MasterToManualIngredient")
   priceItems        PriceTemplateItem[] @relation("MasterToPriceItem")
   // 혼합 식재료 관계
-  subIngredients    CompoundIngredientItem[] @relation("CompoundParent")
-  usedInCompounds   CompoundIngredientItem[] @relation("CompoundChild")
+  subIngredients    CompoundIngredientItem[] @relation("CompoundToSub")
+  usedInCompounds   CompoundIngredientItem[] @relation("SubToCompound")
 }
 
-// 혼합 식재료 하위 아이템 (마스터 레벨)
+// 혼합 식재료 구성 아이템 (A = B + C + D)
 model CompoundIngredientItem {
   id                   String           @id @default(cuid())
-  compoundIngredientId String           // 혼합 식재료 ID (부모)
-  subIngredientId      String           // 하위 식재료 ID
-  quantity             Float            // 하위 식재료 사용량
-  unit                 String           // 단위
+  compoundIngredientId String           // 혼합 식재료 ID (A)
+  subIngredientId      String           // 하위 식재료 ID (B, C, D...)
+  quantity             Float            @default(0)
+  unit                 String
   sortOrder            Int              @default(0)
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
-  compoundIngredient   IngredientMaster @relation("CompoundParent", fields: [compoundIngredientId], references: [id], onDelete: Cascade)
-  subIngredient        IngredientMaster @relation("CompoundChild", fields: [subIngredientId], references: [id], onDelete: Cascade)
-  
+  compoundIngredient   IngredientMaster @relation("CompoundToSub", fields: [compoundIngredientId], references: [id], onDelete: Cascade)
+  subIngredient        IngredientMaster @relation("SubToCompound", fields: [subIngredientId], references: [id], onDelete: Cascade)
+
   @@unique([compoundIngredientId, subIngredientId])
-  @@index([compoundIngredientId])
 }
 
-// 가격 템플릿 (국가/지역별)
 model PriceTemplate {
-  id           String              @id @default(cuid())
-  name         String              @unique
-  country      String
-  region       String?
-  currency     String              @default("CAD")
-  description  String?
-  isActive     Boolean             @default(true)
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  items        PriceTemplateItem[]
-  manuals      MenuManual[]        @relation("TemplateTomanual")
+  id          String              @id @default(cuid())
+  name        String              @unique
+  country     String
+  region      String?
+  currency    String              @default("CAD")
+  description String?
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  manuals     MenuManual[]        @relation("TemplateTomanual")
+  items       PriceTemplateItem[]
 }
 
-// 가격 템플릿 아이템 (템플릿 내 각 식재료별 가격)
-// 국가별로 다른 제품을 사용할 수 있으므로 localXxx 필드로 국가별 독자 정보 저장
 model PriceTemplateItem {
   id                 String           @id @default(cuid())
   priceTemplateId    String
@@ -287,7 +271,6 @@ model PriceTemplateItem {
   packagingUnit      String?
   packagingQty       Float?
   notes              String?
-  // 국가별 독자 필드 (null이면 마스터 값 사용)
   localEnglishName   String?
   localKoreanName    String?
   localQuantity      Float?
@@ -295,18 +278,16 @@ model PriceTemplateItem {
   localYieldRate     Float?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
-  priceTemplate      PriceTemplate    @relation(fields: [priceTemplateId], references: [id], onDelete: Cascade)
   ingredientMaster   IngredientMaster @relation("MasterToPriceItem", fields: [ingredientMasterId], references: [id], onDelete: Cascade)
-  
+  priceTemplate      PriceTemplate    @relation(fields: [priceTemplateId], references: [id], onDelete: Cascade)
+
   @@unique([priceTemplateId, ingredientMasterId])
 }
 
-// 메뉴 매뉴얼
 model MenuManual {
   id              String             @id @default(cuid())
   name            String
   koreanName      String?
-  category        String?                             // 메뉴 카테고리 (치킨, 사이드, 음료 등)
   imageUrl        String?
   shelfLife       String?
   yield           Float?
@@ -320,21 +301,17 @@ model MenuManual {
   deletedBy       String?
   groupId         String?
   priceTemplateId String?
-  version         Int                @default(1)      // 현재 버전 번호
-  // 마스터/복제본 관계 필드
-  isMaster        Boolean            @default(true)   // true = 마스터, false = 국가 복제본
-  masterManualId  String?                             // 복제본일 경우 원본 마스터 ID
+  isMaster        Boolean            @default(true)
+  masterManualId  String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
+  category        String?
   ingredients     ManualIngredient[]
-  posMenuLinks    PosMenuLink[]      @relation("ManualToPosLink")
-  priceTemplate   PriceTemplate?     @relation("TemplateTomanual", fields: [priceTemplateId], references: [id], onDelete: SetNull)
-  // Self-relation for master/copy
-  masterManual    MenuManual?        @relation("ManualCopies", fields: [masterManualId], references: [id], onDelete: SetNull)
+  masterManual    MenuManual?        @relation("ManualCopies", fields: [masterManualId], references: [id])
   copies          MenuManual[]       @relation("ManualCopies")
-  versions        ManualVersion[]    @relation("ManualToVersions")
+  priceTemplate   PriceTemplate?     @relation("TemplateTomanual", fields: [priceTemplateId], references: [id])
+  posMenuLinks    PosMenuLink[]      @relation("ManualToPosLink")
 
-  // 자주 쿼리되는 필드에 인덱스 추가
   @@index([priceTemplateId])
   @@index([isMaster])
   @@index([isActive])
@@ -342,28 +319,6 @@ model MenuManual {
   @@index([masterManualId])
 }
 
-// 매뉴얼 버전 히스토리
-model ManualVersion {
-  id            String     @id @default(cuid())
-  manualId      String
-  version       Int
-  name          String
-  koreanName    String?
-  sellingPrice  Float?
-  shelfLife     String?
-  ingredients   String?    // JSON string of ingredients snapshot
-  cookingMethod String?    // JSON string of cooking method snapshot
-  imageUrl      String?
-  changeNote    String?    // 변경 사유/메모
-  changedBy     String?    // 변경한 사용자 ID
-  createdAt     DateTime   @default(now())
-  manual        MenuManual @relation("ManualToVersions", fields: [manualId], references: [id], onDelete: Cascade)
-  
-  @@index([manualId])
-  @@index([manualId, version])
-}
-
-// 매뉴얼 재료
 model ManualIngredient {
   id               String            @id @default(cuid())
   manualId         String
@@ -375,20 +330,18 @@ model ManualIngredient {
   section          String            @default("MAIN")
   sortOrder        Int               @default(0)
   notes            String?
-  // 원가 계산용 필드
-  unitPrice        Float?            // pricing 템플릿의 가격
-  baseQuantity     Float?            // pricing 템플릿의 기준 수량
-  isPackage        Boolean           @default(false) // 투고용기 여부 (true면 packageCost에 포함)
+  unitPrice        Float?
+  baseQuantity     Float?
+  isPackage        Boolean           @default(false)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  ingredientMaster IngredientMaster? @relation("MasterToManualIngredient", fields: [ingredientId], references: [id])
   manual           MenuManual        @relation(fields: [manualId], references: [id], onDelete: Cascade)
-  ingredientMaster IngredientMaster? @relation("MasterToManualIngredient", fields: [ingredientId], references: [id], onDelete: SetNull)
 
   @@index([manualId])
   @@index([ingredientId])
 }
 
-// 재고 관리
 model InventoryGroup {
   id        String            @id @default(cuid())
   name      String
@@ -407,26 +360,26 @@ model InventoryPeriod {
   notes     String?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
-  group     InventoryGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   items     InventoryItem[]
+  group     InventoryGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   sales     PeriodSales[]
 }
 
 model InventoryItem {
-  id                  String           @id @default(cuid())
-  inventoryPeriodId   String
-  ingredientMasterId  String
-  openingStock        Float
-  stockIn             Float            @default(0)
-  wastage             Float            @default(0)
-  actualClosingStock  Float
-  totalUsage          Float?
-  theoreticalUsage    Float?
-  variance            Float?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  period              InventoryPeriod  @relation(fields: [inventoryPeriodId], references: [id], onDelete: Cascade)
-  ingredient          IngredientMaster @relation("IngredientToInventory", fields: [ingredientMasterId], references: [id], onDelete: Cascade)
+  id                 String           @id @default(cuid())
+  inventoryPeriodId  String
+  ingredientMasterId String
+  openingStock       Float
+  stockIn            Float            @default(0)
+  wastage            Float            @default(0)
+  actualClosingStock Float
+  totalUsage         Float?
+  theoreticalUsage   Float?
+  variance           Float?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  ingredient         IngredientMaster @relation("IngredientToInventory", fields: [ingredientMasterId], references: [id], onDelete: Cascade)
+  period             InventoryPeriod  @relation(fields: [inventoryPeriodId], references: [id], onDelete: Cascade)
 }
 
 model PosMenuLink {
@@ -436,10 +389,10 @@ model PosMenuLink {
   menuManualId String
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
-  group        InventoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  manual       MenuManual     @relation("ManualToPosLink", fields: [menuManualId], references: [id], onDelete: Cascade)
   sales        PeriodSales[]
-  
+  manual       MenuManual     @relation("ManualToPosLink", fields: [menuManualId], references: [id], onDelete: Cascade)
+  group        InventoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
   @@unique([groupId, posMenuName])
 }
 
@@ -450,8 +403,8 @@ model PeriodSales {
   quantitySold      Int
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
-  period            InventoryPeriod @relation(fields: [inventoryPeriodId], references: [id], onDelete: Cascade)
   posLink           PosMenuLink     @relation(fields: [posMenuLinkId], references: [id], onDelete: Cascade)
-  
+  period            InventoryPeriod @relation(fields: [inventoryPeriodId], references: [id], onDelete: Cascade)
+
   @@unique([inventoryPeriodId, posMenuLinkId])
 }

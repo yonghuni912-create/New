@@ -90,9 +90,24 @@ DATABASE_URL="file:./prisma/dev.db"     # Local only
 TURSO_DATABASE_URL, TURSO_AUTH_TOKEN    # Production
 NEXTAUTH_SECRET, NEXTAUTH_URL           # Auth
 
+# BBQ Command Center Integration (Optional)
+COMMAND_CENTER_DATABASE_URL             # PostgreSQL for sales data
+METABASE_URL, METABASE_DASHBOARD_ID     # Metabase embedding
+
 # Optional (Tracing)
 OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_TRACES_ENABLED
 ```
+
+## BBQ Command Center Integration
+
+Sales data from `bbq_command_center` PostgreSQL is accessible via:
+- **Sales Reports** (`/dashboard/sales-reports`) - Email report history with HTML viewer
+- **Analytics** (`/dashboard/analytics`) - KPI dashboard + Metabase embed
+
+Key files:
+- `lib/commandCenterDb.ts` - PostgreSQL connection and queries
+- `app/api/sales-reports/` - Report listing and detail APIs
+- `app/api/analytics/` - KPI data API
 
 ## Demo Accounts
 

@@ -39,6 +39,7 @@ interface PriceTemplate {
 
 interface PriceTemplateItem {
   id: string;
+  priceTemplateId: string;
   ingredientMasterId: string;
   unitPrice: number;
   packagingUnit?: string;
@@ -560,13 +561,16 @@ export default function PricingPage() {
     const selectedIds = new Set(compoundSubIngredients.map(s => s.ingredientId));
     
     // 선택된 템플릿의 아이템 가격 맵 생성
-    const selectedTemplateItems = compoundSelectedTemplateId 
-      ? templateItems.filter(() => selectedTemplate?.id === compoundSelectedTemplateId)
-      : [];
+    // compoundSelectedTemplateId가 선택된 경우 해당 템플릿의 아이템 가격을 가져옴
     const priceMap = new Map<string, number>();
-    for (const item of (compoundSelectedTemplateId && selectedTemplate?.id === compoundSelectedTemplateId ? templateItems : [])) {
-      if (item.ingredientMasterId && item.unitPrice !== undefined) {
-        priceMap.set(item.ingredientMasterId, item.unitPrice);
+    if (compoundSelectedTemplateId) {
+      const compoundTemplateItems = templateItems.filter(
+        item => item.priceTemplateId === compoundSelectedTemplateId
+      );
+      for (const item of compoundTemplateItems) {
+        if (item.ingredientMasterId && item.unitPrice !== undefined) {
+          priceMap.set(item.ingredientMasterId, item.unitPrice);
+        }
       }
     }
     
@@ -579,7 +583,7 @@ export default function PricingPage() {
       ...ing,
       unitPrice: priceMap.get(ing.id)
     })).slice(0, 15);
-  }, [ingredients, compoundSearchQuery, compoundSubIngredients, compoundSelectedTemplateId, templateItems, selectedTemplate]);
+  }, [ingredients, compoundSearchQuery, compoundSubIngredients, compoundSelectedTemplateId, templateItems]);
 
   const resetCompoundForm = () => {
     setCompoundForm({

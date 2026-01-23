@@ -51,9 +51,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     let charts: { chart_name: string; image_url: string }[] = [];
     if (includeCharts) {
       const chartImages = await getChartImages(report.report_date);
-      charts = chartImages.map(c => ({
+      charts = chartImages.map((c: { chart_name: string }) => ({
         chart_name: c.chart_name,
-        // 차트 이미지는 별도 API로 제공
+        // 차트 이미지는 별도 API로 제공 (id는 날짜)
         image_url: `/api/sales-reports/${report.report_date}/charts/${c.chart_name}`
       }));
     }

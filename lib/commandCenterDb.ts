@@ -51,7 +51,7 @@ export interface EmailReportSummary {
   report_date: string;
   subject: string;
   sent_at: string;
-  success: boolean;
+  success: boolean | number;  // SQLite stores as integer
   total_sales: string | null;
   total_orders: number | null;
   sales_dod_pct: string | null;

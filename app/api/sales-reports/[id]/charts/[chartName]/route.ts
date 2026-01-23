@@ -6,12 +6,13 @@ import { getChartImage } from '@/lib/commandCenterDb';
 export const dynamic = 'force-dynamic';
 
 interface RouteParams {
-  params: Promise<{ date: string; chartName: string }>;
+  params: Promise<{ id: string; chartName: string }>;
 }
 
 /**
- * GET /api/sales-reports/[date]/charts/[chartName]
+ * GET /api/sales-reports/[id]/charts/[chartName]
  * 특정 차트 이미지 조회
+ * id는 리포트 날짜 (YYYY-MM-DD 형식)
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const session = await getServerSession(authOptions);
@@ -19,10 +20,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { date, chartName } = await params;
+  const { id, chartName } = await params;
 
-  // 날짜 형식 검증
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  // 날짜 형식 검증 (id가 날짜 형식이어야 함)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(id)) {
     return NextResponse.json(
       { error: 'Invalid date format. Use YYYY-MM-DD' },
       { status: 400 }
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const imageData = await getChartImage(date, chartName);
+    const imageData = await getChartImage(id, chartName);
 
     if (!imageData) {
       return NextResponse.json(
