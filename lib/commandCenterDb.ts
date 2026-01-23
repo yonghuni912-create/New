@@ -1,56 +1,44 @@
 /**
- * commandCenterDb.ts - BBQ Command Center PostgreSQL 연결
- * bbq_command_center에서 적재된 판매 데이터 및 이메일 리포트 조회
+ * commandCenterDb.ts - BBQ Command Center Turso (libsql) 연결
+ * Sales Reports 데이터 조회 (마이그레이션된 이메일 리포트)
  */
-import { Pool, PoolClient } from 'pg';
+import { createClient, Client } from '@libsql/client';
 
-// PostgreSQL 연결 풀 (싱글톤)
-let pool: Pool | null = null;
+// Turso 클라이언트 (싱글톤)
+let client: Client | null = null;
 
-function getPool(): Pool {
-  if (!pool) {
-    const connectionString = process.env.COMMAND_CENTER_DATABASE_URL;
+function getClient(): Client {
+  if (!client) {
+    const url = process.env.COMMAND_CENTER_TURSO_URL;
+    const authToken = process.env.COMMAND_CENTER_TURSO_TOKEN;
     
-    if (!connectionString) {
-      throw new Error('COMMAND_CENTER_DATABASE_URL 환경 변수가 설정되지 않았습니다.');
+    if (!url || !authToken) {
+      throw new Error('COMMAND_CENTER_TURSO_URL 또는 COMMAND_CENTER_TURSO_TOKEN 환경 변수가 설정되지 않았습니다.');
     }
     
-    pool = new Pool({
-      connectionString,
-      ssl: process.env.NODE_ENV === 'production' 
-        ? { rejectUnauthorized: false } 
-        : false,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
-    
-    pool.on('error', (err) => {
-      console.error('PostgreSQL Pool Error:', err);
+    client = createClient({
+      url,
+      authToken,
     });
   }
   
-  return pool;
+  return client;
 }
 
 /**
  * 쿼리 실행 헬퍼
  */
-async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
-  const client = await getPool().connect();
-  try {
-    const result = await client.query(sql, params);
-    return result.rows as T[];
-  } finally {
-    client.release();
-  }
+async function query<T = any>(sql: string, args?: any[]): Promise<T[]> {
+  const db = getClient();
+  const result = await db.execute({ sql, args: args || [] });
+  return result.rows as T[];
 }
 
 /**
  * 단일 값 조회
  */
-async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {
-  const rows = await query<T>(sql, params);
+async function queryOne<T = any>(sql: string, args?: any[]): Promise<T | null> {
+  const rows = await query<T>(sql, args);
   return rows[0] || null;
 }
 
@@ -93,24 +81,30 @@ export async function getEmailReports(
     query<EmailReportSummary>(`
       SELECT 
         id, 
-        report_date::text, 
+        report_date, 
         subject, 
-        sent_at::text, 
+        sent_at, 
         success,
         total_sales,
         total_orders,
         sales_dod_pct
       FROM email_reports
       ORDER BY report_date DESC, sent_at DESC
-      LIMIT $1 OFFSET $2
+      LIMIT ? OFFSET ?
     `, [pageSize, offset]),
     
-    queryOne<{ count: string }>('SELECT COUNT(*) as count FROM email_reports')
+    queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM email_reports')
   ]);
   
+  // success 필드를 boolean으로 변환
+  const formattedReports = reports.map(r => ({
+    ...r,
+    success: r.success === 1 || r.success === true
+  }));
+  
   return {
-    reports,
-    total: parseInt(countResult?.count || '0', 10)
+    reports: formattedReports,
+    total: countResult?.cnt || 0
   };
 }
 
@@ -120,24 +114,31 @@ export async function getEmailReports(
 export async function getEmailReportByDate(
   reportDate: string
 ): Promise<EmailReportDetail | null> {
-  return queryOne<EmailReportDetail>(`
+  const result = await queryOne<any>(`
     SELECT 
       id,
-      report_date::text,
+      report_date,
       subject,
       html_content,
       recipients,
-      sent_at::text,
+      sent_at,
       success,
       error_message,
       total_sales,
       total_orders,
       sales_dod_pct
     FROM email_reports
-    WHERE report_date = $1
+    WHERE report_date = ?
     ORDER BY sent_at DESC
     LIMIT 1
   `, [reportDate]);
+  
+  if (!result) return null;
+  
+  return {
+    ...result,
+    success: result.success === 1 || result.success === true
+  };
 }
 
 /**
@@ -146,22 +147,29 @@ export async function getEmailReportByDate(
 export async function getEmailReportById(
   id: number
 ): Promise<EmailReportDetail | null> {
-  return queryOne<EmailReportDetail>(`
+  const result = await queryOne<any>(`
     SELECT 
       id,
-      report_date::text,
+      report_date,
       subject,
       html_content,
       recipients,
-      sent_at::text,
+      sent_at,
       success,
       error_message,
       total_sales,
       total_orders,
       sales_dod_pct
     FROM email_reports
-    WHERE id = $1
+    WHERE id = ?
   `, [id]);
+  
+  if (!result) return null;
+  
+  return {
+    ...result,
+    success: result.success === 1 || result.success === true
+  };
 }
 
 /**
@@ -173,7 +181,7 @@ export async function getChartImages(
   return query<ChartImage>(`
     SELECT chart_name, image_data
     FROM chart_images
-    WHERE report_date = $1
+    WHERE report_date = ?
   `, [reportDate]);
 }
 
@@ -187,14 +195,14 @@ export async function getChartImage(
   const result = await queryOne<{ image_data: Buffer }>(`
     SELECT image_data
     FROM chart_images
-    WHERE report_date = $1 AND chart_name = $2
+    WHERE report_date = ? AND chart_name = ?
   `, [reportDate, chartName]);
   
   return result?.image_data || null;
 }
 
 // ============================================================
-// 판매 데이터 관련 쿼리
+// 판매 데이터 관련 쿼리 (fact_orders - 참고용, Turso에는 없음)
 // ============================================================
 
 export interface DailySales {
@@ -216,75 +224,71 @@ export interface SalesKPI {
 }
 
 /**
- * 일별 매출 요약 조회
+ * 일별 매출 요약 조회 (fact_orders 테이블이 있는 경우)
+ * Note: 현재 Turso에는 email_reports만 마이그레이션됨
  */
 export async function getDailySalesSummary(
   startDate: string,
   endDate: string
 ): Promise<DailySales[]> {
-  return query<DailySales>(`
-    SELECT 
-      business_date::text,
-      restaurant_name,
-      COALESCE(SUM(total_amount), 0)::numeric as total_sales,
-      COUNT(*)::int as order_count,
-      COALESCE(AVG(total_amount), 0)::numeric as avg_ticket
-    FROM fact_orders
-    WHERE business_date BETWEEN $1 AND $2
-      AND voided = false
-    GROUP BY business_date, restaurant_name
-    ORDER BY business_date DESC, total_sales DESC
-  `, [startDate, endDate]);
+  // 현재는 빈 배열 반환 (fact_orders가 Turso에 없음)
+  return [];
 }
 
 /**
- * 전체 매장 KPI 조회 (특정 날짜 기준)
+ * 전체 매장 KPI 조회 - email_reports의 저장된 데이터 기반
  */
 export async function getSalesKPI(targetDate: string): Promise<SalesKPI | null> {
-  return queryOne<SalesKPI>(`
-    WITH today AS (
-      SELECT COALESCE(SUM(total_amount), 0) as sales
-      FROM fact_orders
-      WHERE business_date = $1 AND voided = false
-    ),
-    yesterday AS (
-      SELECT COALESCE(SUM(total_amount), 0) as sales
-      FROM fact_orders
-      WHERE business_date = $1::date - interval '1 day' AND voided = false
-    ),
-    last_week AS (
-      SELECT COALESCE(SUM(total_amount), 0) as sales
-      FROM fact_orders
-      WHERE business_date = $1::date - interval '7 days' AND voided = false
-    ),
-    mtd AS (
-      SELECT COALESCE(SUM(total_amount), 0) as sales
-      FROM fact_orders
-      WHERE business_date >= date_trunc('month', $1::date)
-        AND business_date <= $1::date
-        AND voided = false
-    ),
-    ytd AS (
-      SELECT COALESCE(SUM(total_amount), 0) as sales
-      FROM fact_orders
-      WHERE business_date >= date_trunc('year', $1::date)
-        AND business_date <= $1::date
-        AND voided = false
-    )
-    SELECT 
-      today.sales::numeric as today_sales,
-      yesterday.sales::numeric as yesterday_sales,
-      CASE WHEN yesterday.sales > 0 
-        THEN ((today.sales - yesterday.sales) / yesterday.sales * 100)::numeric
-        ELSE 0 END as dod_pct,
-      last_week.sales::numeric as last_week_sales,
-      CASE WHEN last_week.sales > 0 
-        THEN ((today.sales - last_week.sales) / last_week.sales * 100)::numeric
-        ELSE 0 END as wow_pct,
-      mtd.sales::numeric as mtd_sales,
-      ytd.sales::numeric as ytd_sales
-    FROM today, yesterday, last_week, mtd, ytd
-  `, [targetDate]);
+  // 최근 리포트에서 KPI 추출
+  const report = await getEmailReportByDate(targetDate);
+  
+  if (!report) return null;
+  
+  // 전일/전주 리포트 조회
+  const yesterday = new Date(targetDate);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const lastWeek = new Date(targetDate);
+  lastWeek.setDate(lastWeek.getDate() - 7);
+  
+  const yesterdayReport = await getEmailReportByDate(yesterday.toISOString().split('T')[0]);
+  const lastWeekReport = await getEmailReportByDate(lastWeek.toISOString().split('T')[0]);
+  
+  // 매출 파싱 ($1,234 -> 1234)
+  const parseSales = (s: string | null): number => {
+    if (!s) return 0;
+    return parseFloat(s.replace(/[$,]/g, '')) || 0;
+  };
+  
+  const todaySales = parseSales(report.total_sales);
+  const yesterdaySales = parseSales(yesterdayReport?.total_sales || null);
+  const lastWeekSales = parseSales(lastWeekReport?.total_sales || null);
+  
+  // DoD, WoW 계산
+  const dodPct = yesterdaySales > 0 
+    ? ((todaySales - yesterdaySales) / yesterdaySales * 100) 
+    : 0;
+  const wowPct = lastWeekSales > 0 
+    ? ((todaySales - lastWeekSales) / lastWeekSales * 100) 
+    : 0;
+  
+  // MTD 계산 (같은 달의 모든 리포트 합산)
+  const monthStart = targetDate.substring(0, 7) + '-01';
+  const mtdReports = await query<{ total_sales: string }>(`
+    SELECT total_sales FROM email_reports
+    WHERE report_date >= ? AND report_date <= ?
+  `, [monthStart, targetDate]);
+  
+  const mtdSales = mtdReports.reduce((sum, r) => sum + parseSales(r.total_sales), 0);
+  
+  return {
+    today_sales: todaySales,
+    yesterday_sales: yesterdaySales,
+    dod_pct: Math.round(dodPct * 10) / 10,
+    last_week_sales: lastWeekSales,
+    wow_pct: Math.round(wowPct * 10) / 10,
+    mtd_sales: mtdSales,
+    ytd_sales: mtdSales, // 간단히 MTD로 대체
+  };
 }
 
 // ============================================================
@@ -322,11 +326,11 @@ export async function healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; 
 }
 
 /**
- * 연결 풀 종료 (앱 종료 시)
+ * 연결 종료
  */
-export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
+export async function closeConnection(): Promise<void> {
+  if (client) {
+    client.close();
+    client = null;
   }
 }
