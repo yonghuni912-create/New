@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { format, subDays } from 'date-fns';
+import { format, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import {
   BarChart3,
   Calendar,
@@ -14,6 +14,9 @@ import {
   AlertCircle,
   ExternalLink,
   RefreshCw,
+  Filter,
+  MapPin,
+  Building2,
 } from 'lucide-react';
 
 interface Props {
@@ -39,6 +42,21 @@ interface DailySales {
   avg_ticket: number;
 }
 
+interface FilterOption {
+  id: string;
+  name: string;
+}
+
+interface MetabaseConfig {
+  configured: boolean;
+  defaultDashboardId: string | null;
+  availableFilters: {
+    stores: FilterOption[];
+    regions: FilterOption[];
+    dateRanges: FilterOption[];
+  };
+}
+
 export default function AnalyticsDashboardClient({ metabaseUrl, dashboardId }: Props) {
   const [activeTab, setActiveTab] = useState<'kpi' | 'metabase'>('kpi');
   const [kpi, setKpi] = useState<SalesKPI | null>(null);
@@ -46,6 +64,16 @@ export default function AnalyticsDashboardClient({ metabaseUrl, dashboardId }: P
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [targetDate, setTargetDate] = useState(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+  
+  // Metabase Interactive Embedding 상태
+  const [metabaseConfig, setMetabaseConfig] = useState<MetabaseConfig | null>(null);
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  const [embedLoading, setEmbedLoading] = useState(false);
+  const [selectedStore, setSelectedStore] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState('all');
+  const [selectedDateRange, setSelectedDateRange] = useState('last7days');
+  const [customStartDate, setCustomStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
+  const [customEndDate, setCustomEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const fetchKPIData = useCallback(async () => {
     setLoading(true);
@@ -68,11 +96,102 @@ export default function AnalyticsDashboardClient({ metabaseUrl, dashboardId }: P
     }
   }, [targetDate]);
 
+  // Metabase 설정 정보 로드
+  const fetchMetabaseConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/metabase/embed');
+      if (res.ok) {
+        const data = await res.json();
+        setMetabaseConfig(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Metabase config:', err);
+    }
+  }, []);
+
+  // Interactive Embed URL 생성
+  const fetchEmbedUrl = useCallback(async () => {
+    if (!metabaseConfig?.configured) return;
+    
+    setEmbedLoading(true);
+    try {
+      // 날짜 범위 계산
+      let startDate = customStartDate;
+      let endDate = customEndDate;
+      const today = new Date();
+      
+      switch (selectedDateRange) {
+        case 'today':
+          startDate = endDate = format(today, 'yyyy-MM-dd');
+          break;
+        case 'yesterday':
+          startDate = endDate = format(subDays(today, 1), 'yyyy-MM-dd');
+          break;
+        case 'last7days':
+          startDate = format(subDays(today, 7), 'yyyy-MM-dd');
+          endDate = format(today, 'yyyy-MM-dd');
+          break;
+        case 'last30days':
+          startDate = format(subDays(today, 30), 'yyyy-MM-dd');
+          endDate = format(today, 'yyyy-MM-dd');
+          break;
+        case 'thisMonth':
+          startDate = format(startOfMonth(today), 'yyyy-MM-dd');
+          endDate = format(today, 'yyyy-MM-dd');
+          break;
+        case 'lastMonth':
+          const lastMonth = subMonths(today, 1);
+          startDate = format(startOfMonth(lastMonth), 'yyyy-MM-dd');
+          endDate = format(endOfMonth(lastMonth), 'yyyy-MM-dd');
+          break;
+      }
+
+      // 필터 파라미터 구성
+      const params: Record<string, any> = {};
+      if (selectedStore !== 'all') {
+        params.store_name = selectedStore;
+      }
+      if (selectedRegion !== 'all') {
+        params.region = selectedRegion;
+      }
+      params.start_date = startDate;
+      params.end_date = endDate;
+
+      const res = await fetch('/api/metabase/embed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resourceType: 'dashboard',
+          resourceId: parseInt(dashboardId || metabaseConfig.defaultDashboardId || '1'),
+          params,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setEmbedUrl(data.iframeUrl);
+      } else {
+        const error = await res.json();
+        console.error('Embed URL error:', error);
+      }
+    } catch (err) {
+      console.error('Failed to fetch embed URL:', err);
+    } finally {
+      setEmbedLoading(false);
+    }
+  }, [metabaseConfig, dashboardId, selectedStore, selectedRegion, selectedDateRange, customStartDate, customEndDate]);
+
+  useEffect(() => {
+    fetchMetabaseConfig();
+  }, [fetchMetabaseConfig]);
+
   useEffect(() => {
     if (activeTab === 'kpi') {
       fetchKPIData();
+    } else if (activeTab === 'metabase' && metabaseConfig?.configured) {
+      fetchEmbedUrl();
     }
-  }, [activeTab, fetchKPIData]);
+  }, [activeTab, fetchKPIData, fetchEmbedUrl, metabaseConfig]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -98,13 +217,6 @@ export default function AnalyticsDashboardClient({ metabaseUrl, dashboardId }: P
     if (value > 0) return 'bg-green-100';
     if (value < 0) return 'bg-red-100';
     return 'bg-gray-100';
-  };
-
-  // Metabase 임베드 URL 생성
-  const getMetabaseEmbedUrl = () => {
-    if (!metabaseUrl || !dashboardId) return null;
-    // Public embed URL (Metabase에서 public sharing 활성화 필요)
-    return `${metabaseUrl}/public/dashboard/${dashboardId}`;
   };
 
   return (
@@ -309,31 +421,157 @@ export default function AnalyticsDashboardClient({ metabaseUrl, dashboardId }: P
       )}
 
       {activeTab === 'metabase' && (
-        <div className="bg-white rounded-lg shadow">
-          {getMetabaseEmbedUrl() ? (
-            <iframe
-              src={getMetabaseEmbedUrl()!}
-              className="w-full h-[800px] border-0 rounded-lg"
-              title="Metabase Dashboard"
-            />
-          ) : (
-            <div className="p-12 text-center">
-              <AlertCircle className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-800">Metabase Not Configured</h3>
-              <p className="text-gray-600 mt-2 max-w-md mx-auto">
-                To enable Metabase embedding, please set the following environment variables:
-              </p>
-              <div className="mt-4 bg-gray-100 rounded-lg p-4 inline-block text-left">
-                <code className="text-sm">
-                  METABASE_URL=https://your-metabase.com<br/>
-                  METABASE_DASHBOARD_ID=your-dashboard-id
-                </code>
+        <div className="space-y-4">
+          {/* 필터 섹션 */}
+          {metabaseConfig?.configured && (
+            <div className="bg-white rounded-lg shadow p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Filter className="h-5 w-5 text-gray-500" />
+                <h3 className="font-semibold text-gray-700">Dashboard Filters</h3>
               </div>
-              <p className="text-gray-500 text-sm mt-4">
-                Also ensure public sharing is enabled for the dashboard in Metabase settings.
-              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 지역 필터 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    <MapPin className="inline h-4 w-4 mr-1" />
+                    Region
+                  </label>
+                  <select
+                    value={selectedRegion}
+                    onChange={(e) => setSelectedRegion(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    {metabaseConfig.availableFilters.regions.map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 매장 필터 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    <Building2 className="inline h-4 w-4 mr-1" />
+                    Store
+                  </label>
+                  <select
+                    value={selectedStore}
+                    onChange={(e) => setSelectedStore(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    {metabaseConfig.availableFilters.stores.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 날짜 범위 필터 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    <Calendar className="inline h-4 w-4 mr-1" />
+                    Date Range
+                  </label>
+                  <select
+                    value={selectedDateRange}
+                    onChange={(e) => setSelectedDateRange(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                  >
+                    {metabaseConfig.availableFilters.dateRanges.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 적용 버튼 */}
+                <div className="flex items-end">
+                  <button
+                    onClick={fetchEmbedUrl}
+                    disabled={embedLoading}
+                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+                  >
+                    {embedLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Apply Filters
+                  </button>
+                </div>
+              </div>
+
+              {/* 커스텀 날짜 범위 */}
+              {selectedDateRange === 'custom' && (
+                <div className="mt-4 flex items-center gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Metabase 대시보드 임베드 */}
+          <div className="bg-white rounded-lg shadow">
+            {embedLoading ? (
+              <div className="flex items-center justify-center h-[700px]">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <span className="ml-2 text-gray-600">Loading dashboard...</span>
+              </div>
+            ) : embedUrl ? (
+              <iframe
+                src={embedUrl}
+                className="w-full h-[800px] border-0 rounded-lg"
+                title="Metabase Dashboard"
+              />
+            ) : metabaseConfig?.configured ? (
+              <div className="p-12 text-center">
+                <BarChart3 className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-800">Interactive Dashboard Ready</h3>
+                <p className="text-gray-600 mt-2 max-w-md mx-auto">
+                  Select your filters above and click "Apply Filters" to load the dashboard with your preferences.
+                </p>
+                <button
+                  onClick={fetchEmbedUrl}
+                  className="mt-4 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Load Dashboard
+                </button>
+              </div>
+            ) : (
+              <div className="p-12 text-center">
+                <AlertCircle className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-800">Metabase Not Configured</h3>
+                <p className="text-gray-600 mt-2 max-w-md mx-auto">
+                  To enable Interactive Embedding, please set the following environment variables:
+                </p>
+                <div className="mt-4 bg-gray-100 rounded-lg p-4 inline-block text-left">
+                  <code className="text-sm">
+                    METABASE_URL=https://your-metabase.com<br/>
+                    METABASE_SECRET_KEY=your-embedding-secret-key<br/>
+                    METABASE_DASHBOARD_ID=your-dashboard-id
+                  </code>
+                </div>
+                <p className="text-gray-500 text-sm mt-4">
+                  You can find the secret key in Metabase Admin → Settings → Embedding.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
