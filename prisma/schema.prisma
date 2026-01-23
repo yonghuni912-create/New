@@ -408,3 +408,36 @@ model PeriodSales {
 
   @@unique([inventoryPeriodId, posMenuLinkId])
 }
+
+// 벤더/공급업체 관리
+model Vendor {
+  id        String          @id @default(cuid())
+  name      String
+  category  String          // Equipment, Food & Ingredients, Construction, etc.
+  country   String          @default("CA")
+  city      String?
+  address   String?
+  phone     String?
+  email     String?
+  website   String?
+  notes     String?
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  contacts  VendorContact[]
+}
+
+model VendorContact {
+  id        String   @id @default(cuid())
+  vendorId  String
+  name      String
+  position  String?
+  phone     String?
+  mobile    String?
+  email     String?
+  isPrimary Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}

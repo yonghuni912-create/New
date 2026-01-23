@@ -9,6 +9,7 @@ export type AuditAction =
   | 'TASK_CREATE' | 'TASK_UPDATE' | 'TASK_DELETE'
   | 'PRICE_UPDATE' | 'TEMPLATE_CREATE' | 'TEMPLATE_UPDATE'
   | 'FILE_UPLOAD' | 'FILE_DELETE'
+  | 'VENDOR_CREATE' | 'VENDOR_UPDATE' | 'VENDOR_DELETE'
   | 'LOGIN' | 'LOGOUT';
 
 export interface AuditLogParams {

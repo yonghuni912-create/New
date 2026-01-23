@@ -88,26 +88,42 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const ingredients = await prisma.ingredientMaster.findMany({
-      where,
-      take: limit,
-      include: {
-        subIngredients: {
-          include: {
-            subIngredient: true
-          },
-          orderBy: { sortOrder: 'asc' }
-        }
-      },
-      orderBy: [
-        { category: 'asc' },
-        { koreanName: 'asc' }
-      ]
-    });
+    // Try with subIngredients, fallback without if table doesn't exist
+    let ingredients;
+    try {
+      ingredients = await prisma.ingredientMaster.findMany({
+        where,
+        take: limit,
+        include: {
+          subIngredients: {
+            include: {
+              subIngredient: true
+            },
+            orderBy: { sortOrder: 'asc' }
+          }
+        },
+        orderBy: [
+          { category: 'asc' },
+          { koreanName: 'asc' }
+        ]
+      });
+    } catch (includeError) {
+      // Fallback: query without subIngredients if table doesn't exist
+      console.warn('subIngredients query failed, fetching without:', includeError);
+      ingredients = await prisma.ingredientMaster.findMany({
+        where,
+        take: limit,
+        orderBy: [
+          { category: 'asc' },
+          { koreanName: 'asc' }
+        ]
+      });
+    }
 
     // 마스터 식재료에도 baseQuantity 추가 (원가 계산용)
     const ingredientsWithBaseQuantity = ingredients.map(ing => ({
       ...ing,
+      subIngredients: (ing as any).subIngredients || [],
       baseQuantity: ing.quantity, // 기준 수량 = quantity
       unitPrice: 0 // 마스터에는 가격 없음
     }));
