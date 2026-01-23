@@ -96,6 +96,10 @@ export default function PricingPage() {
   const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('All'); // 템플릿 탭 카테고리 필터
   const [templateSearchTerm, setTemplateSearchTerm] = useState(''); // 템플릿 탭 검색어
   
+  // 정렬 상태
+  const [sortColumn, setSortColumn] = useState<string>('category');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  
   // Modals
   const [showAddIngredient, setShowAddIngredient] = useState(false);
   const [showAddTemplate, setShowAddTemplate] = useState(false);
@@ -178,6 +182,7 @@ export default function PricingPage() {
   }[]>([]);
   const [compoundSearchQuery, setCompoundSearchQuery] = useState('');
   const [compoundSelectedTemplateId, setCompoundSelectedTemplateId] = useState<string>(''); // 혼합 식재료 추가시 선택된 템플릿
+  const [compoundTemplateItems, setCompoundTemplateItems] = useState<PriceTemplateItem[]>([]); // 혼합 식재료 템플릿의 아이템
 
   // Pagination state
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -560,13 +565,9 @@ export default function PricingPage() {
     const query = compoundSearchQuery.toLowerCase();
     const selectedIds = new Set(compoundSubIngredients.map(s => s.ingredientId));
     
-    // 선택된 템플릿의 아이템 가격 맵 생성
-    // compoundSelectedTemplateId가 선택된 경우 해당 템플릿의 아이템 가격을 가져옴
+    // 선택된 템플릿의 아이템 가격 맵 생성 (compoundTemplateItems 사용)
     const priceMap = new Map<string, number>();
-    if (compoundSelectedTemplateId) {
-      const compoundTemplateItems = templateItems.filter(
-        item => item.priceTemplateId === compoundSelectedTemplateId
-      );
+    if (compoundSelectedTemplateId && compoundTemplateItems.length > 0) {
       for (const item of compoundTemplateItems) {
         if (item.ingredientMasterId && item.unitPrice !== undefined) {
           priceMap.set(item.ingredientMasterId, item.unitPrice);
@@ -583,7 +584,7 @@ export default function PricingPage() {
       ...ing,
       unitPrice: priceMap.get(ing.id)
     })).slice(0, 15);
-  }, [ingredients, compoundSearchQuery, compoundSubIngredients, compoundSelectedTemplateId, templateItems]);
+  }, [ingredients, compoundSearchQuery, compoundSubIngredients, compoundSelectedTemplateId, compoundTemplateItems]);
 
   const resetCompoundForm = () => {
     setCompoundForm({
@@ -598,6 +599,7 @@ export default function PricingPage() {
     setCompoundSubIngredients([]);
     setCompoundSearchQuery('');
     setCompoundSelectedTemplateId('');
+    setCompoundTemplateItems([]);
   };
 
   // 혼합 식재료 생성 핸들러
@@ -1075,15 +1077,37 @@ export default function PricingPage() {
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">카테고리</th>
-                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">식재료명(한)</th>
-                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">현지 영문명</th>
-                      <th className="px-3 py-2 text-right text-sm font-medium text-gray-700">수량</th>
-                      <th className="px-3 py-2 text-center text-sm font-medium text-gray-700">단위</th>
-                      <th className="px-3 py-2 text-right text-sm font-medium text-gray-700">
-                        단가 ({getCurrencySymbol(selectedTemplate.currency)})
-                      </th>
-                      <th className="px-3 py-2 text-left text-sm font-medium text-gray-700">포장단위</th>
+                      {[
+                        { key: 'category', label: '카테고리', align: 'left' },
+                        { key: 'koreanName', label: '식재료명(한)', align: 'left' },
+                        { key: 'localEnglishName', label: '현지 영문명', align: 'left' },
+                        { key: 'localQuantity', label: '수량', align: 'right' },
+                        { key: 'localUnit', label: '단위', align: 'center' },
+                        { key: 'unitPrice', label: `단가 (${getCurrencySymbol(selectedTemplate.currency)})`, align: 'right' },
+                        { key: 'packagingUnit', label: '포장단위', align: 'left' },
+                      ].map(col => (
+                        <th 
+                          key={col.key}
+                          className={`px-3 py-2 text-${col.align} text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100 select-none`}
+                          onClick={() => {
+                            if (sortColumn === col.key) {
+                              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setSortColumn(col.key);
+                              setSortDirection('asc');
+                            }
+                          }}
+                        >
+                          <div className={`flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>
+                            {col.label}
+                            {sortColumn === col.key && (
+                              <span className="text-blue-600">
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1103,6 +1127,50 @@ export default function PricingPage() {
                           (item.localKoreanName?.toLowerCase().includes(query))
                         );
                       }
+                      
+                      // 정렬
+                      filtered = [...filtered].sort((a, b) => {
+                        let aVal: any, bVal: any;
+                        switch (sortColumn) {
+                          case 'category':
+                            aVal = a.category || '';
+                            bVal = b.category || '';
+                            break;
+                          case 'koreanName':
+                            aVal = a.koreanName || '';
+                            bVal = b.koreanName || '';
+                            break;
+                          case 'localEnglishName':
+                            aVal = a.localEnglishName || a.englishName || '';
+                            bVal = b.localEnglishName || b.englishName || '';
+                            break;
+                          case 'localQuantity':
+                            aVal = a.localQuantity ?? a.quantity ?? 0;
+                            bVal = b.localQuantity ?? b.quantity ?? 0;
+                            break;
+                          case 'localUnit':
+                            aVal = a.localUnit || a.unit || '';
+                            bVal = b.localUnit || b.unit || '';
+                            break;
+                          case 'unitPrice':
+                            aVal = a.unitPrice ?? 0;
+                            bVal = b.unitPrice ?? 0;
+                            break;
+                          case 'packagingUnit':
+                            aVal = a.packagingUnit || '';
+                            bVal = b.packagingUnit || '';
+                            break;
+                          default:
+                            aVal = '';
+                            bVal = '';
+                        }
+                        
+                        if (typeof aVal === 'number' && typeof bVal === 'number') {
+                          return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+                        }
+                        const comparison = String(aVal).localeCompare(String(bVal), 'ko');
+                        return sortDirection === 'asc' ? comparison : -comparison;
+                      });
                       
                       if (filtered.length === 0) {
                         return (
@@ -1781,11 +1849,28 @@ export default function PricingPage() {
                 <label className="block text-sm font-medium mb-2 text-blue-700">가격 템플릿 선택 (가격 정보 연동)</label>
                 <select
                   value={compoundSelectedTemplateId}
-                  onChange={(e) => {
-                    setCompoundSelectedTemplateId(e.target.value);
+                  onChange={async (e) => {
+                    const newTemplateId = e.target.value;
+                    setCompoundSelectedTemplateId(newTemplateId);
                     // 템플릿 변경시 하위 식재료 초기화
                     setCompoundSubIngredients([]);
                     setCompoundSearchQuery('');
+                    
+                    // 선택된 템플릿의 아이템 로드
+                    if (newTemplateId) {
+                      try {
+                        const res = await fetch(`/api/price-templates/${newTemplateId}/items`);
+                        if (res.ok) {
+                          const data = await res.json();
+                          setCompoundTemplateItems(data);
+                        }
+                      } catch (error) {
+                        console.error('Failed to load template items for compound:', error);
+                        setCompoundTemplateItems([]);
+                      }
+                    } else {
+                      setCompoundTemplateItems([]);
+                    }
                   }}
                   className="w-full px-3 py-2 border rounded-lg bg-white"
                 >
