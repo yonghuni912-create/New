@@ -14,6 +14,8 @@ import {
   Menu,
   X,
   Building2,
+  Mail,
+  BarChart3,
 } from 'lucide-react';
 import { useState } from 'react';
 import { NotificationBell } from '@/components/NotificationBell';
@@ -25,6 +27,8 @@ const navigation = [
   { name: 'Templates', href: '/dashboard/templates', icon: FileText },
   { name: 'Pricing', href: '/dashboard/pricing', icon: DollarSign },
   { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
+  { name: 'Sales Reports', href: '/dashboard/sales-reports', icon: Mail },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { name: 'Admin', href: '/dashboard/admin', icon: Settings },
 ];
 
