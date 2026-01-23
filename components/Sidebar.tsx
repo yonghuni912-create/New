@@ -10,6 +10,8 @@ import {
   FileText,
   Settings,
   Users,
+  Mail,
+  BarChart3,
 } from 'lucide-react';
 
 const navigation = [
@@ -17,6 +19,8 @@ const navigation = [
   { name: 'Stores', href: '/dashboard/stores', icon: Store },
   { name: 'Tasks', href: '/dashboard/tasks', icon: ListTodo },
   { name: 'Reports', href: '/dashboard/reports', icon: FileText },
+  { name: 'Sales Reports', href: '/dashboard/sales-reports', icon: Mail },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { name: 'Users', href: '/dashboard/users', icon: Users },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];

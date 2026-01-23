@@ -516,6 +516,7 @@ export default function TemplatesPage() {
   const [linkingReviewViewFilter, setLinkingReviewViewFilter] = useState<'all' | 'linked' | 'unlinked'>('all'); // 뷰 필터
   const [linkingReviewNewIngredients, setLinkingReviewNewIngredients] = useState<Map<string, any[]>>(new Map()); // manualId -> 추가된 새 식재료들
   const [showAddIngredientForManual, setShowAddIngredientForManual] = useState<string | null>(null); // 식재료 추가 드롭다운을 열어둘 manualId
+  const [linkingReviewTemplateId, setLinkingReviewTemplateId] = useState<string>(''); // 현재 모달에서 사용 중인 템플릿 ID
 
   // 일괄 링킹 기능 (같은 이름 식재료 한번에 링킹)
   const [bulkLinkSearchTerm, setBulkLinkSearchTerm] = useState(''); // 일괄 링킹 검색어
@@ -2393,6 +2394,9 @@ export default function TemplatesPage() {
         currentTemplateId = editorTemplateId;
       }
       
+      // 모달에서 사용할 템플릿 ID 저장
+      setLinkingReviewTemplateId(currentTemplateId);
+      
       const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '' || currentTemplateId === '__select__';
       
       console.log('🔗 Opening linking review modal, templateId:', currentTemplateId, 'isMaster:', isMaster);
@@ -2475,6 +2479,10 @@ export default function TemplatesPage() {
       
       // 현재 템플릿의 원재료 목록 로드
       const currentTemplateId = countryFilterTemplateId;
+      
+      // 모달에서 사용할 템플릿 ID 저장
+      setLinkingReviewTemplateId(currentTemplateId);
+      
       const isMaster = !currentTemplateId || currentTemplateId === 'master' || currentTemplateId === '' || currentTemplateId === '__select__';
       
       let ingredientsUrl = '/api/ingredients?limit=500';
@@ -4440,23 +4448,29 @@ export default function TemplatesPage() {
                       ing.ingredientId
                     ).length || 0;
                     
-                    // Food cost: 투고용기가 아닌 식재료만 계산
+                    // Food cost: 투고용기가 아닌 식재료만 계산 (수율 반영)
                     const foodCost = manual.ingredients?.reduce((sum: number, ing: any) => {
                       if (ing.isPackage) return sum; // 투고용기는 제외
                       const usageQty = ing.quantity || 0;
                       const baseQty = ing.baseQuantity || 1;
                       const price = ing.unitPrice || 0;
-                      const cost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                      // 수율(yield) 반영: yieldRate가 95면 실제 원가는 더 높아짐 (100/95 = 1.05배)
+                      const yieldRate = ing.yieldRate || ing.linkedIngredient?.yieldRate || 100;
+                      const yieldFactor = yieldRate > 0 ? (100 / yieldRate) : 1;
+                      const cost = baseQty > 0 ? ((usageQty / baseQty) * price) * yieldFactor : 0;
                       return sum + cost;
                     }, 0) || 0;
                     
-                    // Package cost: 투고용기로 설정된 식재료만 계산
+                    // Package cost: 투고용기로 설정된 식재료만 계산 (수율 반영)
                     const packageCost = manual.ingredients?.reduce((sum: number, ing: any) => {
                       if (!ing.isPackage) return sum; // 식재료는 제외
                       const usageQty = ing.quantity || 0;
                       const baseQty = ing.baseQuantity || 1;
                       const price = ing.unitPrice || 0;
-                      const cost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                      // 수율(yield) 반영
+                      const yieldRate = ing.yieldRate || ing.linkedIngredient?.yieldRate || 100;
+                      const yieldFactor = yieldRate > 0 ? (100 / yieldRate) : 1;
+                      const cost = baseQty > 0 ? ((usageQty / baseQty) * price) * yieldFactor : 0;
                       return sum + cost;
                     }, 0) || 0;
                     
@@ -4574,7 +4588,10 @@ export default function TemplatesPage() {
                                           const usageQty = ing.quantity || 0;
                                           const baseQty = ing.baseQuantity || 1;
                                           const price = ing.unitPrice || 0;
-                                          const ingCost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                                          // 수율(yield) 반영
+                                          const yieldRate = ing.yieldRate || ing.linkedIngredient?.yieldRate || 100;
+                                          const yieldFactor = yieldRate > 0 ? (100 / yieldRate) : 1;
+                                          const ingCost = baseQty > 0 ? ((usageQty / baseQty) * price) * yieldFactor : 0;
                                           const portion = foodCost > 0 ? (ingCost / foodCost * 100) : 0;
                                           return (
                                             <tr key={i} className="border-b border-gray-100">
@@ -4635,7 +4652,10 @@ export default function TemplatesPage() {
                                               const usageQty = ing.quantity || 0;
                                               const baseQty = ing.baseQuantity || 1;
                                               const price = ing.unitPrice || 0;
-                                              const ingCost = baseQty > 0 ? (usageQty / baseQty) * price : 0;
+                                              // 수율(yield) 반영
+                                              const yieldRate = ing.yieldRate || ing.linkedIngredient?.yieldRate || 100;
+                                              const yieldFactor = yieldRate > 0 ? (100 / yieldRate) : 1;
+                                              const ingCost = baseQty > 0 ? ((usageQty / baseQty) * price) * yieldFactor : 0;
                                               return (
                                                 <tr key={i} className="border-b border-blue-100">
                                                   <td className="px-2 py-1">{ing.name || ing.koreanName}</td>
@@ -5723,10 +5743,10 @@ export default function TemplatesPage() {
                   <h2 className="text-xl font-bold text-gray-900">🔗 식재료 링킹 리뷰</h2>
                   <p className="text-sm text-gray-500 mt-1">
                     {(() => {
-                      const isMaster = !editorTemplateId || editorTemplateId === 'master' || editorTemplateId === '';
+                      const isMaster = !linkingReviewTemplateId || linkingReviewTemplateId === 'master' || linkingReviewTemplateId === '' || linkingReviewTemplateId === '__select__';
                       const templateName = isMaster 
                         ? 'Master' 
-                        : priceTemplates.find(t => t.id === editorTemplateId)?.name || editorTemplateId;
+                        : priceTemplates.find(t => t.id === linkingReviewTemplateId)?.name || linkingReviewTemplateId;
                       
                       // 통계 계산
                       let totalIngredients = 0;
@@ -6243,13 +6263,15 @@ export default function TemplatesPage() {
                                   ? linkingReviewQuantityEdits.get(editKey)!.unit 
                                   : (ing.unit || '');
                                 
-                                // 원가 계산: (매뉴얼 사용량 / Pricing 기준수량) × Pricing 단가
-                                // 예: Pricing에서 1000g에 $10 설정, 매뉴얼에서 100g 사용 → (100/1000) × $10 = $1
+                                // 원가 계산: (매뉴얼 사용량 / Pricing 기준수량) × Pricing 단가 × 수율 팩터
+                                // 예: Pricing에서 1000g에 $10 설정, 매뉴얼에서 100g 사용, 수율 95% → (100/1000) × $10 × (100/95) = $1.05
                                 const usageQuantity = currentUsageQuantity; // 수정된 값 또는 원본 값
                                 const baseQuantity = linkedMaster?.baseQuantity || linkedMaster?.quantity || 1; // Pricing에서 설정한 기준 용량
                                 const unitPrice = linkedMaster?.unitPrice || 0; // Pricing에서 설정한 단가
+                                const yieldRate = linkedMaster?.yieldRate || 100; // 수율 (기본값 100%)
+                                const yieldFactor = yieldRate > 0 ? (100 / yieldRate) : 1; // 수율 팩터
                                 const costPerUsage = baseQuantity > 0 && unitPrice > 0 
-                                  ? (usageQuantity / baseQuantity) * unitPrice 
+                                  ? ((usageQuantity / baseQuantity) * unitPrice) * yieldFactor
                                   : 0;
                                 
                                 // 검색 관련

@@ -42,11 +42,10 @@ export async function GET(request: NextRequest) {
 - `isPackage: true` on `IngredientMaster` → Packaging item (투고용기), excluded from food cost
 
 ### Audit Logging (Required for mutations)
-See `lib/auditLog.ts` for implementation.
 ```typescript
 await createAuditLog({
   userId: session.user.id,
-  action: 'MANUAL_UPDATE',  // See AuditAction type
+  action: 'MANUAL_UPDATE',  // See AuditAction type in lib/auditLog.ts
   entityType: 'MenuManual',
   entityId: manual.id,
   oldValue: { name: oldName },
