@@ -68,10 +68,14 @@ export async function POST(
 
     // Try to use LaunchTaskTemplate first
     if (useLaunchTemplate) {
+      console.log('[Generate Tasks] Looking for templates with name:', templateName);
+      
       const launchTemplates = await prisma.launchTaskTemplate.findMany({
         where: { templateName, isActive: true },
         orderBy: { orderIndex: 'asc' },
       });
+
+      console.log('[Generate Tasks] Found templates:', launchTemplates.length);
 
       if (launchTemplates.length > 0) {
         // Generate tasks from launch templates
@@ -140,12 +144,15 @@ export async function POST(
       count: createdTasks.length,
       templateUsed: 'LEGACY',
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating tasks:', error);
     return NextResponse.json(
-      { error: 'Failed to generate tasks' },
+      { 
+        error: 'Failed to generate tasks',
+        details: error.message,
+        code: error.code,
+      },
       { status: 500 }
     );
   }
 }
-

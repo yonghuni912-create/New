@@ -3,9 +3,13 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-// Debug endpoint to check LaunchTaskTemplate data
+// Debug endpoint to check LaunchTaskTemplate data - PUBLIC for debugging
 export async function GET(request: NextRequest) {
   try {
+    // Get Turso URL for verification (masked)
+    const tursoUrl = process.env.TURSO_DATABASE_URL || 'not set';
+    const tursoMasked = tursoUrl.substring(0, 30) + '...';
+    
     // Count templates
     const totalCount = await prisma.launchTaskTemplate.count();
     
@@ -38,6 +42,7 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
+      database: tursoMasked,
       counts: {
         total: totalCount,
         default: defaultCount,
@@ -54,7 +59,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: false,
       error: error.message,
-      stack: error.stack
+      code: error.code,
+      tursoUrl: (process.env.TURSO_DATABASE_URL || 'not set').substring(0, 30) + '...',
+      stack: error.stack?.split('\n').slice(0, 5)
     }, { status: 500 });
   }
 }
