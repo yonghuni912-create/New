@@ -43,7 +43,10 @@ export async function PATCH(
     } = body;
 
     // Get the current task for audit log
-    const currentTask = await prisma.task.findUnique({ where: { id } });
+    const currentTask = await prisma.task.findUnique({ 
+      where: { id },
+      select: { id: true, status: true, title: true, priority: true, completedAt: true }
+    });
 
     const updateData: any = {};
     if (status !== undefined) {
@@ -71,7 +74,20 @@ export async function PATCH(
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        startDate: true,
+        dueDate: true,
+        completedAt: true,
+        category: true,
+        subcategory: true,
+        durationDays: true,
+        daysBeforeOpening: true,
+        isMilestone: true,
         assignee: {
           select: { id: true, name: true, email: true }
         }
@@ -109,11 +125,35 @@ export async function GET(
     const { id } = await params;
     const task = await prisma.task.findUnique({
       where: { id },
-      include: {
-        store: true,
-        assignee: true,
+      select: {
+        id: true,
+        storeId: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        startDate: true,
+        dueDate: true,
+        completedAt: true,
+        category: true,
+        subcategory: true,
+        durationDays: true,
+        daysBeforeOpening: true,
+        isMilestone: true,
+        orderIndex: true,
+        store: {
+          select: { id: true, storeName: true, storeCode: true }
+        },
+        assignee: {
+          select: { id: true, name: true, email: true }
+        },
         comments: {
-          include: { user: true },
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+            user: { select: { id: true, name: true, email: true } }
+          },
           orderBy: { createdAt: 'desc' }
         }
       }
@@ -149,7 +189,10 @@ export async function DELETE(
     const { id } = await params;
 
     // Get the task for audit log before deleting
-    const deletedTask = await prisma.task.findUnique({ where: { id } });
+    const deletedTask = await prisma.task.findUnique({ 
+      where: { id },
+      select: { id: true, title: true, status: true }
+    });
 
     // Delete task dependencies first
     await prisma.taskDependency.deleteMany({

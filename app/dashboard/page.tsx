@@ -60,7 +60,11 @@ export default async function DashboardPage() {
           status: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
           dueDate: { lt: new Date() },
         },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          dueDate: true,
           store: { select: { storeName: true, id: true } },
         },
       }),
@@ -87,7 +91,11 @@ export default async function DashboardPage() {
             gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
           },
         },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          updatedAt: true,
           store: { select: { storeName: true, id: true } },
         },
       }),
@@ -102,7 +110,11 @@ export default async function DashboardPage() {
             lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           },
         },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          dueDate: true,
           store: { select: { storeName: true, id: true } },
         },
       }),

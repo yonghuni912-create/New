@@ -75,7 +75,27 @@ export async function GET(
 
     const tasks = await prisma.task.findMany({
       where: { storeId: id },
-      orderBy: { dueDate: 'asc' }
+      orderBy: { dueDate: 'asc' },
+      select: {
+        id: true,
+        storeId: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        startDate: true,
+        dueDate: true,
+        completedAt: true,
+        category: true,
+        subcategory: true,
+        durationDays: true,
+        daysBeforeOpening: true,
+        orderIndex: true,
+        isMilestone: true,
+        assigneeId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     return NextResponse.json(tasks);

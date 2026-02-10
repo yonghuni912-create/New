@@ -34,6 +34,14 @@ export async function POST(request: NextRequest) {
     const tasks = await prisma.task.findMany({
       where: { storeId },
       orderBy: { orderIndex: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        startDate: true,
+        dueDate: true,
+        orderIndex: true,
+        status: true,
+      },
     });
 
     if (tasks.length === 0) {

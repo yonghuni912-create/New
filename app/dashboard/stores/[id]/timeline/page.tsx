@@ -26,6 +26,16 @@ export default async function StoreTimelinePage({
     include: {
       tasks: {
         orderBy: [{ dueDate: 'asc' }],
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          priority: true,
+          startDate: true,
+          dueDate: true,
+          completedAt: true,
+        },
       },
     },
   });

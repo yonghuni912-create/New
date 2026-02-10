@@ -32,6 +32,16 @@ export default async function StoreDetailPage({
         tasks: {
           orderBy: { dueDate: 'asc' },
           take: 10,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            startDate: true,
+            dueDate: true,
+            phase: true,
+            description: true,
+          },
         },
       },
     }),
