@@ -116,16 +116,22 @@ export async function POST(request: NextRequest) {
 
     // Auto-generate launch tasks if plannedOpenDate is set
     let generatedTaskCount = 0;
+    let taskGenerationError = null;
     if (store.plannedOpenDate) {
       try {
         // Import generateLaunchTasks dynamically to avoid circular dependencies
         const { generateLaunchTasks } = await import('@/lib/scheduling');
+        
+        console.log('[Store Create] Attempting to generate launch tasks for store:', store.id);
+        console.log('[Store Create] Open date:', store.plannedOpenDate);
         
         // Get launch templates (try DEFAULT first, then any available)
         let launchTemplates = await prisma.launchTaskTemplate.findMany({
           where: { templateName: 'DEFAULT', isActive: true },
           orderBy: { orderIndex: 'asc' },
         });
+        
+        console.log('[Store Create] Found DEFAULT templates:', launchTemplates.length);
         
         // If no DEFAULT template, try to get any template
         if (launchTemplates.length === 0) {
@@ -134,10 +140,12 @@ export async function POST(request: NextRequest) {
             orderBy: { orderIndex: 'asc' },
             take: 200,
           });
+          console.log('[Store Create] Found ANY templates:', launchTemplates.length);
         }
 
         if (launchTemplates.length > 0) {
           const generatedTasks = generateLaunchTasks(store.plannedOpenDate, launchTemplates);
+          console.log('[Store Create] Generated tasks from templates:', generatedTasks.length);
 
           // Create tasks in database
           await prisma.$transaction(
@@ -162,9 +170,13 @@ export async function POST(request: NextRequest) {
             )
           );
           generatedTaskCount = generatedTasks.length;
+          console.log('[Store Create] Successfully created tasks:', generatedTaskCount);
+        } else {
+          console.log('[Store Create] No templates found, skipping task generation');
         }
-      } catch (taskError) {
-        console.error('Error generating launch tasks:', taskError);
+      } catch (taskError: any) {
+        console.error('[Store Create] Error generating launch tasks:', taskError);
+        taskGenerationError = taskError.message;
         // Don't fail store creation if task generation fails
       }
     }
@@ -172,6 +184,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...store,
       _generatedTaskCount: generatedTaskCount,
+      _taskGenerationError: taskGenerationError,
     });
   } catch (error: any) {
     console.error('Error creating store:', error);
