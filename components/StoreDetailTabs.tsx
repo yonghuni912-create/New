@@ -346,6 +346,7 @@ export default function StoreDetailTabs({
                   }`}
                 >
                   <div className="flex justify-center mb-2">
+                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
                     <Image className={`w-6 h-6 ${activePanel === 'gallery' ? 'text-green-500' : 'text-gray-400'}`} />
                   </div>
                   <div className="text-xl font-bold text-gray-900">{galleryImages.length}</div>
@@ -359,6 +360,7 @@ export default function StoreDetailTabs({
                   <div className="flex items-center gap-2 text-gray-900">
                     {activePanel === 'tasks' && <CheckSquare className="w-5 h-5 text-orange-500" />}
                     {activePanel === 'files' && <FileText className="w-5 h-5 text-blue-500" />}
+                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
                     {activePanel === 'gallery' && <Image className="w-5 h-5 text-green-500" />}
                     <h3 className="text-lg font-bold">
                       {activePanel === 'tasks' && `Recent Tasks (${tasks.length})`}

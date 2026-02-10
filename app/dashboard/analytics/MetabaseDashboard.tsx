@@ -351,10 +351,13 @@ export default function MetabaseDashboard() {
                   tick={{ fontSize: 11 }}
                 />
                 <Tooltip 
-                  formatter={(value: number, name: string) => [
-                    name === 'net_sales' ? formatCurrency(value) : value.toLocaleString(),
-                    name === 'net_sales' ? 'Net Sales' : 'Tickets'
-                  ]}
+                  formatter={(value, name) => {
+                    const numValue = typeof value === 'number' ? value : 0;
+                    return [
+                      name === 'net_sales' ? formatCurrency(numValue) : numValue.toLocaleString(),
+                      name === 'net_sales' ? 'Net Sales' : 'Tickets'
+                    ];
+                  }}
                   labelFormatter={(label) => format(new Date(label), 'MMM dd, yyyy')}
                 />
                 <Legend />
@@ -404,10 +407,13 @@ export default function MetabaseDashboard() {
                   tickFormatter={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
                 />
                 <Tooltip 
-                  formatter={(value: number, name: string) => [
-                    name === 'net_sales' ? formatCurrency(value) : value.toLocaleString(),
-                    name === 'net_sales' ? 'Net Sales' : 'Tickets'
-                  ]}
+                  formatter={(value, name) => {
+                    const numValue = typeof value === 'number' ? value : 0;
+                    return [
+                      name === 'net_sales' ? formatCurrency(numValue) : numValue.toLocaleString(),
+                      name === 'net_sales' ? 'Net Sales' : 'Tickets'
+                    ];
+                  }}
                 />
                 <Legend />
                 <Bar 
@@ -465,7 +471,10 @@ export default function MetabaseDashboard() {
                   tickFormatter={(v) => `${v}m`}
                 />
                 <Tooltip 
-                  formatter={(value: number) => [`${value.toFixed(1)} min`, 'Avg Service Time']}
+                  formatter={(value) => {
+                    const numValue = typeof value === 'number' ? value : 0;
+                    return [`${numValue.toFixed(1)} min`, 'Avg Service Time'];
+                  }}
                   labelFormatter={(label) => format(new Date(label), 'MMM dd, yyyy')}
                 />
                 <Line 
@@ -497,10 +506,13 @@ export default function MetabaseDashboard() {
                 <XAxis dataKey="payment_type" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                 <Tooltip 
-                  formatter={(value: number, name: string) => [
-                    formatCurrency(value),
-                    name === 'total_amount' ? 'Amount' : 'Tips'
-                  ]}
+                  formatter={(value, name) => {
+                    const numValue = typeof value === 'number' ? value : 0;
+                    return [
+                      formatCurrency(numValue),
+                      name === 'total_amount' ? 'Amount' : 'Tips'
+                    ];
+                  }}
                 />
                 <Legend />
                 <Bar dataKey="total_amount" name="Amount" fill="#9333ea" radius={[4, 4, 0, 0]} />
