@@ -129,11 +129,74 @@ async function updateSchema() {
     } else {
       console.log('Store table not found, you may need to run full migration');
     }
+
+    // Check and update Task table for missing columns
+    const taskTable = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='Task'");
+    console.log('\nCurrent Task table:', taskTable.rows[0]?.sql || 'NOT FOUND');
+    
+    if (taskTable.rows[0]) {
+      const tableSql = String(taskTable.rows[0].sql);
+      
+      const taskColumnsToAdd = [
+        { name: 'launchTemplateId', sql: "ALTER TABLE Task ADD COLUMN launchTemplateId TEXT" },
+        { name: 'templateTaskId', sql: "ALTER TABLE Task ADD COLUMN templateTaskId TEXT" },
+        { name: 'phaseId', sql: "ALTER TABLE Task ADD COLUMN phaseId TEXT" },
+        { name: 'blockedReason', sql: "ALTER TABLE Task ADD COLUMN blockedReason TEXT" },
+        { name: 'category', sql: "ALTER TABLE Task ADD COLUMN category TEXT" },
+        { name: 'subcategory', sql: "ALTER TABLE Task ADD COLUMN subcategory TEXT" },
+        { name: 'durationDays', sql: "ALTER TABLE Task ADD COLUMN durationDays INTEGER NOT NULL DEFAULT 1" },
+        { name: 'daysBeforeOpening', sql: "ALTER TABLE Task ADD COLUMN daysBeforeOpening INTEGER" },
+        { name: 'isMilestone', sql: "ALTER TABLE Task ADD COLUMN isMilestone INTEGER NOT NULL DEFAULT 0" },
+        { name: 'completedAt', sql: "ALTER TABLE Task ADD COLUMN completedAt TEXT" },
+        { name: 'startDate', sql: "ALTER TABLE Task ADD COLUMN startDate TEXT" },
+      ];
+      
+      for (const col of taskColumnsToAdd) {
+        if (!tableSql.includes(`"${col.name}"`) && !tableSql.includes(` ${col.name} `) && !tableSql.includes(` ${col.name},`)) {
+          console.log(`Adding ${col.name} column to Task table...`);
+          try {
+            await client.execute(col.sql);
+            console.log(`${col.name} column added!`);
+          } catch (e) {
+            console.log(`${col.name} column might already exist (caught error):`, e.message);
+          }
+        } else {
+          console.log(`${col.name} column already exists in Task`);
+        }
+      }
+    }
     
     // List all tables
     const allTables = await client.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
     console.log('\nAll tables in database:');
     allTables.rows.forEach(row => console.log(' -', row.name));
+    
+    // Create LaunchTaskTemplate table if not exists
+    const lttTable = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='LaunchTaskTemplate'");
+    if (!lttTable.rows[0]) {
+      console.log('\nCreating LaunchTaskTemplate table...');
+      await client.execute(`
+        CREATE TABLE LaunchTaskTemplate (
+          id TEXT PRIMARY KEY NOT NULL,
+          orderIndex INTEGER NOT NULL,
+          category TEXT NOT NULL,
+          subcategory TEXT,
+          title TEXT NOT NULL,
+          durationDays INTEGER NOT NULL DEFAULT 1,
+          daysBeforeOpening INTEGER NOT NULL,
+          templateName TEXT NOT NULL DEFAULT 'MEXICO_CITY',
+          isActive INTEGER NOT NULL DEFAULT 1,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ltt_template_order ON LaunchTaskTemplate(templateName, orderIndex)");
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_ltt_templatename ON LaunchTaskTemplate(templateName)");
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_ltt_category ON LaunchTaskTemplate(category)");
+      console.log('LaunchTaskTemplate table created!');
+    } else {
+      console.log('\nLaunchTaskTemplate table already exists');
+    }
     
   } catch (error) {
     console.error('Error:', error);
