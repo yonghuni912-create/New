@@ -15,22 +15,28 @@ import {
 
 interface Store {
   id: string;
-  tempName: string | null;
-  officialName: string | null;
+  storeName: string;
+  storeCode: string;
+  tempName?: string | null;
+  officialName?: string | null;
   country: string;
   city: string | null;
   address: string | null;
-  timezone: string;
-  storePhone: string | null;
-  storeEmail: string | null;
-  ownerName: string | null;
-  ownerPhone: string | null;
-  ownerEmail: string | null;
-  ownerAddress: string | null;
+  timezone?: string;
+  storePhone?: string | null;
+  storeEmail?: string | null;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+  ownerEmail?: string | null;
+  ownerAddress?: string | null;
+  franchiseeName?: string | null;
+  franchiseePhone?: string | null;
+  franchiseeEmail?: string | null;
+  plannedOpenDate?: Date | string | null;
   status: string;
   createdAt: Date;
   updatedAt: Date;
-  plannedOpenDates: Array<{
+  plannedOpenDates?: Array<{
     id: string;
     date: Date;
     reason: string | null;
@@ -41,7 +47,7 @@ export default function StoreCard({ store }: { store: Store }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const storeName = store.storeName || store.storeCode || 'Unnamed Store';
-  const latestOpenDate = store.plannedOpenDates[0];
+  const latestOpenDate = store.plannedOpenDate || store.plannedOpenDates?.[0]?.date;
 
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow">
@@ -63,7 +69,7 @@ export default function StoreCard({ store }: { store: Store }) {
               {latestOpenDate && (
                 <div className="flex items-center text-sm text-gray-600">
                   <Calendar className="w-4 h-4 mr-2" />
-                  Planned Open: {formatDate(latestOpenDate.date)}
+                  Planned Open: {formatDate(latestOpenDate)}
                 </div>
               )}
               {store.ownerName && (

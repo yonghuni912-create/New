@@ -26,8 +26,8 @@ interface Milestone {
 
 interface Store {
   id: string;
-  officialName: string | null;
-  tempName: string | null;
+  storeName: string;
+  storeCode: string;
   city: string;
   country: string;
 }

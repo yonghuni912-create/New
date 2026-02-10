@@ -9,26 +9,33 @@ import { useSearchParams } from 'next/navigation';
 
 interface Store {
   id: string;
-  tempName: string | null;
-  officialName: string | null;
+  storeName: string;
+  storeCode: string;
+  tempName?: string | null;
+  officialName?: string | null;
   country: string;
   city: string | null;
   address: string | null;
-  timezone: string;
-  storePhone: string | null;
-  storeEmail: string | null;
-  ownerName: string | null;
-  ownerPhone: string | null;
-  ownerEmail: string | null;
-  ownerAddress: string | null;
+  timezone?: string;
+  storePhone?: string | null;
+  storeEmail?: string | null;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+  ownerEmail?: string | null;
+  ownerAddress?: string | null;
+  franchiseeName?: string | null;
+  franchiseePhone?: string | null;
+  franchiseeEmail?: string | null;
+  plannedOpenDate?: Date | string | null;
   status: string;
   createdAt: Date;
   updatedAt: Date;
-  plannedOpenDates: Array<{
+  plannedOpenDates?: Array<{
     id: string;
     date: Date;
     reason: string | null;
   }>;
+  tasks?: Array<{ status: string }>;
 }
 interface Country {
   id: string;
@@ -111,8 +118,8 @@ function StoresPageContent() {
             bValue = b.status || '';
             break;
           case 'openDate':
-            aValue = a.plannedOpenDates[0]?.date ? new Date(a.plannedOpenDates[0].date) : new Date(0);
-            bValue = b.plannedOpenDates[0]?.date ? new Date(b.plannedOpenDates[0].date) : new Date(0);
+            aValue = a.plannedOpenDate ? new Date(a.plannedOpenDate) : (a.plannedOpenDates?.[0]?.date ? new Date(a.plannedOpenDates[0].date) : new Date(0));
+            bValue = b.plannedOpenDate ? new Date(b.plannedOpenDate) : (b.plannedOpenDates?.[0]?.date ? new Date(b.plannedOpenDates[0].date) : new Date(0));
             break;
           default:
             aValue = '';
@@ -304,9 +311,11 @@ function StoresPageContent() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {store.plannedOpenDates[0]?.date 
-                        ? new Date(store.plannedOpenDates[0].date).toLocaleDateString()
-                        : '-'
+                      {store.plannedOpenDate 
+                        ? new Date(store.plannedOpenDate).toLocaleDateString()
+                        : store.plannedOpenDates?.[0]?.date 
+                          ? new Date(store.plannedOpenDates[0].date).toLocaleDateString()
+                          : '-'
                       }
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
