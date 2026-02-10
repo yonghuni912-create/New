@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@libsql/client';
 import * as XLSX from 'xlsx';
 
+export const dynamic = 'force-dynamic';
+
 function getDb() {
   return createClient({
     url: process.env.TURSO_DATABASE_URL!,

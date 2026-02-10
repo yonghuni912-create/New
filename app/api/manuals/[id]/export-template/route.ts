@@ -5,6 +5,8 @@ import path from 'path';
 import fs from 'fs';
 import { matchProcessPng, DEFAULT_PROCESS_ASSET_INDEX } from '@/lib/processAssets';
 
+export const dynamic = 'force-dynamic';
+
 function getDb() {
   return createClient({
     url: process.env.TURSO_DATABASE_URL!,

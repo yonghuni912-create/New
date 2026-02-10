@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Require admin authentication for debug endpoint
+  const session = await getServerSession(authOptions);
+  const user = session?.user as { role?: string } | undefined;
+  if (!session || user?.role !== 'MASTER_ADMIN') {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+  }
   try {
     // Check environment variables
     const envCheck = {

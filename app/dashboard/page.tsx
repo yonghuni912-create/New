@@ -31,7 +31,7 @@ export default async function DashboardPage() {
 
   try {
     // Get basic counts and recent activity
-    const [storeCount, userCount, activeTaskCount, recentComments, recentTasks, upcomingTasks] = await Promise.all([
+    const [storeCount, userCount, activeTaskCount, completedTaskCount, overdueTasks, recentComments, recentTasks, upcomingTasks] = await Promise.all([
       prisma.store.count(),
       prisma.user.count(),
       prisma.task.count({
@@ -39,6 +39,27 @@ export default async function DashboardPage() {
           status: {
             in: ['NOT_STARTED', 'IN_PROGRESS'],
           },
+        },
+      }),
+      // Completed tasks count (last 30 days)
+      prisma.task.count({
+        where: {
+          status: { in: ['DONE', 'COMPLETED'] },
+          updatedAt: {
+            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          },
+        },
+      }),
+      // Overdue tasks
+      prisma.task.findMany({
+        take: 5,
+        orderBy: { dueDate: 'asc' },
+        where: {
+          status: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
+          dueDate: { lt: new Date() },
+        },
+        include: {
+          store: { select: { storeName: true, id: true } },
         },
       }),
       // Recent comments
@@ -101,7 +122,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
@@ -159,6 +180,34 @@ export default async function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
+              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${overdueTasks.length > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
+                <svg
+                  className={`w-6 h-6 ${overdueTasks.length > 0 ? 'text-red-600' : 'text-green-600'}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Overdue</p>
+              <p className={`text-2xl font-bold ${overdueTasks.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                {overdueTasks.length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <svg
                   className="w-6 h-6 text-green-600"
@@ -170,14 +219,14 @@ export default async function DashboardPage() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Team Members</p>
-              <p className="text-2xl font-bold text-gray-900">{userCount}</p>
+              <p className="text-sm font-medium text-gray-600">완료 (30일)</p>
+              <p className="text-2xl font-bold text-green-600">{completedTaskCount}</p>
             </div>
           </div>
         </div>
@@ -283,6 +332,43 @@ export default async function DashboardPage() {
 
         {/* Right Column - Stores & Upcoming */}
         <div className="space-y-6">
+          {/* Overdue Tasks - Only show if there are overdue items */}
+          {overdueTasks.length > 0 && (
+            <div className="bg-red-50 rounded-lg shadow border border-red-200">
+              <div className="px-6 py-4 border-b border-red-200 bg-red-100 rounded-t-lg">
+                <h2 className="text-lg font-semibold text-red-800 flex items-center gap-2">
+                  🚨 지연된 태스크 ({overdueTasks.length})
+                </h2>
+              </div>
+              <div className="divide-y divide-red-100">
+                {overdueTasks.map((task) => {
+                  const daysOverdue = task.dueDate 
+                    ? Math.floor((Date.now() - new Date(task.dueDate).getTime()) / (1000 * 60 * 60 * 24))
+                    : 0;
+                  return (
+                    <Link 
+                      key={task.id} 
+                      href={`/dashboard/stores/${task.store?.id}`}
+                      className="block px-6 py-3 hover:bg-red-100 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-red-900 truncate">{task.title}</p>
+                          <p className="text-xs text-red-700">{task.store?.storeName}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-600 text-white">
+                            {daysOverdue}일 지연
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Upcoming Tasks */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
@@ -293,32 +379,38 @@ export default async function DashboardPage() {
             <div className="divide-y divide-gray-100">
               {upcomingTasks.length === 0 ? (
                 <div className="px-6 py-8 text-center text-gray-500">
-                  7일 내 마감 예정인 태스크가 없습니다 🎉
+                  7일 내 마감 예정인 태스크가 없습니다
                 </div>
               ) : (
-                upcomingTasks.map((task) => (
-                  <Link 
-                    key={task.id} 
-                    href={`/dashboard/stores/${task.store?.id}`}
-                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate">{task.title}</p>
-                        <p className="text-xs text-gray-500">{task.store?.storeName}</p>
+                upcomingTasks.map((task) => {
+                  const daysRemaining = task.dueDate 
+                    ? Math.ceil((new Date(task.dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                    : 99;
+                  const urgencyClass = daysRemaining <= 1 
+                    ? 'bg-red-100 text-red-700 border-red-200' 
+                    : daysRemaining <= 3 
+                      ? 'bg-orange-100 text-orange-700 border-orange-200' 
+                      : 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                  return (
+                    <Link 
+                      key={task.id} 
+                      href={`/dashboard/stores/${task.store?.id}`}
+                      className="block px-6 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate">{task.title}</p>
+                          <p className="text-xs text-gray-500">{task.store?.storeName}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${urgencyClass}`}>
+                            {daysRemaining === 0 ? '오늘' : daysRemaining === 1 ? '내일' : `${daysRemaining}일 남음`}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className={`text-sm font-medium ${
-                          task.dueDate && new Date(task.dueDate) < new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
-                            ? 'text-red-600'
-                            : 'text-orange-600'
-                        }`}>
-                          {task.dueDate ? new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : '-'}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                ))
+                    </Link>
+                  );
+                })
               )}
             </div>
           </div>

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import ExcelJS from 'exceljs';
 
+export const dynamic = 'force-dynamic';
+
 // Type for manual ingredient
 interface ManualIngredientData {
   id: string;
