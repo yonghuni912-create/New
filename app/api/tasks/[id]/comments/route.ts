@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-// GET - Get all comments for a task
+// GET - Get all comments for a task (including replies)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -35,7 +35,7 @@ export async function GET(
   }
 }
 
-// POST - Create a new comment
+// POST - Create a new comment or reply
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -48,7 +48,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await request.json();
-    const { content } = body;
+    const { content, parentId } = body;
 
     if (!content?.trim()) {
       return NextResponse.json({ error: 'Content is required' }, { status: 400 });
@@ -56,11 +56,22 @@ export async function POST(
 
     const user = session.user as { id: string };
 
+    // Validate parentId if provided
+    if (parentId) {
+      const parentComment = await prisma.taskComment.findUnique({
+        where: { id: parentId }
+      });
+      if (!parentComment || parentComment.taskId !== id) {
+        return NextResponse.json({ error: 'Invalid parent comment' }, { status: 400 });
+      }
+    }
+
     const comment = await prisma.taskComment.create({
       data: {
         taskId: id,
         userId: user.id,
-        content: content.trim()
+        content: content.trim(),
+        parentId: parentId || null
       },
       include: {
         user: {
@@ -69,29 +80,88 @@ export async function POST(
       }
     });
 
-    // Create notification for task assignee
+    // Create notification for task assignee or parent comment author
     const task = await prisma.task.findUnique({
       where: { id },
       select: { assigneeId: true, title: true, store: { select: { storeName: true, storeCode: true } } }
     });
 
-    if (task && task.assigneeId && task.assigneeId !== user.id) {
+    if (task) {
       const storeName = task.store.storeName || task.store.storeCode || 'Store';
-      await prisma.notification.create({
-        data: {
-          userId: task.assigneeId,
-          type: 'TASK_COMMENT',
-          title: 'New Comment on Task',
-          message: `${comment.user.name || 'Someone'} commented on "${task.title}" in ${storeName}`,
-          isRead: false
-        }
-      });
+      const notifyUserId = parentId
+        ? (await prisma.taskComment.findUnique({ where: { id: parentId }, select: { userId: true } }))?.userId
+        : task.assigneeId;
+
+      if (notifyUserId && notifyUserId !== user.id) {
+        await prisma.notification.create({
+          data: {
+            userId: notifyUserId,
+            type: 'TASK_COMMENT',
+            title: parentId ? '새 답글이 등록되었습니다' : '새 댓글이 등록되었습니다',
+            message: `${comment.user.name || 'Someone'}님이 "${task.title}" 타스크에 ${parentId ? '답글' : '댓글'}을 남겼습니다 (${storeName})`,
+            isRead: false
+          }
+        });
+      }
     }
 
     return NextResponse.json(comment);
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 });
+  }
+}
+
+// PUT - Edit a comment
+export async function PUT(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const commentId = searchParams.get('commentId');
+
+    if (!commentId) {
+      return NextResponse.json({ error: 'Comment ID is required' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const { content } = body;
+
+    if (!content?.trim()) {
+      return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+    }
+
+    const user = session.user as { id: string; role: string };
+    const comment = await prisma.taskComment.findUnique({
+      where: { id: commentId }
+    });
+
+    if (!comment) {
+      return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
+    }
+
+    // Only comment author can edit
+    if (comment.userId !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const updatedComment = await prisma.taskComment.update({
+      where: { id: commentId },
+      data: { content: content.trim() },
+      include: {
+        user: {
+          select: { id: true, name: true, email: true }
+        }
+      }
+    });
+
+    return NextResponse.json(updatedComment);
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: 'Failed to update comment' }, { status: 500 });
   }
 }
 

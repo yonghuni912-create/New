@@ -9,17 +9,18 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  password      String
-  name          String
-  role          String         @default("VIEWER")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  auditLogs     AuditLog[]
-  notifications Notification[]
-  assignedTasks Task[]         @relation("TaskAssignee")
-  taskComments  TaskComment[]
+  id                 String         @id @default(cuid())
+  email              String         @unique
+  password           String
+  name               String
+  role               String         @default("VIEWER")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  assignedTasks      Task[]         @relation("TaskAssignee")
+  taskComments       TaskComment[]
+  taskFilesUploaded  TaskFile[]     @relation("TaskFileUploader")
 }
 
 model Country {
@@ -141,6 +142,7 @@ model Task {
   store              Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
   launchTemplate     LaunchTaskTemplate? @relation(fields: [launchTemplateId], references: [id])
   comments           TaskComment[]
+  files              TaskFile[]
   dependents         TaskDependency[] @relation("DependencyTask")
   dependencies       TaskDependency[] @relation("DependentTask")
 
@@ -152,14 +154,20 @@ model Task {
 }
 
 model TaskComment {
-  id        String   @id @default(cuid())
+  id        String         @id @default(cuid())
   taskId    String
   userId    String
   content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  parentId  String?        // For replies (대댓글)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  parent    TaskComment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   TaskComment[]  @relation("CommentReplies")
+
+  @@index([taskId])
+  @@index([parentId])
 }
 
 model TaskDependency {
@@ -169,6 +177,23 @@ model TaskDependency {
   createdAt   DateTime @default(now())
   dependsOn   Task     @relation("DependencyTask", fields: [dependsOnId], references: [id], onDelete: Cascade)
   task        Task     @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model TaskFile {
+  id           String   @id @default(cuid())
+  taskId       String
+  fileName     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String   // Storage path or URL
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy   User?    @relation("TaskFileUploader", fields: [uploadedById], references: [id])
+
+  @@index([taskId])
 }
 
 model StoreFile {
