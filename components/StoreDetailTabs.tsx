@@ -131,8 +131,9 @@ export default function StoreDetailTabs({
   // Format time for timezone
   const getTimezoneTime = () => {
     try {
+      const tz = store.timezone || 'America/Los_Angeles';
       return currentTime.toLocaleTimeString('en-US', {
-        timeZone: store.timezone,
+        timeZone: tz,
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -251,26 +252,20 @@ export default function StoreDetailTabs({
             <div className="space-y-6">
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  Owner Information
-                  <span className="ml-2 text-sm font-normal text-gray-500">Name {store.ownerName || '-'}</span>
+                  Franchisee Information
+                  <span className="ml-2 text-sm font-normal text-gray-500">Name {store.franchiseeName || store.ownerName || '-'}</span>
                 </h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <div className="text-sm text-gray-500 mb-1">Email</div>
-                      <div className="text-sm font-medium">{store.ownerEmail || '-'}</div>
+                      <div className="text-sm font-medium">{store.franchiseeEmail || store.ownerEmail || '-'}</div>
                     </div>
                     <div>
                       <div className="text-sm text-gray-500 mb-1">Phone</div>
-                      <div className="text-sm font-medium">{store.ownerPhone || '-'}</div>
+                      <div className="text-sm font-medium">{store.franchiseePhone || store.ownerPhone || '-'}</div>
                     </div>
                   </div>
-                  {store.ownerEmail && (
-                    <div>
-                      <div className="text-sm text-gray-500 mb-1">Email</div>
-                      <div className="text-sm font-medium">{store.ownerEmail}</div>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -292,11 +287,11 @@ export default function StoreDetailTabs({
                     </div>
                     <div>
                       <div className="text-sm text-gray-500 mb-1">Timezone</div>
-                      <div className="text-sm font-medium">{store.timezone}</div>
+                      <div className="text-sm font-medium">{store.timezone || 'Not set'}</div>
                     </div>
                     <div>
                       <div className="text-sm text-gray-500 mb-1">Store Phone</div>
-                      <div className="text-sm font-medium">{store.storePhone || '-'}</div>
+                      <div className="text-sm font-medium">{store.storePhone || store.franchiseePhone || '-'}</div>
                     </div>
                   </div>
                 </div>
