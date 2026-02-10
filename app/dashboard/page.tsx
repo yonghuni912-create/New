@@ -1,7 +1,9 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import DashboardCharts from '@/components/DashboardCharts';
+import Link from 'next/link';
+import { formatDistanceToNow } from 'date-fns';
+import { ko } from 'date-fns/locale';
 
 // Status colors for the pie chart
 const STATUS_COLORS: Record<string, string> = {
@@ -13,12 +15,23 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: '#FF6B6B',
 };
 
+// Action icons and labels
+const ACTION_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
+  CREATE: { label: '생성', emoji: '✨', color: 'text-green-600' },
+  UPDATE: { label: '수정', emoji: '✏️', color: 'text-blue-600' },
+  DELETE: { label: '삭제', emoji: '🗑️', color: 'text-red-600' },
+  TASK_CREATE: { label: '태스크 추가', emoji: '📋', color: 'text-purple-600' },
+  TASK_UPDATE: { label: '일정 변경', emoji: '📅', color: 'text-orange-600' },
+  TASK_STATUS: { label: '상태 변경', emoji: '🔄', color: 'text-indigo-600' },
+  COMMENT: { label: '댓글', emoji: '💬', color: 'text-teal-600' },
+};
+
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
   try {
-    // Get basic counts first
-    const [storeCount, userCount, activeTaskCount] = await Promise.all([
+    // Get basic counts and recent activity
+    const [storeCount, userCount, activeTaskCount, recentComments, recentTasks, upcomingTasks] = await Promise.all([
       prisma.store.count(),
       prisma.user.count(),
       prisma.task.count({
@@ -28,28 +41,49 @@ export default async function DashboardPage() {
           },
         },
       }),
+      // Recent comments
+      prisma.taskComment.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { name: true, email: true } },
+          task: { 
+            select: { 
+              title: true, 
+              store: { select: { storeName: true, id: true } } 
+            } 
+          },
+        },
+      }),
+      // Recently updated tasks (schedule changes)
+      prisma.task.findMany({
+        take: 8,
+        orderBy: { updatedAt: 'desc' },
+        where: {
+          updatedAt: {
+            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+          },
+        },
+        include: {
+          store: { select: { storeName: true, id: true } },
+        },
+      }),
+      // Upcoming tasks (due within 7 days)
+      prisma.task.findMany({
+        take: 5,
+        orderBy: { dueDate: 'asc' },
+        where: {
+          status: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
+          dueDate: {
+            gte: new Date(),
+            lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        },
+        include: {
+          store: { select: { storeName: true, id: true } },
+        },
+      }),
     ]);
-
-    // Try to get country grouping, fallback to empty array if column doesn't exist
-    let storesByCountry: { country: string; _count: { id: number } }[] = [];
-    try {
-      storesByCountry = await (prisma.store.groupBy as any)({
-        by: ['country'],
-        _count: { id: true },
-        orderBy: { _count: { id: 'desc' } },
-      });
-    } catch (e) {
-      console.log('Country column not available, using fallback');
-      // Get stores and manually group
-      const stores = await prisma.store.findMany({ select: { id: true } });
-      storesByCountry = [{ country: 'All', _count: { id: stores.length } }];
-    }
-
-    // Get status grouping
-    const storesByStatus = await prisma.store.groupBy({
-      by: ['status'],
-      _count: { id: true },
-    });
 
     const recentStores = await prisma.store.findMany({
       take: 5,
@@ -149,62 +183,201 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Recent Stores
-          </h2>
-        </div>
-        <div className="divide-y divide-gray-200">
-          {recentStores.length === 0 ? (
-            <div className="px-6 py-8 text-center text-gray-500">
-              No stores yet. Create your first store to get started!
+      {/* Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Column - Activity Feed */}
+        <div className="space-y-6">
+          {/* Recent Activity */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                📋 최근 활동
+              </h2>
             </div>
-          ) : (
-            recentStores.map((store) => (
-              <div key={store.id} className="px-6 py-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">
-                      {store.storeName || store.storeCode}
-                    </h3>
-                    <p className="text-sm text-gray-500">
-                      {store.city || ''}, {store.country || ''}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                      {store.status}
-                    </span>
-                    {store.plannedOpenDate && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Opens:{' '}
-                        {new Date(
-                          store.plannedOpenDate
-                        ).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
+            <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
+              {recentTasks.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500">
+                  최근 활동이 없습니다.
                 </div>
-              </div>
-            ))
-          )}
+              ) : (
+                recentTasks.map((task) => (
+                  <Link 
+                    key={task.id} 
+                    href={`/dashboard/stores/${task.store?.id}`}
+                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-lg">📅</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {task.title}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {task.store?.storeName || '알 수 없는 매장'} • 
+                          <span className={`ml-1 ${
+                            task.status === 'DONE' || task.status === 'COMPLETED' 
+                              ? 'text-green-600' 
+                              : task.status === 'IN_PROGRESS' 
+                                ? 'text-blue-600' 
+                                : 'text-gray-600'
+                          }`}>
+                            {task.status === 'DONE' || task.status === 'COMPLETED' ? '완료' : 
+                             task.status === 'IN_PROGRESS' ? '진행중' : '대기'}
+                          </span>
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true, locale: ko })}
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Recent Comments */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                💬 최근 댓글
+              </h2>
+            </div>
+            <div className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
+              {recentComments.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500">
+                  아직 댓글이 없습니다. 태스크에서 팀원들과 소통해보세요!
+                </div>
+              ) : (
+                recentComments.map((comment) => (
+                  <Link 
+                    key={comment.id} 
+                    href={`/dashboard/stores/${comment.task?.store?.id}`}
+                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-semibold text-sm">
+                        {comment.user?.name?.charAt(0) || '?'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">
+                            {comment.user?.name || '익명'}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: ko })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 line-clamp-2">{comment.content}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {comment.task?.title} • {comment.task?.store?.storeName}
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - Stores & Upcoming */}
+        <div className="space-y-6">
+          {/* Upcoming Tasks */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                ⏰ 다가오는 마감 (7일 이내)
+              </h2>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {upcomingTasks.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500">
+                  7일 내 마감 예정인 태스크가 없습니다 🎉
+                </div>
+              ) : (
+                upcomingTasks.map((task) => (
+                  <Link 
+                    key={task.id} 
+                    href={`/dashboard/stores/${task.store?.id}`}
+                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 truncate">{task.title}</p>
+                        <p className="text-xs text-gray-500">{task.store?.storeName}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-sm font-medium ${
+                          task.dueDate && new Date(task.dueDate) < new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+                            ? 'text-red-600'
+                            : 'text-orange-600'
+                        }`}>
+                          {task.dueDate ? new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Recent Stores */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                🏪 최근 매장
+              </h2>
+              <Link href="/dashboard/stores" className="text-sm text-orange-600 hover:text-orange-700">
+                전체 보기 →
+              </Link>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {recentStores.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500">
+                  아직 매장이 없습니다. 첫 번째 매장을 등록해보세요!
+                </div>
+              ) : (
+                recentStores.map((store) => (
+                  <Link 
+                    key={store.id} 
+                    href={`/dashboard/stores/${store.id}`}
+                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-900">
+                          {store.storeName || store.storeCode}
+                        </h3>
+                        <p className="text-xs text-gray-500">
+                          {store.city || ''}{store.city && store.country ? ', ' : ''}{store.country || ''}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          store.status === 'IN_PROGRESS' ? 'bg-orange-100 text-orange-800' :
+                          store.status === 'OPENED' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {store.status === 'IN_PROGRESS' ? '진행중' : 
+                           store.status === 'OPENED' ? '오픈완료' : 
+                           store.status === 'PLANNING' ? '계획중' : store.status}
+                        </span>
+                        {store.plannedOpenDate && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {new Date(store.plannedOpenDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 오픈예정
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
-
-      {/* Charts Section */}
-      <DashboardCharts
-        storesByCountry={storesByCountry.map((item) => ({
-          country: item.country,
-          count: item._count.id,
-          color: '',
-        }))}
-        storesByStatus={storesByStatus.map((item) => ({
-          status: item.status,
-          count: item._count.id,
-          color: STATUS_COLORS[item.status] || '#ccc',
-        }))}
-      />
     </div>
   );
   } catch (error) {
