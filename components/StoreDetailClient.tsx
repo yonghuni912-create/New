@@ -108,13 +108,13 @@ export default function StoreDetailClient({ store }: StoreDetailClientProps) {
             ← Back to Stores
           </Link>
           <h1 className="text-3xl font-extrabold text-slate-900 mt-2 tracking-tight">
-            {store.officialName || store.tempName || 'Unnamed Store'}
+            {store.storeName || store.storeCode || 'Unnamed Store'}
           </h1>
           <div className="flex items-center gap-2 mt-2 text-sm text-slate-500">
             <span className="font-medium text-slate-700">{store.city}, {store.country}</span>
             <span>•</span>
-            <span>Open: {store.plannedOpenDates?.[0]?.date
-              ? format(new Date(store.plannedOpenDates[0].date), 'MMM d, yyyy')
+            <span>Open: {store.plannedOpenDate
+              ? format(new Date(store.plannedOpenDate), 'MMM d, yyyy')
               : 'N/A'}
             </span>
           </div>

@@ -151,7 +151,7 @@ export default function StoreTasksPage() {
     return notFound();
   }
 
-  const storeName = store.officialName || store.tempName || 'Unnamed Store';
+  const storeName = store.storeName || store.storeCode || 'Unnamed Store';
 
   return (
     <div className="space-y-6">

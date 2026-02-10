@@ -40,7 +40,7 @@ interface Store {
 export default function StoreCard({ store }: { store: Store }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const storeName = store.officialName || store.tempName || 'Unnamed Store';
+  const storeName = store.storeName || store.storeCode || 'Unnamed Store';
   const latestOpenDate = store.plannedOpenDates[0];
 
   return (

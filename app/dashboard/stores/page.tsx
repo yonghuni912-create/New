@@ -283,7 +283,7 @@ function StoresPageContent() {
                   <tr key={store.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link href={`/dashboard/stores/${store.id}`} className="font-medium text-gray-900 hover:text-orange-600">
-                        {store.officialName || store.tempName || 'Unnamed Store'}
+                        {store.storeName || store.storeCode || 'Unnamed Store'}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{store.country}</td>
