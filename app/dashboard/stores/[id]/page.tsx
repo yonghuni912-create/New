@@ -39,7 +39,7 @@ export default async function StoreDetailPage({
             priority: true,
             startDate: true,
             dueDate: true,
-            phase: true,
+            phaseId: true,
             description: true,
           },
         },
