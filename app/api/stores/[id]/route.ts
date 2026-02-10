@@ -118,3 +118,59 @@ export async function PUT(
     );
   }
 }
+
+// DELETE: Delete a store
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const user = session.user as { id: string; role: string };
+
+    // Only ADMIN can delete stores
+    if (!['ADMIN', 'MASTER_ADMIN'].includes(user.role)) {
+      return NextResponse.json({ error: 'Only admins can delete stores' }, { status: 403 });
+    }
+
+    const { id } = await params;
+
+    // Get the store for audit log
+    const store = await prisma.store.findUnique({
+      where: { id },
+    });
+
+    if (!store) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+    }
+
+    // Delete the store (cascade will handle related records)
+    await prisma.store.delete({
+      where: { id },
+    });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        entityType: 'Store',
+        entityId: id,
+        action: 'DELETE',
+        userId: user.id,
+        oldValue: JSON.stringify(store),
+      },
+    });
+
+    return NextResponse.json({ message: 'Store deleted successfully' });
+  } catch (error: any) {
+    console.error('Error deleting store:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to delete store' },
+      { status: 500 }
+    );
+  }
+}

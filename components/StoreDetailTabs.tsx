@@ -1,14 +1,15 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import StoreForm from './StoreForm';
 import CalendarView from './CalendarView';
 import GanttChart from './GanttChart';
 import OpeningReadiness from './OpeningReadiness';
 import TaskEditModal from './TaskEditModal';
 import TaskCreateModal from './TaskCreateModal';
-import { Calendar, BarChart3, Target, CheckSquare, FileText, Flag, Download, Eye } from 'lucide-react';
+import { Calendar, BarChart3, Target, CheckSquare, FileText, Flag, Download, Eye, Upload, Trash2, Image } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -33,21 +34,91 @@ export default function StoreDetailTabs({
   userId,
   userRole,
 }: Props) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'overview' | 'readiness' | 'edit'>('overview');
   const [viewMode, setViewMode] = useState<'calendar' | 'gantt'>('calendar');
   const [tasks, setTasks] = useState<Task[]>(store.tasks || []);
+  const [files, setFiles] = useState<any[]>(store.files || []);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<'tasks' | 'files' | 'gallery'>('tasks');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const canEdit = ['ADMIN', 'PM', 'CONTRIBUTOR'].includes(userRole);
+  const canDelete = ['ADMIN', 'MASTER_ADMIN'].includes(userRole);
   
-  // Filter images for gallery
-  const galleryImages = store.files?.filter((f: any) => 
-    f.fileType?.startsWith('image/') || f.fileName?.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+  // Filter images for gallery (photos only)
+  const galleryImages = files.filter((f: any) => 
+    f.mimeType?.startsWith('image/') || f.originalName?.match(/\.(jpg|jpeg|png|gif|webp|heic|heif)$/i)
   ) || [];
+  
+  // Filter non-image files (documents only)
+  const documentFiles = files.filter((f: any) => 
+    !f.mimeType?.startsWith('image/') && !f.originalName?.match(/\.(jpg|jpeg|png|gif|webp|heic|heif)$/i)
+  ) || [];
+  
+  // File upload handler
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isPhoto: boolean = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch(`/api/stores/${store.id}/files`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (res.ok) {
+        const newFile = await res.json();
+        setFiles(prev => [newFile, ...prev]);
+      } else {
+        const error = await res.json();
+        alert(error.error || 'Failed to upload file');
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload file');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+  
+  // Delete store handler
+  const handleDeleteStore = async () => {
+    if (!confirm('정말 이 매장을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+    
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/stores/${store.id}`, {
+        method: 'DELETE',
+      });
+      
+      if (res.ok) {
+        alert('매장이 삭제되었습니다.');
+        router.push('/dashboard/stores');
+      } else {
+        const error = await res.json();
+        alert(error.error || 'Failed to delete store');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Failed to delete store');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Update timezone clock every second
   useEffect(() => {
@@ -262,7 +333,7 @@ export default function StoreDetailTabs({
                   <div className="flex justify-center mb-2">
                     <FileText className={`w-6 h-6 ${activePanel === 'files' ? 'text-blue-500' : 'text-gray-400'}`} />
                   </div>
-                  <div className="text-xl font-bold text-gray-900">{store.files?.length || 0}</div>
+                  <div className="text-xl font-bold text-gray-900">{documentFiles.length}</div>
                   <div className={`text-xs ${activePanel === 'files' ? 'text-blue-600' : 'text-gray-500'}`}>Files</div>
                 </button>
 
@@ -275,7 +346,7 @@ export default function StoreDetailTabs({
                   }`}
                 >
                   <div className="flex justify-center mb-2">
-                    <Flag className={`w-6 h-6 ${activePanel === 'gallery' ? 'text-green-500' : 'text-gray-400'}`} />
+                    <Image className={`w-6 h-6 ${activePanel === 'gallery' ? 'text-green-500' : 'text-gray-400'}`} />
                   </div>
                   <div className="text-xl font-bold text-gray-900">{galleryImages.length}</div>
                   <div className={`text-xs ${activePanel === 'gallery' ? 'text-green-600' : 'text-gray-500'}`}>Gallery</div>
@@ -288,10 +359,10 @@ export default function StoreDetailTabs({
                   <div className="flex items-center gap-2 text-gray-900">
                     {activePanel === 'tasks' && <CheckSquare className="w-5 h-5 text-orange-500" />}
                     {activePanel === 'files' && <FileText className="w-5 h-5 text-blue-500" />}
-                    {activePanel === 'gallery' && <Flag className="w-5 h-5 text-green-500" />}
+                    {activePanel === 'gallery' && <Image className="w-5 h-5 text-green-500" />}
                     <h3 className="text-lg font-bold">
                       {activePanel === 'tasks' && `Recent Tasks (${tasks.length})`}
-                      {activePanel === 'files' && `Files (${store.files?.length || 0})`}
+                      {activePanel === 'files' && `Files (${documentFiles.length})`}
                       {activePanel === 'gallery' && `Gallery (${galleryImages.length})`}
                     </h3>
                   </div>
@@ -302,6 +373,44 @@ export default function StoreDetailTabs({
                     >
                       + Add Task
                     </button>
+                  )}
+                  {activePanel === 'files' && (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx"
+                        onChange={(e) => handleFileUpload(e, false)}
+                        className="hidden"
+                      />
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1.5 rounded transition-colors font-medium flex items-center gap-1"
+                      >
+                        <Upload className="w-3 h-3" />
+                        {isUploading ? 'Uploading...' : 'Upload File'}
+                      </button>
+                    </>
+                  )}
+                  {activePanel === 'gallery' && (
+                    <>
+                      <input
+                        ref={photoInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleFileUpload(e, true)}
+                        className="hidden"
+                      />
+                      <button 
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="text-xs bg-green-50 hover:bg-green-100 text-green-600 px-3 py-1.5 rounded transition-colors font-medium flex items-center gap-1"
+                      >
+                        <Upload className="w-3 h-3" />
+                        {isUploading ? 'Uploading...' : 'Upload Photo'}
+                      </button>
+                    </>
                   )}
                 </div>
 
@@ -343,12 +452,13 @@ export default function StoreDetailTabs({
 
                   {/* Files List */}
                   {activePanel === 'files' && (
-                    store.files?.length === 0 ? (
+                    documentFiles.length === 0 ? (
                       <div className="text-center py-10 text-gray-500">
                         <p>No files uploaded.</p>
+                        <p className="text-sm mt-2">Click &quot;Upload File&quot; to add documents</p>
                       </div>
                     ) : (
-                      store.files.map((file: any) => (
+                      documentFiles.map((file: any) => (
                         <div 
                           key={file.id}
                           className="bg-gray-50 hover:bg-gray-100 rounded-lg p-3 transition-colors border border-gray-100 flex justify-between items-center"
@@ -356,14 +466,14 @@ export default function StoreDetailTabs({
                           <div className="flex items-center gap-3 overflow-hidden">
                             <FileText className="w-8 h-8 text-gray-400 flex-shrink-0" />
                             <div className="min-w-0">
-                              <div className="font-medium text-gray-900 truncate">{file.fileName}</div>
+                              <div className="font-medium text-gray-900 truncate">{file.originalName || file.fileName}</div>
                               <div className="text-xs text-gray-500">
-                                {(file.fileSize / 1024).toFixed(1)} KB • {new Date(file.createdAt).toLocaleDateString()}
+                                {((file.size || file.fileSize || 0) / 1024).toFixed(1)} KB • {new Date(file.createdAt).toLocaleDateString()}
                               </div>
                             </div>
                           </div>
                           <a 
-                            href={file.filePath}
+                            href={file.path || file.filePath}
                             download
                             className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"
                             title="Download"
@@ -379,7 +489,8 @@ export default function StoreDetailTabs({
                   {activePanel === 'gallery' && (
                     galleryImages.length === 0 ? (
                       <div className="text-center py-10 text-gray-500">
-                        <p>No images found in files.</p>
+                        <p>No photos uploaded.</p>
+                        <p className="text-sm mt-2">Click &quot;Upload Photo&quot; to add images</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-3 gap-2">
@@ -387,11 +498,11 @@ export default function StoreDetailTabs({
                           <div 
                             key={file.id}
                             className="aspect-square bg-black/20 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity relative group"
-                            onClick={() => window.open(file.filePath, '_blank')}
+                            onClick={() => window.open(file.path || file.filePath, '_blank')}
                           >
                             <img 
-                              src={file.filePath} 
-                              alt={file.fileName}
+                              src={file.path || file.filePath} 
+                              alt={file.originalName || file.fileName}
                               className="w-full h-full object-cover"
                             />
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -460,8 +571,28 @@ export default function StoreDetailTabs({
           />
         </div>
       ) : (
-        <div className="max-w-4xl">
+        <div className="max-w-4xl space-y-8">
           <StoreForm countries={countries} userId={userId} store={store} />
+          
+          {/* Delete Store Section */}
+          {canDelete && (
+            <div className="border-t pt-8">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-red-800 mb-2">위험 구역</h3>
+                <p className="text-sm text-red-600 mb-4">
+                  매장을 삭제하면 관련된 모든 파일, 작업, 일정이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                </p>
+                <button
+                  onClick={handleDeleteStore}
+                  disabled={isDeleting}
+                  className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {isDeleting ? '삭제 중...' : '매장 삭제'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
