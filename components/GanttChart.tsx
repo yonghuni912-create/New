@@ -132,6 +132,7 @@ export default function GanttChart({ tasks, onTaskClick, startDate: propStartDat
           </button>
         </div>
         <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-500">{tasks.length} tasks</span>
           <button
             onClick={() => setZoom(zoom === 'day' ? 'week' : 'day')}
             className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-gray-200"
@@ -149,12 +150,12 @@ export default function GanttChart({ tasks, onTaskClick, startDate: propStartDat
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="flex overflow-x-auto">
-        {/* Task names column */}
-        <div className="flex-shrink-0 w-64 border-r bg-gray-50">
+      {/* Chart - with max height and vertical scroll */}
+      <div className="flex max-h-[600px] overflow-y-auto overflow-x-hidden">
+        {/* Task names column - sticky left */}
+        <div className="flex-shrink-0 w-64 border-r bg-gray-50 sticky left-0 z-10">
           {/* Header for phases/tasks */}
-          <div className="h-14 border-b px-4 flex items-center">
+          <div className="h-14 border-b px-4 flex items-center bg-gray-50 sticky top-0 z-20">
             <span className="font-semibold text-gray-700">Tasks</span>
           </div>
           
@@ -182,8 +183,8 @@ export default function GanttChart({ tasks, onTaskClick, startDate: propStartDat
 
         {/* Timeline */}
         <div className="flex-1 overflow-x-auto">
-          {/* Date headers */}
-          <div className="flex h-14 border-b">
+          {/* Date headers - sticky top */}
+          <div className="flex h-14 border-b sticky top-0 z-10 bg-white">
             {days.map((day, idx) => {
               const isToday = isSameDay(day, today);
               const isWeekend = day.getDay() === 0 || day.getDay() === 6;

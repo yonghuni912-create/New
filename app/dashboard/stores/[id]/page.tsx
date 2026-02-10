@@ -31,7 +31,6 @@ export default async function StoreDetailPage({
         },
         tasks: {
           orderBy: { dueDate: 'asc' },
-          take: 10,
           select: {
             id: true,
             title: true,
@@ -41,6 +40,7 @@ export default async function StoreDetailPage({
             dueDate: true,
             phaseId: true,
             description: true,
+            assigneeId: true,
           },
         },
       },
