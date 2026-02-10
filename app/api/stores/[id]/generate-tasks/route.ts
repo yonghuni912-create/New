@@ -35,7 +35,13 @@ export async function POST(
     const store = await prisma.store.findUnique({
       where: { id },
       include: {
-        tasks: true,
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            status: true
+          }
+        },
       },
     });
 

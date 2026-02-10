@@ -24,10 +24,25 @@ export async function GET(
         },
         tasks: {
           orderBy: [{ orderIndex: 'asc' }, { dueDate: 'asc' }],
-          include: {
+          select: {
+            id: true,
+            storeId: true,
+            phaseId: true,
+            title: true,
+            description: true,
+            status: true,
+            priority: true,
+            category: true,
+            subcategory: true,
+            startDate: true,
+            dueDate: true,
+            assigneeId: true,
             assignee: {
               select: { id: true, name: true, email: true }
             },
+            orderIndex: true,
+            createdAt: true,
+            updatedAt: true,
             _count: {
               select: { comments: true }
             }

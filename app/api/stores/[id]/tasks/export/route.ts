@@ -26,7 +26,22 @@ export async function GET(
       include: {
         tasks: {
           orderBy: { orderIndex: 'asc' },
-          include: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            status: true,
+            priority: true,
+            category: true,
+            subcategory: true,
+            startDate: true,
+            dueDate: true,
+            assigneeId: true,
+            orderIndex: true,
+            phaseId: true,
+            durationDays: true,
+            daysBeforeOpening: true,
+            completedAt: true,
             assignee: {
               select: { name: true, email: true }
             }
