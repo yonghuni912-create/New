@@ -114,7 +114,65 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(store);
+    // Auto-generate launch tasks if plannedOpenDate is set
+    let generatedTaskCount = 0;
+    if (store.plannedOpenDate) {
+      try {
+        // Import generateLaunchTasks dynamically to avoid circular dependencies
+        const { generateLaunchTasks } = await import('@/lib/scheduling');
+        
+        // Get launch templates (try DEFAULT first, then any available)
+        let launchTemplates = await prisma.launchTaskTemplate.findMany({
+          where: { templateName: 'DEFAULT', isActive: true },
+          orderBy: { orderIndex: 'asc' },
+        });
+        
+        // If no DEFAULT template, try to get any template
+        if (launchTemplates.length === 0) {
+          launchTemplates = await prisma.launchTaskTemplate.findMany({
+            where: { isActive: true },
+            orderBy: { orderIndex: 'asc' },
+            take: 200,
+          });
+        }
+
+        if (launchTemplates.length > 0) {
+          const generatedTasks = generateLaunchTasks(store.plannedOpenDate, launchTemplates);
+
+          // Create tasks in database
+          await prisma.$transaction(
+            generatedTasks.map((task) =>
+              prisma.task.create({
+                data: {
+                  title: task.title,
+                  description: task.subcategory || undefined,
+                  startDate: task.startDate,
+                  dueDate: task.dueDate,
+                  status: 'TODO',
+                  priority: task.priority,
+                  category: task.category,
+                  subcategory: task.subcategory,
+                  durationDays: task.durationDays,
+                  daysBeforeOpening: task.daysBeforeOpening,
+                  orderIndex: task.orderIndex,
+                  storeId: store.id,
+                  launchTemplateId: task.launchTemplateId,
+                },
+              })
+            )
+          );
+          generatedTaskCount = generatedTasks.length;
+        }
+      } catch (taskError) {
+        console.error('Error generating launch tasks:', taskError);
+        // Don't fail store creation if task generation fails
+      }
+    }
+
+    return NextResponse.json({
+      ...store,
+      _generatedTaskCount: generatedTaskCount,
+    });
   } catch (error: any) {
     console.error('Error creating store:', error);
     return NextResponse.json(

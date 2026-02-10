@@ -94,11 +94,18 @@ export async function POST(request: NextRequest) {
       const daysBeforeCell = row[7];
 
       // Update current category/subcategory if provided
-      if (categoryCell && typeof categoryCell === 'string' && categoryCell.trim()) {
-        currentCategory = categoryCell.trim();
+      // Skip '-' or similar placeholder values that indicate continuation from previous row
+      if (categoryCell && typeof categoryCell === 'string') {
+        const trimmedCategory = categoryCell.trim();
+        if (trimmedCategory && trimmedCategory !== '-' && trimmedCategory !== '-' && !trimmedCategory.match(/^[-–—]+$/)) {
+          currentCategory = trimmedCategory;
+        }
       }
-      if (subcategoryCell && typeof subcategoryCell === 'string' && subcategoryCell.trim()) {
-        currentSubcategory = subcategoryCell.trim().replace(/\n/g, ' ');
+      if (subcategoryCell && typeof subcategoryCell === 'string') {
+        const trimmedSubcategory = subcategoryCell.trim().replace(/\n/g, ' ');
+        if (trimmedSubcategory && trimmedSubcategory !== '-' && trimmedSubcategory !== '-' && !trimmedSubcategory.match(/^[-–—]+$/)) {
+          currentSubcategory = trimmedSubcategory;
+        }
       }
 
       // Skip rows without a title
