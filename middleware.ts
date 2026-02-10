@@ -34,6 +34,6 @@ export const config = {
     // Dashboard 및 하위 모든 페이지
     '/dashboard/:path*',
     // API 라우트 (인증 관련 및 진단용 엔드포인트 제외)
-    '/api/((?!auth|health|env-check|debug).*)',
+    '/api/((?!auth|health|env-check|debug|launch-templates/check).*)',
   ],
 };
