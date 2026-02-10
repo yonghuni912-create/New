@@ -23,7 +23,15 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
         },
         tasks: {
-          orderBy: { dueDate: 'asc' },
+          orderBy: [{ orderIndex: 'asc' }, { dueDate: 'asc' }],
+          include: {
+            assignee: {
+              select: { id: true, name: true, email: true }
+            },
+            _count: {
+              select: { comments: true }
+            }
+          }
         },
       },
     });

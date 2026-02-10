@@ -26,22 +26,56 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
-    const { status, dueDate, title, description, priority, assigneeId } = body;
+    const { 
+      status, 
+      startDate, 
+      dueDate, 
+      title, 
+      description, 
+      priority, 
+      assigneeId,
+      category,
+      subcategory,
+      durationDays,
+      daysBeforeOpening,
+      isMilestone,
+      completedAt
+    } = body;
 
     // Get the current task for audit log
     const currentTask = await prisma.task.findUnique({ where: { id } });
 
     const updateData: any = {};
-    if (status) updateData.status = status;
-    if (dueDate) updateData.dueDate = new Date(dueDate);
-    if (title) updateData.title = title;
+    if (status !== undefined) {
+      updateData.status = status;
+      // Auto-set completedAt when status changes to DONE or COMPLETED
+      if ((status === 'DONE' || status === 'COMPLETED') && !currentTask?.completedAt) {
+        updateData.completedAt = new Date();
+      } else if (status !== 'DONE' && status !== 'COMPLETED') {
+        updateData.completedAt = null;
+      }
+    }
+    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
+    if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null;
+    if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description;
-    if (priority) updateData.priority = priority;
-    if (assigneeId !== undefined) updateData.assigneeId = assigneeId;
+    if (priority !== undefined) updateData.priority = priority;
+    if (assigneeId !== undefined) updateData.assigneeId = assigneeId || null;
+    if (category !== undefined) updateData.category = category;
+    if (subcategory !== undefined) updateData.subcategory = subcategory;
+    if (durationDays !== undefined) updateData.durationDays = durationDays;
+    if (daysBeforeOpening !== undefined) updateData.daysBeforeOpening = daysBeforeOpening;
+    if (isMilestone !== undefined) updateData.isMilestone = isMilestone;
+    if (completedAt !== undefined) updateData.completedAt = completedAt ? new Date(completedAt) : null;
 
     const task = await prisma.task.update({
       where: { id },
-      data: updateData
+      data: updateData,
+      include: {
+        assignee: {
+          select: { id: true, name: true, email: true }
+        }
+      }
     });
 
     // Create audit log

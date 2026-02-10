@@ -3,7 +3,7 @@
  * Metabase Question 데이터를 직접 조회하여 Next.js에서 시각화
  */
 
-const METABASE_URL = process.env.METABASE_URL || 'https://bbqchickenca.metabaseapp.com';
+const METABASE_URL = process.env.METABASE_URL || 'http://localhost:3000';
 const METABASE_API_KEY = process.env.METABASE_API_KEY;
 
 interface MetabaseQueryParams {

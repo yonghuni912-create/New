@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
-import { ArrowLeft, Calendar, FileText } from 'lucide-react';
+import { ArrowLeft, Calendar, FileText, ListChecks, Rocket } from 'lucide-react';
 import StoreDetailTabs from '@/components/StoreDetailTabs';
 
 // Force dynamic rendering for each store (no caching between stores)
@@ -67,11 +67,25 @@ export default async function StoreDetailPage({
 
         <div className="flex items-center space-x-3">
           <Link
+            href={`/dashboard/stores/${store.id}/launch`}
+            className="flex items-center px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <Rocket className="w-4 h-4 mr-2" />
+            런칭 스케줄
+          </Link>
+          <Link
             href={`/dashboard/stores/${store.id}/timeline`}
             className="flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <Calendar className="w-4 h-4 mr-2" />
             Timeline
+          </Link>
+          <Link
+            href={`/dashboard/stores/${store.id}/tasks`}
+            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <ListChecks className="w-4 h-4 mr-2" />
+            Tasks
           </Link>
           <Link
             href={`/dashboard/stores/${store.id}/files`}

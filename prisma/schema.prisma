@@ -113,33 +113,42 @@ model TemplateTask {
 }
 
 model Task {
-  id             String           @id @default(cuid())
-  storeId        String
-  phaseId        String?
-  templateTaskId String?
-  title          String
-  description    String?
-  status         String           @default("TODO")
-  priority       String           @default("MEDIUM")
-  assigneeId     String?
-  dueDate        DateTime?
-  completedAt    DateTime?
-  orderIndex     Int              @default(0)
-  blockedReason  String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  assignee       User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  templateTask   TemplateTask?    @relation(fields: [templateTaskId], references: [id])
-  phase          TemplatePhase?   @relation(fields: [phaseId], references: [id])
-  store          Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  comments       TaskComment[]
-  dependents     TaskDependency[] @relation("DependencyTask")
-  dependencies   TaskDependency[] @relation("DependentTask")
+  id                 String           @id @default(cuid())
+  storeId            String
+  phaseId            String?
+  templateTaskId     String?
+  launchTemplateId   String?          // Reference to LaunchTaskTemplate
+  title              String
+  description        String?
+  status             String           @default("TODO")
+  priority           String           @default("MEDIUM")
+  assigneeId         String?
+  startDate          DateTime?        // Task start date
+  dueDate            DateTime?        // Task target/due date
+  completedAt        DateTime?
+  orderIndex         Int              @default(0)
+  blockedReason      String?
+  category           String?          // Main category (시장조사, 메뉴, 수출, etc.)
+  subcategory        String?          // Sub-category (세부 분류)
+  durationDays       Int              @default(1) // Duration in business days
+  daysBeforeOpening  Int?             // H column: days before opening date
+  isMilestone        Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  assignee           User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  templateTask       TemplateTask?    @relation(fields: [templateTaskId], references: [id])
+  phase              TemplatePhase?   @relation(fields: [phaseId], references: [id])
+  store              Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  launchTemplate     LaunchTaskTemplate? @relation(fields: [launchTemplateId], references: [id])
+  comments           TaskComment[]
+  dependents         TaskDependency[] @relation("DependencyTask")
+  dependencies       TaskDependency[] @relation("DependentTask")
 
   @@index([storeId])
   @@index([assigneeId])
   @@index([status])
   @@index([dueDate])
+  @@index([category])
 }
 
 model TaskComment {
@@ -440,4 +449,24 @@ model VendorContact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+// 런칭 타스크 템플릿 (엑셀에서 가져온 타스크 템플릿)
+model LaunchTaskTemplate {
+  id                String   @id @default(cuid())
+  orderIndex        Int      // 순번
+  category          String   // C열: 구분 (시장조사, 메뉴, 수출, 디자인, etc.)
+  subcategory       String?  // D열: 업무/세부 분류
+  title             String   // E열: 세부내용 (타스크 이름)
+  durationDays      Int      @default(1) // F열: 소요기간 (영업일)
+  daysBeforeOpening Int      // H열: 오픈일 기준 D-day (음수 = 이전, 양수 = 이후)
+  templateName      String   @default("MEXICO_CITY") // 템플릿 이름
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  tasks             Task[]
+
+  @@unique([templateName, orderIndex])
+  @@index([templateName])
+  @@index([category])
 }

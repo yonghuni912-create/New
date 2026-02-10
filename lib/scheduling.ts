@@ -199,3 +199,137 @@ export function rescheduleTasksOnAnchorChange(
     };
   });
 }
+
+// --- Launch Task Template Types ---
+export interface LaunchTaskTemplateInput {
+  orderIndex: number;
+  category: string;
+  subcategory: string | null;
+  title: string;
+  durationDays: number;
+  daysBeforeOpening: number;
+}
+
+// Calculate target date (due date) from opening date and daysBeforeOpening (business days)
+// daysBeforeOpening is how many BUSINESS days before opening the task should be DUE
+export function calculateTargetDateFromOpening(openDate: Date, daysBeforeOpening: number): Date {
+  // If positive, it means after opening. If negative or zero, means before opening.
+  // We subtract business days from opening date
+  return addBusinessDays(openDate, -daysBeforeOpening);
+}
+
+// Calculate start date from target date and duration (business days)
+export function calculateStartDateFromTarget(targetDate: Date, durationDays: number): Date {
+  // Start date = target date - duration (in business days)
+  return addBusinessDays(targetDate, -(durationDays - 1)); // -1 because duration includes target day
+}
+
+// Generate tasks from LaunchTaskTemplate for a store
+export interface LaunchGeneratedTask {
+  launchTemplateId: string;
+  title: string;
+  category: string;
+  subcategory: string | null;
+  startDate: Date;
+  dueDate: Date;
+  durationDays: number;
+  daysBeforeOpening: number;
+  orderIndex: number;
+  status: string;
+  priority: string;
+}
+
+export function generateLaunchTasks(
+  openDate: Date,
+  templates: { id: string; orderIndex: number; category: string; subcategory: string | null; title: string; durationDays: number; daysBeforeOpening: number }[]
+): LaunchGeneratedTask[] {
+  return templates.map(template => {
+    const dueDate = calculateTargetDateFromOpening(openDate, template.daysBeforeOpening);
+    const startDate = calculateStartDateFromTarget(dueDate, template.durationDays);
+    
+    return {
+      launchTemplateId: template.id,
+      title: template.title,
+      category: template.category,
+      subcategory: template.subcategory,
+      startDate,
+      dueDate,
+      durationDays: template.durationDays,
+      daysBeforeOpening: template.daysBeforeOpening,
+      orderIndex: template.orderIndex,
+      status: 'TODO',
+      priority: 'MEDIUM',
+    };
+  }).sort((a, b) => a.orderIndex - b.orderIndex);
+}
+
+// Reschedule mode options
+export type RescheduleMode = 'SINGLE' | 'ALL_BEFORE' | 'ALL_AFTER' | 'ALL';
+
+// Reschedule tasks with different modes
+export interface TaskWithDates {
+  id: string;
+  startDate: Date | null;
+  dueDate: Date | null;
+  orderIndex: number;
+}
+
+export function rescheduleTasks(
+  tasks: TaskWithDates[],
+  targetTaskId: string,
+  deltaDays: number,
+  mode: RescheduleMode
+): Map<string, { startDate: Date | null; dueDate: Date | null }> {
+  const result = new Map<string, { startDate: Date | null; dueDate: Date | null }>();
+  
+  if (deltaDays === 0) return result;
+  
+  const targetTask = tasks.find(t => t.id === targetTaskId);
+  if (!targetTask) return result;
+  
+  const targetOrder = targetTask.orderIndex;
+  
+  for (const task of tasks) {
+    let shouldReschedule = false;
+    
+    switch (mode) {
+      case 'SINGLE':
+        shouldReschedule = task.id === targetTaskId;
+        break;
+      case 'ALL_BEFORE':
+        shouldReschedule = task.orderIndex <= targetOrder;
+        break;
+      case 'ALL_AFTER':
+        shouldReschedule = task.orderIndex >= targetOrder;
+        break;
+      case 'ALL':
+        shouldReschedule = true;
+        break;
+    }
+    
+    if (shouldReschedule) {
+      result.set(task.id, {
+        startDate: task.startDate ? addBusinessDays(task.startDate, deltaDays) : null,
+        dueDate: task.dueDate ? addBusinessDays(task.dueDate, deltaDays) : null,
+      });
+    }
+  }
+  
+  return result;
+}
+
+// Get business days difference between two dates
+export function getBusinessDaysDifference(startDate: Date, endDate: Date): number {
+  let count = 0;
+  let current = new Date(startDate);
+  
+  while (current < endDate) {
+    const dayOfWeek = current.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday (0) or Saturday (6)
+      count++;
+    }
+    current = addDays(current, 1);
+  }
+  
+  return count;
+}
