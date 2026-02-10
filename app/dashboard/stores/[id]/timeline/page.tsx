@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { ArrowLeft, Calendar, CheckCircle2, Clock, AlertCircle, PlayCircle } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 
+export const dynamic = 'force-dynamic';
+
 export default async function StoreTimelinePage({
   params,
 }: {

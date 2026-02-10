@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
+export const dynamic = 'force-dynamic';
+
 // Status colors for the pie chart
 const STATUS_COLORS: Record<string, string> = {
   PLANNING: '#FFB088',

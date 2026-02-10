@@ -44,6 +44,9 @@ export default async function StoreDetailPage({
     notFound();
   }
 
+  // Serialize store to avoid Date object issues in client components
+  const serializedStore = JSON.parse(JSON.stringify(store));
+  
   const storeName = store.storeName || store.storeCode || 'Unnamed Store';
   const user = session.user as { id: string; role: string };
 
@@ -98,7 +101,7 @@ export default async function StoreDetailPage({
       </div>
 
       <StoreDetailTabs
-        store={store}
+        store={serializedStore}
         countries={countries}
         userId={user.id}
         userRole={user.role}

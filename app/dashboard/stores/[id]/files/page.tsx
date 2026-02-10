@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import FileManager from '@/components/FileManager';
 
+export const dynamic = 'force-dynamic';
+
 export default async function StoreFilesPage({
   params,
 }: {
