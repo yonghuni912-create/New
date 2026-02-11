@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import RecentCommentsSection from '@/components/RecentCommentsSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,7 @@ export default async function DashboardPage() {
           user: { select: { name: true, email: true } },
           task: { 
             select: { 
+              id: true,
               title: true, 
               store: { select: { storeName: true, id: true } } 
             } 
@@ -300,48 +302,10 @@ export default async function DashboardPage() {
           </div>
 
           {/* Recent Comments */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                💬 최근 댓글
-              </h2>
-            </div>
-            <div className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
-              {recentComments.length === 0 ? (
-                <div className="px-6 py-8 text-center text-gray-500">
-                  아직 댓글이 없습니다. 태스크에서 팀원들과 소통해보세요!
-                </div>
-              ) : (
-                recentComments.map((comment) => (
-                  <Link 
-                    key={comment.id} 
-                    href={`/dashboard/stores/${comment.task?.store?.id}`}
-                    className="block px-6 py-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-semibold text-sm">
-                        {comment.user?.name?.charAt(0) || '?'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-gray-900">
-                            {comment.user?.name || '익명'}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: ko })}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 line-clamp-2">{comment.content}</p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {comment.task?.title} • {comment.task?.store?.storeName}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
+          <RecentCommentsSection 
+            comments={recentComments as any}
+            currentUserId={(session?.user as { id?: string })?.id}
+          />
         </div>
 
         {/* Right Column - Stores & Upcoming */}
