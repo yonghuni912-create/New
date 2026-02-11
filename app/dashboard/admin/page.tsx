@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { revalidatePath } from 'next/cache';
 import AdminAuditSection from '@/components/AdminAuditSection';
+import DatabaseMonitor from '@/components/DatabaseMonitor';
 import { createAuditLog } from '@/lib/auditLog';
 import { isMasterAdmin, getAssignableRoles, hasPermission, getRoleBadgeColor, getRoleDisplayName } from '@/lib/rbac';
 
@@ -610,6 +611,9 @@ export default async function AdminPage() {
           </form>
         </div>
       </section>
+
+      {/* Database Monitor Section */}
+      <DatabaseMonitor />
 
       {/* Audit Logs Section */}
       <AdminAuditSection />

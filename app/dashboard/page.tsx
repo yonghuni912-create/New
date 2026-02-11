@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import RecentCommentsSection from '@/components/RecentCommentsSection';
+import DashboardRefreshButton from '@/components/DashboardRefreshButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,17 +130,20 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">
-          Welcome back, {session?.user?.name}님!
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Here's what's happening with your store launches
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Welcome back, {session?.user?.name}님!
+          </h1>
+          <p className="text-gray-600 mt-2">
+            Here's what's happening with your store launches
+          </p>
+        </div>
+        <DashboardRefreshButton />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
+        <Link href="/dashboard/stores" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow cursor-pointer">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
@@ -163,9 +167,9 @@ export default async function DashboardPage() {
               <p className="text-2xl font-bold text-gray-900">{storeCount}</p>
             </div>
           </div>
-        </div>
+        </Link>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <Link href="/dashboard/stores" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow cursor-pointer">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -191,9 +195,9 @@ export default async function DashboardPage() {
               </p>
             </div>
           </div>
-        </div>
+        </Link>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <Link href="/dashboard/stores?filter=overdue" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow cursor-pointer">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${overdueTasks.length > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
@@ -219,9 +223,9 @@ export default async function DashboardPage() {
               </p>
             </div>
           </div>
-        </div>
+        </Link>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <Link href="/dashboard/stores?filter=completed" className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow cursor-pointer">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -245,7 +249,7 @@ export default async function DashboardPage() {
               <p className="text-2xl font-bold text-green-600">{completedTaskCount}</p>
             </div>
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Two Column Layout */}
@@ -262,7 +266,10 @@ export default async function DashboardPage() {
             <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
               {recentTasks.length === 0 ? (
                 <div className="px-6 py-8 text-center text-gray-500">
-                  최근 활동이 없습니다.
+                  <p>최근 활동이 없습니다.</p>
+                  <Link href="/dashboard/stores/new" className="inline-block mt-3 px-4 py-2 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition-colors">
+                    첫 매장 등록하기
+                  </Link>
                 </div>
               ) : (
                 recentTasks.map((task) => (
@@ -406,7 +413,10 @@ export default async function DashboardPage() {
             <div className="divide-y divide-gray-100">
               {recentStores.length === 0 ? (
                 <div className="px-6 py-8 text-center text-gray-500">
-                  아직 매장이 없습니다. 첫 번째 매장을 등록해보세요!
+                  <p>아직 매장이 없습니다.</p>
+                  <Link href="/dashboard/stores/new" className="inline-block mt-3 px-4 py-2 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition-colors">
+                    첫 매장 등록하기
+                  </Link>
                 </div>
               ) : (
                 recentStores.map((store) => (

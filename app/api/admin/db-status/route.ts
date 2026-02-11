@@ -5,6 +5,10 @@ import { createClient } from '@libsql/client';
 
 export const dynamic = 'force-dynamic';
 
+// Turso free tier limits
+const TURSO_FREE_STORAGE_BYTES = 9 * 1024 * 1024 * 1024; // 9GB
+const TURSO_FREE_ROW_READS = 1_000_000_000; // 1B reads/month
+
 function getDbClient() {
   const url = process.env.TURSO_DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN;
@@ -64,6 +68,7 @@ export async function GET() {
 
     // Get database size info
     let dbInfo = null;
+    let storageInfo = null;
     try {
       const infoResult = await db.execute({
         sql: "SELECT name FROM sqlite_master WHERE type='table'",
@@ -72,6 +77,23 @@ export async function GET() {
       dbInfo = {
         tableCount: infoResult.rows.length,
         tables: infoResult.rows.map((r) => r.name),
+      };
+
+      // Calculate database size using PRAGMA
+      const pageCountResult = await db.execute({ sql: 'PRAGMA page_count', args: [] });
+      const pageSizeResult = await db.execute({ sql: 'PRAGMA page_size', args: [] });
+      const pageCount = Number(pageCountResult.rows[0]?.page_count || 0);
+      const pageSize = Number(pageSizeResult.rows[0]?.page_size || 4096);
+      const usedBytes = pageCount * pageSize;
+
+      storageInfo = {
+        usedBytes,
+        usedMB: Math.round(usedBytes / (1024 * 1024) * 100) / 100,
+        usedGB: Math.round(usedBytes / (1024 * 1024 * 1024) * 1000) / 1000,
+        limitBytes: TURSO_FREE_STORAGE_BYTES,
+        limitGB: 9,
+        usagePercent: Math.round((usedBytes / TURSO_FREE_STORAGE_BYTES) * 10000) / 100,
+        rowReadsLimit: TURSO_FREE_ROW_READS,
       };
     } catch (e) {
       console.error('Failed to get db info:', e);
@@ -83,6 +105,7 @@ export async function GET() {
       tableCounts,
       missingTables,
       dbInfo,
+      storageInfo,
       env: {
         nodeEnv: process.env.NODE_ENV,
         hasTursoUrl: !!process.env.TURSO_DATABASE_URL,

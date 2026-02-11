@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import StoreForm from './StoreForm';
 import CalendarView from './CalendarView';
 import GanttChart from './GanttChart';
@@ -35,7 +35,9 @@ export default function StoreDetailTabs({
   userRole,
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'readiness' | 'edit'>('overview');
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get('tab') as 'overview' | 'readiness' | 'edit') || 'overview';
+  const [activeTab, setActiveTab] = useState<'overview' | 'readiness' | 'edit'>(initialTab);
   const [viewMode, setViewMode] = useState<'calendar' | 'gantt'>('calendar');
   const [tasks, setTasks] = useState<Task[]>(store.tasks || []);
   const [files, setFiles] = useState<any[]>(store.files || []);
@@ -128,6 +130,14 @@ export default function StoreDetailTabs({
     return () => clearInterval(timer);
   }, []);
 
+  // Sync tab state with URL
+  const handleTabChange = (tab: 'overview' | 'readiness' | 'edit') => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
+
   // Format time for timezone
   const getTimezoneTime = () => {
     try {
@@ -210,7 +220,7 @@ export default function StoreDetailTabs({
       <div className="border-b border-gray-200 mb-6">
         <nav className="-mb-px flex space-x-8">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabChange('overview')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'overview'
                 ? 'border-orange-500 text-orange-600'
@@ -220,7 +230,7 @@ export default function StoreDetailTabs({
             Overview
           </button>
           <button
-            onClick={() => setActiveTab('readiness')}
+            onClick={() => handleTabChange('readiness')}
             className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 ${
               activeTab === 'readiness'
                 ? 'border-orange-500 text-orange-600'
@@ -232,7 +242,7 @@ export default function StoreDetailTabs({
           </button>
           {canEdit && (
             <button
-              onClick={() => setActiveTab('edit')}
+              onClick={() => handleTabChange('edit')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'edit'
                   ? 'border-orange-500 text-orange-600'
